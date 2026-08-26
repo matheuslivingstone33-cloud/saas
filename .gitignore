@@ -32,3 +32,6 @@ logs/
 
 # Artefatos de teste
 backend/tests/_tmp/
+
+# Artefato de build do TypeScript
+frontend/tsconfig.tsbuildinfo
