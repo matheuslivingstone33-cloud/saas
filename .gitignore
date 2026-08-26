@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Ambiente e segredos — NUNCA commitar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dados locais / artefatos de execucao
+*.db
+*.sqlite3
+outbox/
+data/receita/*.csv.gz
+data/receita/full/
+logs/
+
+# Artefatos de teste
+backend/tests/_tmp/

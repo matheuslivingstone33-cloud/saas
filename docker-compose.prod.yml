@@ -1,0 +1,143 @@
+name: prospector-ai-prod
+
+# =============================================================================
+# Producao (Digital Ocean droplet ou equivalente).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Diferencas para o compose de dev:
+#   * nenhuma porta de banco/redis exposta ao mundo — so a rede interna;
+#   * frontend servido por nginx (estagio `prod`), nao pelo Vite;
+#   * SEED_ON_START=false — producao nao cria usuario demo;
+#   * variaveis SEM default: se faltar, o compose recusa subir. Isso e proposital:
+#     e melhor falhar no deploy do que subir com segredo de desenvolvimento;
+#   * limites de recurso e restart policy.
+#
+# Os *_MODE continuam com default `mock`. Vire UM por vez, conforme
+# docs/RUNBOOK-FASE7.md, com deploy entre cada virada.
+# =============================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-prospector}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-prospector}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb",
+              "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: always
+
+  backend: &backend
+    build:
+      context: ./backend
+      target: runtime
+    environment: &app_env
+      APP_ENV: producao
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-prospector}
+      REDIS_URL: redis://redis:6379/0
+      APP_SECRET: ${APP_SECRET:?defina APP_SECRET forte}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET forte}
+      SEED_ON_START: "false"
+
+      # --- Virada de provedores: um por vez -------------------------------
+      PROVIDER_MODE: ${PROVIDER_MODE:-mock}
+      PLACES_MODE: ${PLACES_MODE:-}
+      LLM_MODE: ${LLM_MODE:-}
+      EMAIL_MODE: ${EMAIL_MODE:-}
+      WHATSAPP_MODE: ${WHATSAPP_MODE:-}
+      SEARCH_MODE: ${SEARCH_MODE:-}
+      BILLING_MODE: ${BILLING_MODE:-}
+
+      # --- Chaves (injetadas em runtime; nunca em imagem) -----------------
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-}
+      WHATSAPP_BSP_TOKEN: ${WHATSAPP_BSP_TOKEN:-}
+      WHATSAPP_PHONE_ID: ${WHATSAPP_PHONE_ID:-}
+      WHATSAPP_BUSINESS_ID: ${WHATSAPP_BUSINESS_ID:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+
+      # --- Operacao --------------------------------------------------------
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
+      URL_PUBLICA: ${URL_PUBLICA:?defina a URL publica (link de descadastro)}
+      ENCARREGADO_EMAIL: ${ENCARREGADO_EMAIL:?defina o e-mail do encarregado (LGPD)}
+      USD_BRL: ${USD_BRL:-5.40}
+      RECEITA_DATASET_PATH: /app/data/receita/cnpj_full.csv
+      # Warmup: comece baixo e suba ao longo de semanas.
+      MAX_ENVIOS_POR_CAMPANHA_DIA: ${MAX_ENVIOS_POR_CAMPANHA_DIA:-50}
+      MAX_ENVIOS_POR_USUARIO_DIA: ${MAX_ENVIOS_POR_USUARIO_DIA:-100}
+      WHATSAPP_TEMPLATE_ENABLED: ${WHATSAPP_TEMPLATE_ENABLED:-false}
+      B2B_ONLY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+    ports:
+      - "127.0.0.1:8000:8000"   # so localhost: exponha via nginx/Caddy com TLS
+    command: ["/app/scripts/start-api.sh"]
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  worker:
+    <<: *backend
+    ports: []
+    command: ["/app/scripts/start-worker.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+      args:
+        VITE_API_URL: ${URL_API_PUBLICA:?defina a URL publica da API}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  pgdata:
+  redisdata:

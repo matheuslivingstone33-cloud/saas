@@ -1,0 +1,130 @@
+name: prospector-ai
+
+# -----------------------------------------------------------------------------
+# Sobe INTEIRO sem nenhuma chave de API (PROVIDER_MODE=mock e o default).
+#   docker compose up --build
+# Nenhum segredo e embutido em imagem: tudo entra por environment/env de runtime.
+# -----------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: prospector-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-prospector}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospector}
+      POSTGRES_DB: ${POSTGRES_DB:-prospector}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prospector} -d ${POSTGRES_DB:-prospector}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: prospector-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: prospector-backend
+    environment: &app_env
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://prospector:prospector@postgres:5432/prospector}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      APP_SECRET: ${APP_SECRET:-dev-app-secret-trocar-em-producao}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-trocar-em-producao}
+      APP_ENV: ${APP_ENV:-dev}
+      # Selecao de provedores — mock por padrao, sem chave nenhuma
+      PROVIDER_MODE: ${PROVIDER_MODE:-mock}
+      PLACES_MODE: ${PLACES_MODE:-}
+      LLM_MODE: ${LLM_MODE:-}
+      EMAIL_MODE: ${EMAIL_MODE:-}
+      WHATSAPP_MODE: ${WHATSAPP_MODE:-}
+      SEARCH_MODE: ${SEARCH_MODE:-}
+      BILLING_MODE: ${BILLING_MODE:-}
+      # Chaves reais (vazias ate a Fase 7)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:-}
+      WHATSAPP_BSP_TOKEN: ${WHATSAPP_BSP_TOKEN:-}
+      WHATSAPP_PHONE_ID: ${WHATSAPP_PHONE_ID:-}
+      WHATSAPP_BUSINESS_ID: ${WHATSAPP_BUSINESS_ID:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      # Dados abertos e artefatos
+      RECEITA_DATASET_PATH: /app/data/receita/cnpj_sample.csv
+      OUTBOX_DIR: /app/outbox
+      SEED_ON_START: ${SEED_ON_START:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./outbox:/app/outbox
+      - ./data:/app/data:ro
+    command: ["/app/scripts/start-api.sh"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      target: runtime
+    container_name: prospector-worker
+    environment:
+      <<: *app_env
+      SEED_ON_START: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./outbox:/app/outbox
+      - ./data:/app/data:ro
+    command: ["/app/scripts/start-worker.sh"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    container_name: prospector-frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

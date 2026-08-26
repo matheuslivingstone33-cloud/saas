@@ -1,0 +1,14 @@
+# Normaliza fim de linha: o repositorio guarda LF sempre.
+* text=auto eol=lf
+
+# CRLF nestes arquivos QUEBRA o container Linux (bad interpreter / entrypoint).
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binarios: nunca converter.
+*.png binary
+*.jpg binary
+*.ico binary
+*.gz binary

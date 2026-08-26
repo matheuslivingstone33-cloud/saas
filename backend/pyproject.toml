@@ -1,0 +1,22 @@
+[project]
+name = "prospector-ai-backend"
+version = "0.1.0"
+description = "Prospector AI — descoberta, qualificacao e abordagem de clientes B2B"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "postgres: exige PostgreSQL com pgvector (roda no docker compose)",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+ignore = ["B008"]

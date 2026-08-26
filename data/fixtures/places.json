@@ -1,0 +1,429 @@
+{
+  "_comentario": "Fixtures do FakePlaces. Espelham o formato normalizado do PlacesPort (nao o payload cru da Google). Os nomes casam com data/receita/cnpj_sample.csv para o enriquecimento fechar o circuito em modo mock.",
+  "lugares": [
+    {
+      "place_id": "mock_place_paodourado",
+      "nome": "Padaria Pao Dourado",
+      "endereco_formatado": "Rua Barao de Aracati, 1200 - Aldeota, Fortaleza - CE",
+      "telefone": "+55 85 3244-5566",
+      "website": "https://paodourado.com.br",
+      "latitude": -3.7401,
+      "longitude": -38.5052,
+      "tipos": [
+        "bakery",
+        "food",
+        "store"
+      ],
+      "nota": 4.6,
+      "total_avaliacoes": 812,
+      "tags": [
+        "padaria",
+        "panificadora",
+        "alimentacao",
+        "forno",
+        "cozinha industrial"
+      ]
+    },
+    {
+      "place_id": "mock_place_boacompra",
+      "nome": "Boa Compra Supermercados",
+      "endereco_formatado": "Av. Santos Dumont, 3300 - Papicu, Fortaleza - CE",
+      "telefone": "+55 85 3344-5566",
+      "website": "https://boacompra.com.br",
+      "latitude": -3.7325,
+      "longitude": -38.4784,
+      "tipos": [
+        "supermarket",
+        "grocery_or_supermarket",
+        "store"
+      ],
+      "nota": 4.3,
+      "total_avaliacoes": 2140,
+      "tags": [
+        "supermercado",
+        "mercado",
+        "refrigeracao",
+        "camara fria",
+        "climatizacao"
+      ]
+    },
+    {
+      "place_id": "mock_place_sabordaterra",
+      "nome": "Sabor da Terra",
+      "endereco_formatado": "Rua Canuto de Aguiar, 900 - Meireles, Fortaleza - CE",
+      "telefone": "+55 85 3255-0099",
+      "website": "https://sabordaterra.com.br",
+      "latitude": -3.7286,
+      "longitude": -38.4931,
+      "tipos": [
+        "restaurant",
+        "food"
+      ],
+      "nota": 4.7,
+      "total_avaliacoes": 1533,
+      "tags": [
+        "restaurante",
+        "cozinha",
+        "coifa",
+        "exaustao",
+        "climatizacao",
+        "alimentacao"
+      ]
+    },
+    {
+      "place_id": "mock_place_brisamar",
+      "nome": "Hotel Brisa Mar",
+      "endereco_formatado": "Av. Beira Mar, 2500 - Meireles, Fortaleza - CE",
+      "telefone": "+55 85 3268-1000",
+      "website": "https://brisamarhotel.com.br",
+      "latitude": -3.7226,
+      "longitude": -38.4919,
+      "tipos": [
+        "lodging",
+        "hotel"
+      ],
+      "nota": 4.4,
+      "total_avaliacoes": 3901,
+      "tags": [
+        "hotel",
+        "hospedagem",
+        "ar condicionado",
+        "climatizacao",
+        "manutencao predial"
+      ]
+    },
+    {
+      "place_id": "mock_place_vidaplena",
+      "nome": "Clinica Vida Plena",
+      "endereco_formatado": "Rua Silva Jatahy, 150 - Meireles, Fortaleza - CE",
+      "telefone": "+55 85 3242-0011",
+      "website": "https://vidaplena.com.br",
+      "latitude": -3.7299,
+      "longitude": -38.4977,
+      "tipos": [
+        "health",
+        "doctor",
+        "clinic"
+      ],
+      "nota": 4.8,
+      "total_avaliacoes": 640,
+      "tags": [
+        "clinica",
+        "saude",
+        "climatizacao",
+        "ar condicionado",
+        "manutencao"
+      ]
+    },
+    {
+      "place_id": "mock_place_corpoemforma",
+      "nome": "Corpo em Forma",
+      "endereco_formatado": "Rua Tiburcio Cavalcante, 700 - Aldeota, Fortaleza - CE",
+      "telefone": "+55 85 3261-4477",
+      "website": "https://corpoemforma.com.br",
+      "latitude": -3.7357,
+      "longitude": -38.5001,
+      "tipos": [
+        "gym",
+        "health"
+      ],
+      "nota": 4.5,
+      "total_avaliacoes": 980,
+      "tags": [
+        "academia",
+        "ginastica",
+        "climatizacao",
+        "ar condicionado"
+      ]
+    },
+    {
+      "place_id": "mock_place_metalnorte",
+      "nome": "Metalnorte",
+      "endereco_formatado": "Rod. BR 116, Km 12 - Distrito Industrial, Maracanau - CE",
+      "telefone": "+55 85 3456-7788",
+      "website": "https://metalnorte.com.br",
+      "latitude": -3.8712,
+      "longitude": -38.6255,
+      "tipos": [
+        "general_contractor",
+        "store"
+      ],
+      "nota": 4.1,
+      "total_avaliacoes": 132,
+      "tags": [
+        "industria",
+        "metalurgia",
+        "manutencao industrial",
+        "exaustao",
+        "galpao"
+      ]
+    },
+    {
+      "place_id": "mock_place_rotacerta",
+      "nome": "Rota Certa",
+      "endereco_formatado": "Av. Godofredo Maciel, 4500 - Maraponga, Fortaleza - CE",
+      "telefone": "+55 85 3301-9988",
+      "website": "https://rotacerta.com.br",
+      "latitude": -3.7862,
+      "longitude": -38.5646,
+      "tipos": [
+        "moving_company",
+        "storage"
+      ],
+      "nota": 4.0,
+      "total_avaliacoes": 210,
+      "tags": [
+        "transportadora",
+        "logistica",
+        "frota",
+        "galpao",
+        "manutencao"
+      ]
+    },
+    {
+      "place_id": "mock_place_sabermaior",
+      "nome": "Colegio Saber Maior",
+      "endereco_formatado": "Rua Joao Carvalho, 800 - Aldeota, Fortaleza - CE",
+      "telefone": "+55 85 3224-9090",
+      "website": "https://sabermaior.com.br",
+      "latitude": -3.7381,
+      "longitude": -38.5044,
+      "tipos": [
+        "school",
+        "education"
+      ],
+      "nota": 4.6,
+      "total_avaliacoes": 455,
+      "tags": [
+        "escola",
+        "colegio",
+        "educacao",
+        "climatizacao",
+        "ar condicionado"
+      ]
+    },
+    {
+      "place_id": "mock_place_precobom",
+      "nome": "Preco Bom",
+      "endereco_formatado": "Av. Bezerra de Menezes, 1800 - Sao Gerardo, Fortaleza - CE",
+      "telefone": "+55 85 3238-7744",
+      "website": null,
+      "latitude": -3.7259,
+      "longitude": -38.5561,
+      "tipos": [
+        "supermarket",
+        "store"
+      ],
+      "nota": 4.2,
+      "total_avaliacoes": 1120,
+      "tags": [
+        "supermercado",
+        "mercado",
+        "refrigeracao",
+        "camara fria"
+      ]
+    },
+    {
+      "place_id": "mock_place_trigodeouro",
+      "nome": "Trigo de Ouro",
+      "endereco_formatado": "Rua Padre Valdevino, 500 - Centro, Fortaleza - CE",
+      "telefone": "+55 85 3231-0022",
+      "website": null,
+      "latitude": -3.7376,
+      "longitude": -38.5232,
+      "tipos": [
+        "bakery",
+        "store"
+      ],
+      "nota": 4.3,
+      "total_avaliacoes": 288,
+      "tags": [
+        "padaria",
+        "panificadora",
+        "forno",
+        "alimentacao"
+      ]
+    },
+    {
+      "place_id": "mock_place_pontodosanduiche",
+      "nome": "Ponto do Sanduiche",
+      "endereco_formatado": "Av. Dom Luis, 300 - Meireles, Fortaleza - CE",
+      "telefone": "+55 85 3232-0044",
+      "website": null,
+      "latitude": -3.7318,
+      "longitude": -38.4949,
+      "tipos": [
+        "restaurant",
+        "meal_takeaway"
+      ],
+      "nota": 4.1,
+      "total_avaliacoes": 176,
+      "tags": [
+        "lanchonete",
+        "alimentacao",
+        "cozinha",
+        "exaustao"
+      ]
+    },
+    {
+      "place_id": "mock_place_friosdonorte",
+      "nome": "Frios do Norte",
+      "endereco_formatado": "Rua dos Pacajus, 1200 - Antonio Bezerra, Fortaleza - CE",
+      "telefone": "+55 85 3227-6655",
+      "website": "https://friosdonorte.com.br",
+      "latitude": -3.7292,
+      "longitude": -38.5806,
+      "tipos": [
+        "food",
+        "wholesaler",
+        "store"
+      ],
+      "nota": 4.4,
+      "total_avaliacoes": 96,
+      "tags": [
+        "distribuidora",
+        "frios",
+        "camara fria",
+        "refrigeracao",
+        "atacado"
+      ]
+    },
+    {
+      "place_id": "mock_place_marealta",
+      "nome": "Mare Alta",
+      "endereco_formatado": "Av. Zeze Diogo, 4000 - Praia do Futuro, Fortaleza - CE",
+      "telefone": "+55 85 3234-5566",
+      "website": "https://marealta.com.br",
+      "latitude": -3.7457,
+      "longitude": -38.4534,
+      "tipos": [
+        "restaurant",
+        "seafood_restaurant"
+      ],
+      "nota": 4.5,
+      "total_avaliacoes": 2210,
+      "tags": [
+        "restaurante",
+        "cozinha",
+        "coifa",
+        "exaustao",
+        "climatizacao"
+      ]
+    },
+    {
+      "place_id": "mock_place_portosol",
+      "nome": "Hotel Porto Sol",
+      "endereco_formatado": "Av. Beira Mar, 800 - Praia de Iracema, Fortaleza - CE",
+      "telefone": "+55 85 3219-8800",
+      "website": "https://portosol.com.br",
+      "latitude": -3.7203,
+      "longitude": -38.5089,
+      "tipos": [
+        "lodging",
+        "hotel"
+      ],
+      "nota": 4.2,
+      "total_avaliacoes": 1502,
+      "tags": [
+        "hotel",
+        "hospedagem",
+        "climatizacao",
+        "ar condicionado",
+        "manutencao predial"
+      ]
+    },
+    {
+      "place_id": "mock_place_beiramaradm",
+      "nome": "Beira Mar Administracao",
+      "endereco_formatado": "Av. Desembargador Moreira, 1200 - Aldeota, Fortaleza - CE",
+      "telefone": "+55 85 3261-0011",
+      "website": "https://beiramaradm.com.br",
+      "latitude": -3.7338,
+      "longitude": -38.4985,
+      "tipos": [
+        "real_estate_agency",
+        "point_of_interest"
+      ],
+      "nota": 4.2,
+      "total_avaliacoes": 143,
+      "tags": [
+        "condominio",
+        "administradora",
+        "gestao predial",
+        "manutencao predial",
+        "elevador",
+        "limpeza",
+        "climatizacao"
+      ]
+    },
+    {
+      "place_id": "mock_place_centrosul",
+      "nome": "Centro Sul Corporate",
+      "endereco_formatado": "Av. Washington Soares, 2000 - Edson Queiroz, Fortaleza - CE",
+      "telefone": "+55 85 3478-9900",
+      "website": "https://centrosulcorp.com.br",
+      "latitude": -3.7761,
+      "longitude": -38.4816,
+      "tipos": [
+        "premise",
+        "point_of_interest"
+      ],
+      "nota": 4.4,
+      "total_avaliacoes": 389,
+      "tags": [
+        "edificio comercial",
+        "sala comercial",
+        "escritorio",
+        "manutencao predial",
+        "elevador",
+        "climatizacao",
+        "ar condicionado"
+      ]
+    },
+    {
+      "place_id": "mock_place_aguaviva",
+      "nome": "Agua Viva Lavanderia",
+      "endereco_formatado": "Rua Padre Marinho, 450 - Parangaba, Fortaleza - CE",
+      "telefone": "+55 85 3297-2244",
+      "website": "https://aguavivalav.com.br",
+      "latitude": -3.7789,
+      "longitude": -38.5613,
+      "tipos": [
+        "laundry",
+        "point_of_interest"
+      ],
+      "nota": 4.1,
+      "total_avaliacoes": 97,
+      "tags": [
+        "lavanderia",
+        "lavanderia industrial",
+        "caldeira",
+        "exaustao",
+        "manutencao de maquinas",
+        "agua"
+      ]
+    },
+    {
+      "place_id": "mock_place_motorforte",
+      "nome": "Motor Forte",
+      "endereco_formatado": "Av. Bezerra de Menezes, 2400 - Sao Gerardo, Fortaleza - CE",
+      "telefone": "+55 85 3288-6655",
+      "website": "https://motorforte.com.br",
+      "latitude": -3.7264,
+      "longitude": -38.5578,
+      "tipos": [
+        "car_repair",
+        "point_of_interest"
+      ],
+      "nota": 4.5,
+      "total_avaliacoes": 512,
+      "tags": [
+        "oficina mecanica",
+        "centro automotivo",
+        "compressor",
+        "elevador automotivo",
+        "manutencao"
+      ]
+    }
+  ]
+}

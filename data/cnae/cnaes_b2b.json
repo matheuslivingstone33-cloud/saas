@@ -1,0 +1,81 @@
+{
+  "_comentario": "Base do Cerebro (Motor 2). Subconjunto da CNAE 2.3 com os ramos que mais compram servico B2B recorrente. Cada entrada tem termos de busca que alimentam o QueryBuilder do Motor 1. Ampliar com a tabela oficial completa quando necessario — o formato nao muda.",
+  "ramos": [
+    {"codigo": "4711302", "descricao": "Comercio varejista de mercadorias em geral, com predominancia de produtos alimenticios - supermercados", "secao": "G", "termos": ["supermercado", "mercado", "hipermercado", "rede de supermercados"], "perfil": ["camara fria", "refrigeracao", "climatizacao", "limpeza", "seguranca", "manutencao predial"]},
+    {"codigo": "4711301", "descricao": "Comercio varejista de mercadorias em geral - hipermercados", "secao": "G", "termos": ["hipermercado", "atacarejo"], "perfil": ["refrigeracao", "climatizacao", "manutencao predial"]},
+    {"codigo": "4712100", "descricao": "Comercio varejista de mercadorias em geral - minimercados e mercearias", "secao": "G", "termos": ["minimercado", "mercearia", "mercadinho"], "perfil": ["refrigeracao", "limpeza"]},
+    {"codigo": "4721102", "descricao": "Padaria e confeitaria com predominancia de revenda", "secao": "G", "termos": ["padaria", "confeitaria", "panificadora"], "perfil": ["forno", "refrigeracao", "exaustao", "gas"]},
+    {"codigo": "1091102", "descricao": "Fabricacao de produtos de padaria e confeitaria com predominancia de producao propria", "secao": "C", "termos": ["padaria industrial", "panificadora", "fabrica de paes"], "perfil": ["forno", "exaustao", "manutencao industrial", "gas"]},
+    {"codigo": "1011201", "descricao": "Frigorifico - abate de bovinos", "secao": "C", "termos": ["frigorifico", "abatedouro"], "perfil": ["camara fria", "refrigeracao industrial", "efluentes", "manutencao industrial"]},
+    {"codigo": "4634601", "descricao": "Comercio atacadista de carnes bovinas e suinas e derivados", "secao": "G", "termos": ["distribuidora de carnes", "atacado de frios", "distribuidora de alimentos"], "perfil": ["camara fria", "refrigeracao", "frota", "logistica"]},
+    {"codigo": "4637107", "descricao": "Comercio atacadista de chocolates, confeitos, balas e semelhantes", "secao": "G", "termos": ["distribuidora de doces", "atacado de alimentos"], "perfil": ["climatizacao", "armazenagem"]},
+    {"codigo": "4639701", "descricao": "Comercio atacadista de produtos alimenticios em geral", "secao": "G", "termos": ["atacadista de alimentos", "distribuidora de alimentos"], "perfil": ["camara fria", "logistica", "frota"]},
+
+    {"codigo": "5611201", "descricao": "Restaurantes e similares", "secao": "I", "termos": ["restaurante", "churrascaria", "pizzaria", "self service"], "perfil": ["coifa", "exaustao", "climatizacao", "gas", "refrigeracao", "limpeza"]},
+    {"codigo": "5611203", "descricao": "Lanchonetes, casas de cha, de sucos e similares", "secao": "I", "termos": ["lanchonete", "cafeteria", "casa de sucos", "hamburgueria"], "perfil": ["exaustao", "climatizacao", "refrigeracao"]},
+    {"codigo": "5611205", "descricao": "Bares e outros estabelecimentos especializados em servir bebidas, com entretenimento", "secao": "I", "termos": ["bar", "pub", "casa de shows"], "perfil": ["climatizacao", "som", "refrigeracao"]},
+    {"codigo": "5620104", "descricao": "Fornecimento de alimentos preparados preponderantemente para consumo domiciliar", "secao": "I", "termos": ["marmitaria", "delivery de comida", "cozinha industrial"], "perfil": ["coifa", "exaustao", "gas", "refrigeracao"]},
+    {"codigo": "5620101", "descricao": "Fornecimento de alimentos preparados preponderantemente para empresas", "secao": "I", "termos": ["catering", "refeicoes coletivas", "cozinha industrial"], "perfil": ["cozinha industrial", "exaustao", "manutencao"]},
+
+    {"codigo": "5510801", "descricao": "Hoteis", "secao": "I", "termos": ["hotel", "resort", "flat"], "perfil": ["ar condicionado", "climatizacao", "manutencao predial", "lavanderia", "piscina", "elevador"]},
+    {"codigo": "5510802", "descricao": "Apart-hoteis", "secao": "I", "termos": ["apart hotel", "flat", "residencial com servicos"], "perfil": ["climatizacao", "manutencao predial"]},
+    {"codigo": "5590699", "descricao": "Outros alojamentos nao especificados anteriormente", "secao": "I", "termos": ["pousada", "hostel", "albergue"], "perfil": ["climatizacao", "manutencao predial"]},
+
+    {"codigo": "8610101", "descricao": "Atividades de atendimento hospitalar, exceto pronto-socorro e unidades para atendimento a urgencias", "secao": "Q", "termos": ["hospital", "casa de saude"], "perfil": ["climatizacao critica", "gases medicinais", "nobreak", "manutencao predial", "residuos"]},
+    {"codigo": "8630503", "descricao": "Atividade medica ambulatorial restrita a consultas", "secao": "Q", "termos": ["clinica medica", "consultorio", "ambulatorio"], "perfil": ["ar condicionado", "climatizacao", "manutencao"]},
+    {"codigo": "8630504", "descricao": "Atividade odontologica", "secao": "Q", "termos": ["clinica odontologica", "dentista", "consultorio odontologico"], "perfil": ["compressor", "autoclave", "climatizacao"]},
+    {"codigo": "8640202", "descricao": "Laboratorios clinicos", "secao": "Q", "termos": ["laboratorio de analises", "laboratorio clinico"], "perfil": ["refrigeracao", "climatizacao critica", "nobreak"]},
+    {"codigo": "8711501", "descricao": "Clinicas e residencias geriatricas", "secao": "Q", "termos": ["casa de repouso", "clinica geriatrica", "residencial para idosos"], "perfil": ["climatizacao", "lavanderia", "manutencao predial"]},
+    {"codigo": "4771701", "descricao": "Comercio varejista de produtos farmaceuticos, sem manipulacao de formulas", "secao": "G", "termos": ["farmacia", "drogaria"], "perfil": ["climatizacao", "refrigeracao de imunobiologicos"]},
+
+    {"codigo": "8513900", "descricao": "Ensino fundamental", "secao": "P", "termos": ["escola", "colegio", "ensino fundamental"], "perfil": ["climatizacao", "manutencao predial", "limpeza", "seguranca"]},
+    {"codigo": "8520100", "descricao": "Ensino medio", "secao": "P", "termos": ["colegio", "ensino medio", "escola"], "perfil": ["climatizacao", "manutencao predial"]},
+    {"codigo": "8531700", "descricao": "Educacao superior - graduacao", "secao": "P", "termos": ["faculdade", "universidade", "centro universitario"], "perfil": ["climatizacao", "manutencao predial", "elevador"]},
+    {"codigo": "8591300", "descricao": "Ensino de esportes", "secao": "P", "termos": ["escola de natacao", "escola de esportes"], "perfil": ["piscina", "climatizacao"]},
+    {"codigo": "9313100", "descricao": "Atividades de condicionamento fisico", "secao": "R", "termos": ["academia", "crossfit", "estudio de pilates"], "perfil": ["climatizacao", "exaustao", "manutencao de equipamentos"]},
+
+    {"codigo": "6822600", "descricao": "Gestao e administracao da propriedade imobiliaria", "secao": "L", "termos": ["administradora de condominios", "gestao predial", "sindico profissional"], "perfil": ["manutencao predial", "elevador", "limpeza", "seguranca", "climatizacao"]},
+    {"codigo": "6810202", "descricao": "Aluguel de imoveis proprios", "secao": "L", "termos": ["locacao de imoveis", "edificio comercial", "sala comercial"], "perfil": ["manutencao predial", "climatizacao"]},
+    {"codigo": "8121400", "descricao": "Limpeza em predios e em domicilios", "secao": "N", "termos": ["empresa de limpeza", "conservacao predial", "facilities"], "perfil": ["equipamentos de limpeza", "frota"]},
+    {"codigo": "8011101", "descricao": "Atividades de vigilancia e seguranca privada", "secao": "N", "termos": ["empresa de seguranca", "vigilancia patrimonial"], "perfil": ["frota", "cftv", "rondas"]},
+
+    {"codigo": "4930202", "descricao": "Transporte rodoviario de carga, exceto produtos perigosos e mudancas, intermunicipal, interestadual e internacional", "secao": "H", "termos": ["transportadora", "transporte de cargas", "frete"], "perfil": ["frota", "manutencao veicular", "pneus", "combustivel", "rastreamento"]},
+    {"codigo": "4930201", "descricao": "Transporte rodoviario de carga, exceto produtos perigosos e mudancas, municipal", "secao": "H", "termos": ["transportadora municipal", "entregas", "logistica urbana"], "perfil": ["frota", "manutencao veicular"]},
+    {"codigo": "5211701", "descricao": "Armazens gerais - emissao de warrant", "secao": "H", "termos": ["armazem geral", "centro de distribuicao", "galpao logistico"], "perfil": ["empilhadeira", "manutencao predial", "climatizacao", "docas"]},
+    {"codigo": "5229099", "descricao": "Outras atividades auxiliares dos transportes terrestres", "secao": "H", "termos": ["operador logistico", "agenciamento de cargas"], "perfil": ["frota", "sistemas"]},
+    {"codigo": "4923002", "descricao": "Servico de transporte de passageiros - locacao de automoveis com motorista", "secao": "H", "termos": ["locadora com motorista", "transporte executivo", "fretamento"], "perfil": ["frota", "manutencao veicular", "higienizacao"]},
+
+    {"codigo": "2512800", "descricao": "Fabricacao de esquadrias de metal", "secao": "C", "termos": ["esquadrias de aluminio", "serralheria industrial", "metalurgica"], "perfil": ["manutencao industrial", "exaustao", "compressor", "energia"]},
+    {"codigo": "2599399", "descricao": "Fabricacao de outros produtos de metal nao especificados anteriormente", "secao": "C", "termos": ["industria metalurgica", "fabrica de pecas"], "perfil": ["manutencao industrial", "compressor", "energia"]},
+    {"codigo": "1091101", "descricao": "Fabricacao de produtos de panificacao industrial", "secao": "C", "termos": ["industria de panificacao", "fabrica de biscoitos"], "perfil": ["forno industrial", "manutencao industrial", "refrigeracao"]},
+    {"codigo": "1122402", "descricao": "Fabricacao de refrigerantes", "secao": "C", "termos": ["fabrica de refrigerantes", "engarrafadora"], "perfil": ["refrigeracao industrial", "tratamento de agua", "manutencao industrial"]},
+    {"codigo": "2110600", "descricao": "Fabricacao de produtos farmoquimicos", "secao": "C", "termos": ["industria farmaceutica", "farmoquimica"], "perfil": ["climatizacao critica", "sala limpa", "validacao"]},
+    {"codigo": "1412601", "descricao": "Confeccao de pecas do vestuario, exceto roupas intimas e as confeccionadas sob medida", "secao": "C", "termos": ["confeccao", "industria textil", "facção"], "perfil": ["exaustao", "climatizacao", "manutencao de maquinas"]},
+    {"codigo": "3311200", "descricao": "Manutencao e reparacao de tanques, reservatorios metalicos e caldeiras, exceto para veiculos", "secao": "C", "termos": ["manutencao industrial", "caldeiraria"], "perfil": ["solda", "npt13", "manutencao"]},
+
+    {"codigo": "4520001", "descricao": "Servicos de manutencao e reparacao mecanica de veiculos automotores", "secao": "G", "termos": ["oficina mecanica", "centro automotivo"], "perfil": ["compressor", "elevador automotivo", "descarte de oleo"]},
+    {"codigo": "4530703", "descricao": "Comercio a varejo de pecas e acessorios novos para veiculos automotores", "secao": "G", "termos": ["autopecas", "loja de pecas"], "perfil": ["climatizacao", "estoque"]},
+    {"codigo": "4511101", "descricao": "Comercio a varejo de automoveis, camionetas e utilitarios novos", "secao": "G", "termos": ["concessionaria", "revenda de veiculos"], "perfil": ["climatizacao", "manutencao predial", "showroom"]},
+
+    {"codigo": "4744099", "descricao": "Comercio varejista de materiais de construcao em geral", "secao": "G", "termos": ["material de construcao", "deposito de construcao", "home center"], "perfil": ["empilhadeira", "galpao", "frota"]},
+    {"codigo": "4120400", "descricao": "Construcao de edificios", "secao": "F", "termos": ["construtora", "incorporadora"], "perfil": ["canteiro", "equipamentos", "seguranca do trabalho"]},
+    {"codigo": "4321500", "descricao": "Instalacao e manutencao eletrica", "secao": "F", "termos": ["instalacao eletrica", "manutencao eletrica"], "perfil": ["subcontratacao", "materiais"]},
+    {"codigo": "4322302", "descricao": "Instalacao e manutencao de sistemas centrais de ar condicionado, de ventilacao e refrigeracao", "secao": "F", "termos": ["ar condicionado", "climatizacao", "refrigeracao", "hvac"], "perfil": ["subcontratacao", "pecas"]},
+
+    {"codigo": "4751201", "descricao": "Comercio varejista especializado de equipamentos e suprimentos de informatica", "secao": "G", "termos": ["loja de informatica", "assistencia tecnica"], "perfil": ["climatizacao", "nobreak"]},
+    {"codigo": "6201501", "descricao": "Desenvolvimento de programas de computador sob encomenda", "secao": "J", "termos": ["software house", "fabrica de software", "consultoria de ti"], "perfil": ["escritorio", "climatizacao", "nobreak"]},
+    {"codigo": "6311900", "descricao": "Tratamento de dados, provedores de servicos de aplicacao e servicos de hospedagem na internet", "secao": "J", "termos": ["datacenter", "hospedagem", "provedor"], "perfil": ["climatizacao critica", "nobreak", "gerador", "seguranca"]},
+    {"codigo": "6190601", "descricao": "Provedores de acesso as redes de comunicacoes", "secao": "J", "termos": ["provedor de internet", "isp", "fibra optica"], "perfil": ["nobreak", "climatizacao", "frota", "torres"]},
+
+    {"codigo": "6911701", "descricao": "Servicos advocaticios", "secao": "M", "termos": ["escritorio de advocacia", "advogados"], "perfil": ["escritorio", "climatizacao", "documentos"]},
+    {"codigo": "6920601", "descricao": "Atividades de contabilidade", "secao": "M", "termos": ["escritorio de contabilidade", "contador"], "perfil": ["escritorio", "climatizacao", "documentos"]},
+    {"codigo": "7020400", "descricao": "Atividades de consultoria em gestao empresarial", "secao": "M", "termos": ["consultoria empresarial", "assessoria de gestao"], "perfil": ["escritorio", "climatizacao"]},
+    {"codigo": "8630501", "descricao": "Atividade medica ambulatorial com recursos para realizacao de procedimentos cirurgicos", "secao": "Q", "termos": ["clinica cirurgica", "day hospital"], "perfil": ["climatizacao critica", "gases medicinais", "nobreak"]},
+
+    {"codigo": "9602501", "descricao": "Cabeleireiros, manicure e pedicure", "secao": "S", "termos": ["salao de beleza", "barbearia"], "perfil": ["climatizacao", "exaustao", "agua quente"]},
+    {"codigo": "9601701", "descricao": "Lavanderias", "secao": "S", "termos": ["lavanderia", "lavanderia industrial"], "perfil": ["caldeira", "agua", "exaustao", "manutencao de maquinas"]},
+    {"codigo": "8230001", "descricao": "Servicos de organizacao de feiras, congressos, exposicoes e festas", "secao": "N", "termos": ["casa de eventos", "buffet", "centro de convencoes"], "perfil": ["climatizacao", "gerador", "som", "limpeza"]},
+    {"codigo": "9200301", "descricao": "Casas de bingo", "secao": "R", "termos": ["casa de jogos", "entretenimento"], "perfil": ["climatizacao", "seguranca"]},
+    {"codigo": "4635402", "descricao": "Comercio atacadista de cerveja, chope e refrigerante", "secao": "G", "termos": ["distribuidora de bebidas", "atacado de bebidas"], "perfil": ["camara fria", "frota", "armazenagem"]}
+  ]
+}

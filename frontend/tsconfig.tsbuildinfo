@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/ui.tsx","./src/lib/api.ts","./src/lib/format.ts","./src/pages/campanhas.tsx","./src/pages/conformidade.tsx","./src/pages/creditos.tsx","./src/pages/onboarding.tsx","./src/pages/painel.tsx"],"version":"5.7.2"}
