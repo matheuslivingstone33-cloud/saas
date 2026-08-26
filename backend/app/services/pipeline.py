@@ -38,6 +38,7 @@ from app.services.creditos import CreditService
 from app.services.descoberta import DiscoveryService
 from app.services.envio import SendService
 from app.services.leads import LeadService
+from app.services.observador import Observador, emitir
 from app.services.scoring import ScoringService
 
 log = get_logger("pipeline")
@@ -101,10 +102,14 @@ class PipelineStub:
         session: Session,
         portas: ProviderRegistry,
         settings: Settings | None = None,
+        observador: Observador | None = None,
     ) -> None:
         self.session = session
         self.portas = portas
         self.settings = settings or get_settings()
+        # Quem quiser assistir a execucao passa um observador. Sem ele, o
+        # pipeline se comporta exatamente como antes.
+        self.observador = observador
         self.audit = AuditService(session)
         self.aprendizado = LoopAprendizado(session)
         self.leads = LeadService(session, self.audit, self.aprendizado)
@@ -122,6 +127,9 @@ class PipelineStub:
         self.portas.cost.campaign_id = campanha.id
 
         nivel = self.envio.nivel_de(campanha)
+        self._conta("inicio", campanha=campanha.nome, servico=campanha.servico,
+                    regiao=campanha.regiao, autonomia=nivel.value,
+                    modos=self.settings.modes())
         resultado = ResultadoPipeline(
             campaign_id=campanha.id,
             modo_provedores=self.settings.modes(),
@@ -146,6 +154,7 @@ class PipelineStub:
             user_id=campanha.user_id, campaign_id=campanha.id
         )
         self.session.flush()
+        self._conta("fim", resumo=resultado.to_dict())
         log.info("pipeline_concluido", **resultado.to_dict())
         return resultado
 
@@ -163,6 +172,16 @@ class PipelineStub:
         campanha.expansao = {**expansao.to_dict(), "gerado_em": now().isoformat()}
         resultado.termos_usados = expansao.termos
         resultado.ramos_alvo = expansao.cnaes_alvo
+        self._conta(
+            "cerebro",
+            termos=expansao.termos,
+            ramos=[
+                {"codigo": r.codigo, "descricao": r.descricao, "peso": round(r.peso, 3)}
+                for r in expansao.ramos
+            ],
+            excluidos=expansao.excluidos_como_concorrente,
+            justificativa=expansao.justificativa,
+        )
         return expansao
 
     def _descobrir(
@@ -173,7 +192,17 @@ class PipelineStub:
         resultado: ResultadoPipeline,
     ) -> None:
         """MOTOR 1 (Descoberta): QueryBuilder -> Places -> Receita -> dedup."""
-        achado = self.descoberta.descobrir(campanha, plano, meta_leads=limite_leads)
+        achado = self.descoberta.descobrir(
+            campanha, plano, meta_leads=limite_leads, observador=self.observador
+        )
+        self._conta(
+            "descoberta",
+            consultas=achado.consultas,
+            criados=achado.criados,
+            duplicados=achado.duplicados,
+            recusados_b2b=achado.recusados_b2b,
+            sem_enriquecimento=achado.sem_enriquecimento,
+        )
         resultado.descobertos = achado.criados
         resultado.duplicados = achado.duplicados
         resultado.consultas_places = achado.consultas
@@ -202,6 +231,15 @@ class PipelineStub:
             lead.score_breakdown = avaliacao.to_dict()
             self.leads.transicionar(lead, StatusLead.QUALIFICADO, motivo=avaliacao.explicacao[:280])
             resultado.qualificados += 1
+            self._conta(
+                "qualificado",
+                lead_id=str(lead.id),
+                empresa=lead.razao_social or lead.nome_fantasia,
+                cnpj=lead.cnpj,
+                municipio=lead.municipio,
+                score=float(avaliacao.score),
+                explicacao=avaliacao.explicacao,
+            )
             try:
                 resultado.saldo_final = self.creditos.debitar(
                     campanha.user_id,
@@ -227,8 +265,17 @@ class PipelineStub:
         """MOTOR 3 (Abordagem): personalizacao + SendService com limites."""
         self._transicionar_campanha(campanha, StatusCampanha.EXECUTANDO)
         leads = self.leads.repo.abordaveis(campanha.id, limite=50)
-        lote = self.envio.preparar_lote(campanha, leads, expansao, nivel=nivel)
-
+        lote = self.envio.preparar_lote(
+            campanha, leads, expansao, nivel=nivel, observador=self.observador
+        )
+        self._conta(
+            "abordagem",
+            geradas=lote.geradas,
+            enviadas=lote.enviadas,
+            aguardando=lote.aguardando_aprovacao,
+            bloqueadas=lote.bloqueadas,
+            motivos=lote.motivos_bloqueio,
+        )
         resultado.mensagens_geradas = lote.geradas
         resultado.mensagens_enviadas = lote.enviadas
         resultado.mensagens_aguardando_aprovacao = lote.aguardando_aprovacao
@@ -238,6 +285,10 @@ class PipelineStub:
         resultado.sem_contato = lote.sem_contato
 
     # -- auxiliares -----------------------------------------------------------
+    def _conta(self, etapa: str, **dados) -> None:
+        """Narra uma etapa para quem estiver assistindo."""
+        emitir(self.observador, etapa, **dados)
+
     def _transicionar_campanha(self, campanha: Campaign, novo: StatusCampanha) -> None:
         atual = campanha.status
         if atual == novo:

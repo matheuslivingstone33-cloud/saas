@@ -48,6 +48,7 @@ from app.services.cerebro import Expansao
 from app.services.compliance import OptOutService
 from app.services.creditos import CreditService
 from app.services.leads import LeadService
+from app.services.observador import Observador, emitir
 from app.services.personalizacao import PersonalizationService
 
 log = get_logger("envio")
@@ -125,6 +126,7 @@ class SendService:
         *,
         nivel: NivelAutonomia | None = None,
         usar_intencao: bool = True,
+        observador: Observador | None = None,
     ) -> Lote:
         nivel = nivel or self.nivel_de(campanha)
         status_inicial = status_inicial_mensagem(nivel)
@@ -145,6 +147,13 @@ class SendService:
             if bloqueio is not None:
                 lote.registrar_bloqueio(bloqueio.motivo)
                 self._bloquear_lead(campanha, lead, bloqueio)
+                emitir(
+                    observador,
+                    "bloqueado",
+                    empresa=lead.razao_social or lead.nome_fantasia,
+                    motivo=bloqueio.motivo,
+                    detalhe=bloqueio.detalhe,
+                )
                 continue
 
             chave = f"{campanha.id}:{lead.id}:{Canal.EMAIL.value}"
@@ -157,8 +166,25 @@ class SendService:
             lote.geradas += 1
             lote.mensagens.append(mensagem)
 
+            emitir(
+                observador,
+                "redigida",
+                mensagem_id=str(mensagem.id),
+                empresa=lead.razao_social or lead.nome_fantasia,
+                destinatario=mensagem.destinatario,
+                assunto=mensagem.assunto,
+                tokens=mensagem.tokens_entrada + mensagem.tokens_saida,
+                automatica=status_inicial is StatusMensagem.APROVADA,
+            )
+
             if status_inicial is StatusMensagem.APROVADA:
-                self.despachar(mensagem, lote=lote)
+                enviada = self.despachar(mensagem, lote=lote)
+                emitir(
+                    observador,
+                    "enviada" if enviada else "falhou",
+                    empresa=lead.razao_social or lead.nome_fantasia,
+                    destinatario=mensagem.destinatario,
+                )
             else:
                 lote.aguardando_aprovacao += 1
 

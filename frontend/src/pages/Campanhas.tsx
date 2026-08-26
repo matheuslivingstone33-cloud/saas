@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence } from "framer-motion";
+import ExecucaoAoVivo from "../components/ExecucaoAoVivo";
+import Revisao from "../components/Revisao";
+import Portal from "../components/Portal";
 import {
   api,
   type Campanha,
@@ -24,6 +28,8 @@ export default function Campanhas({ nivel }: { nivel: string }) {
   const [ocupado, setOcupado] = useState(false);
   const [criando, setCriando] = useState(false);
   const [detalhe, setDetalhe] = useState<Lead | null>(null);
+  const [aoVivo, setAoVivo] = useState(false);
+  const [revisando, setRevisando] = useState(false);
 
   const [nome, setNome] = useState("");
   const [servico, setServico] = useState("");
@@ -50,22 +56,40 @@ export default function Campanhas({ nivel }: { nivel: string }) {
     if (selecionada) carregarDetalhe(selecionada).catch((e) => setErro(String(e)));
   }, [selecionada]);
 
-  async function executar() {
-    if (!selecionada) return;
-    setOcupado(true);
-    setErro(null);
-    try {
-      const campanha = campanhas.find((c) => c.id === selecionada);
-      if (campanha && ["concluida", "executando"].includes(campanha.status)) {
-        await api.reabrir(selecionada).catch(() => undefined);
+  // R abre a revisao. Ignora quando ha modal aberto (que tem teclado proprio)
+  // ou quando o foco esta num campo — senao digitar "r" no formulario abriria
+  // a fila de revisao no meio da frase.
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      if (aoVivo || revisando || detalhe || criando) return;
+      const alvo = e.target as HTMLElement;
+      if (alvo?.tagName === "INPUT" || alvo?.tagName === "TEXTAREA" || alvo?.isContentEditable) {
+        return;
       }
-      setResultado(await api.executar(selecionada, 5));
-      await Promise.all([carregarLista(), carregarDetalhe(selecionada)]);
-    } catch (e) {
-      setErro(String(e));
-    } finally {
-      setOcupado(false);
+      if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && pendentes.length > 0) {
+        e.preventDefault();
+        setRevisando(true);
+      }
     }
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  });
+
+  // Callback ESTAVEL para a execucao ao vivo: uma funcao inline aqui faria o
+  // EventSource reabrir a cada renderizacao — e reabrir custa uma execucao.
+  const aoTerminarExecucao = useCallback(() => {
+    void carregarLista();
+    if (selecionada) void carregarDetalhe(selecionada);
+  }, [selecionada]);
+
+  // A execucao agora e transmitida ao vivo: o usuario ve o Cerebro escolhendo
+  // os ramos, cada busca e cada empresa encontrada, em vez de esperar em
+  // frente a um botao desabilitado.
+  function executar() {
+    if (!selecionada) return;
+    setErro(null);
+    setResultado(null);
+    setAoVivo(true);
   }
 
   async function acao(fn: () => Promise<unknown>) {
@@ -143,13 +167,21 @@ export default function Campanhas({ nivel }: { nivel: string }) {
           <Botao onClick={executar} disabled={ocupado || !selecionada}>
             {ocupado ? "executando..." : "rodar campanha"}
           </Botao>
+          {pendentes.length > 0 && (
+            <Botao variante="secundario" onClick={() => setRevisando(true)}>
+              revisar {pendentes.length}
+              <kbd className="rounded border border-current/25 px-1 text-[10px] leading-4 opacity-70">
+                R
+              </kbd>
+            </Botao>
+          )}
           {nivel === "assistido" && pendentes.length > 0 && (
             <Botao
-              variante="secundario"
+              variante="fantasma"
               onClick={() => acao(() => api.disparar(selecionada!))}
               disabled={ocupado}
             >
-              disparar aprovadas
+              disparar todas
             </Botao>
           )}
           {limites && (
@@ -239,6 +271,27 @@ export default function Campanhas({ nivel }: { nivel: string }) {
 
       {detalhe && <ExplicacaoLead lead={detalhe} aoFechar={() => setDetalhe(null)} />}
 
+      <AnimatePresence>
+        {aoVivo && selecionada && (
+          <ExecucaoAoVivo
+            campanhaId={selecionada}
+            limiteLeads={5}
+            aoTerminar={aoTerminarExecucao}
+            aoFechar={() => setAoVivo(false)}
+          />
+        )}
+        {revisando && (
+          <Revisao
+            mensagens={mensagens}
+            leads={leads}
+            aoFechar={() => setRevisando(false)}
+            aoDecidir={() => {
+              if (selecionada) void carregarDetalhe(selecionada);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <Card titulo={`Mensagens (${mensagens.length})`}>
         {mensagens.length === 0 ? (
           <Vazio>Nenhuma mensagem gerada ainda.</Vazio>
@@ -295,8 +348,9 @@ function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }
   const proveniencia = lead.provenance as Record<string, unknown>;
 
   return (
+    <Portal>
     <div
-      className="fixed inset-0 z-20 flex items-center justify-center bg-texto-fraco/40 p-4"
+      className="fixed inset-0 z-30 flex items-center justify-center bg-fundo/70 p-4 backdrop-blur-sm"
       onClick={aoFechar}
     >
       <div
@@ -351,5 +405,6 @@ function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }
         </dl>
       </div>
     </div>
+    </Portal>
   );
 }

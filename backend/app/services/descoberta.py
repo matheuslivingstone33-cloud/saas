@@ -28,9 +28,22 @@ from app.ports.dto import CompanyRecord, PlaceResult
 from app.services.audit import AuditService
 from app.services.cerebro import Expansao
 from app.services.leads import LeadService
+from app.services.observador import Observador, emitir
 from app.services.query_builder import PlanoDeBusca, QueryBuilder
 
 log = get_logger("descoberta")
+
+#: Consultas seguidas sem NENHUM lead novo antes de desistir da rodada.
+#:
+#: Sem o limite, rodar de novo numa regiao ja varrida percorre o plano inteiro
+#: pagando Places por cada consulta para descobrir zero empresas. A meta de
+#: leads nao protege: ela conta o que foi CRIADO, e nada e criado.
+#:
+#: Cinco e o ponto de equilibrio: cada consulta traz ate 20 candidatas, entao
+#: cinco seguidas sem novidade sao ~100 empresas ja conhecidas — evidencia
+#: suficiente de esgotamento. Mais alto que isso nao chega a cortar planos
+#: pequenos; mais baixo desiste cedo demais em regiao densa.
+CONSULTAS_IMPRODUTIVAS_MAX = 5
 
 #: Sinais de que o resultado NAO e uma empresa (MVP e 100% B2B).
 SINAIS_NAO_B2B = frozenset(
@@ -55,6 +68,7 @@ class ResultadoDescoberta:
     criados: int = 0
     duplicados: int = 0
     recusados_b2b: int = 0
+    esgotou_regiao: bool = False
     sem_enriquecimento: int = 0
     leads: list[Lead] = field(default_factory=list)
 
@@ -91,11 +105,14 @@ class DiscoveryService:
         expansao: Expansao,
         *,
         meta_leads: int = 25,
+        observador: Observador | None = None,
     ) -> ResultadoDescoberta:
         plano = self.query_builder.construir(
             expansao, meta_leads=meta_leads, filtros=campanha.filtros or {}
         )
-        return self.executar_plano(campanha, expansao, plano, meta_leads=meta_leads)
+        return self.executar_plano(
+            campanha, expansao, plano, meta_leads=meta_leads, observador=observador
+        )
 
     def executar_plano(
         self,
@@ -104,20 +121,50 @@ class DiscoveryService:
         plano: PlanoDeBusca,
         *,
         meta_leads: int,
+        observador: Observador | None = None,
     ) -> ResultadoDescoberta:
         resultado = ResultadoDescoberta()
+
+        improdutivas = 0
 
         for consulta in plano.consultas:
             if resultado.criados >= meta_leads:
                 break  # meta atingida: nao gastamos mais SKU
+            if improdutivas >= CONSULTAS_IMPRODUTIVAS_MAX:
+                # A regiao ja foi varrida: continuar so queima orcamento.
+                resultado.esgotou_regiao = True
+                emitir(
+                    observador,
+                    "esgotado",
+                    consultas_improdutivas=improdutivas,
+                    restantes=len(plano.consultas) - resultado.consultas,
+                )
+                log.info(
+                    "descoberta_interrompida_por_esgotamento",
+                    campanha=str(campanha.id),
+                    consultas=resultado.consultas,
+                    improdutivas=improdutivas,
+                )
+                break
+
+            antes = resultado.criados
             resposta = self.portas.places.buscar(consulta)
             resultado.consultas += 1
             resultado.candidatos += len(resposta.itens)
+            emitir(
+                observador,
+                "busca",
+                termo=consulta.termo,
+                regiao=consulta.regiao,
+                candidatos=len(resposta.itens),
+            )
 
             for place in resposta.itens:
                 if resultado.criados >= meta_leads:
                     break
-                self._processar(place, campanha, consulta.termo, resultado)
+                self._processar(place, campanha, consulta.termo, resultado, observador)
+
+            improdutivas = 0 if resultado.criados > antes else improdutivas + 1
 
         log.info(
             "descoberta_concluida",
@@ -133,9 +180,11 @@ class DiscoveryService:
         campanha: Campaign,
         termo: str,
         resultado: ResultadoDescoberta,
+        observador: Observador | None = None,
     ) -> None:
         if not eh_empresa(place):
             resultado.recusados_b2b += 1
+            emitir(observador, "recusado", nome=place.nome, motivo="nao parece pessoa juridica")
             return
 
         empresa = self.enriquecer(place)
@@ -151,10 +200,21 @@ class DiscoveryService:
         )
         if lead is None:
             resultado.duplicados += 1
+            emitir(observador, "duplicado", nome=place.nome)
             return
 
         resultado.criados += 1
         resultado.leads.append(lead)
+        emitir(
+            observador,
+            "encontrado",
+            lead_id=str(lead.id),
+            empresa=lead.razao_social or lead.nome_fantasia,
+            cnpj=lead.cnpj,
+            municipio=lead.municipio,
+            termo=termo,
+            enriquecido=empresa is not None,
+        )
 
     def enriquecer(self, place: PlaceResult) -> CompanyRecord | None:
         """Casa o resultado do Places com a base publica da Receita (sem chave).

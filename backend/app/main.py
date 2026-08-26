@@ -21,6 +21,7 @@ from app.api.routes import (
     conta,
     leads,
     messages,
+    stream,
     system,
 )
 from app.core.config import get_settings
@@ -146,3 +147,4 @@ app.include_router(compliance.router, prefix=settings.api_prefix)
 app.include_router(compliance.publico)
 app.include_router(leads.router, prefix=settings.api_prefix)
 app.include_router(messages.router, prefix=settings.api_prefix)
+app.include_router(stream.router, prefix=settings.api_prefix)

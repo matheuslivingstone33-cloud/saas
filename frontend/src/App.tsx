@@ -5,6 +5,7 @@ import { Aviso, Badge, Carregando } from "./components/ui";
 import { EXPO, paginaVariantes, useVariantes } from "./components/movimento";
 import Abertura, { useAbertura } from "./components/Abertura";
 import { ProvedorTema, TrocaTema } from "./components/tema";
+import Paleta, { usePaleta, type Comando } from "./components/Paleta";
 import Onboarding from "./pages/Onboarding";
 import Painel from "./pages/Painel";
 import Campanhas from "./pages/Campanhas";
@@ -46,6 +47,37 @@ function Aplicacao() {
   const [aberturaFechada, setAberturaFechada] = useState(false);
   const abrindo = deveAbrir && !aberturaFechada;
   const variantes = useVariantes(paginaVariantes);
+  const paleta = usePaleta();
+
+  // Comandos globais. Cada aba vira um comando; as acoes de campanha ficam
+  // dentro da propria pagina, que e quem conhece o estado delas.
+  const comandos: Comando[] = ABAS.map((a) => ({
+    id: `ir-${a.chave}`,
+    titulo: `Ir para ${a.rotulo}`,
+    grupo: "Navegação",
+    executar: () => {
+      window.location.hash = `#/${a.chave}`;
+    },
+  })).concat([
+    {
+      id: "autonomia-assistido",
+      titulo: "Autonomia: assistido (nada sai sem aprovar)",
+      grupo: "Conta",
+      executar: () => void trocarAutonomia("assistido"),
+    },
+    {
+      id: "autonomia-automatico",
+      titulo: "Autonomia: automático (o agente dispara sozinho)",
+      grupo: "Conta",
+      executar: () => void trocarAutonomia("automatico"),
+    },
+    {
+      id: "refazer-onboarding",
+      titulo: "Refazer onboarding",
+      grupo: "Conta",
+      executar: () => setForcarOnboarding(true),
+    },
+  ]);
 
   const recarregar = useCallback(() => {
     api.perfil().then(setPerfil).catch((e) => setErro(String(e)));
@@ -183,6 +215,19 @@ function Aplicacao() {
                 );
               })}
             </div>
+            <button
+              onClick={paleta.abrir}
+              title="Paleta de comandos"
+              className="flex items-center gap-2 rounded-full border border-borda bg-superficie-2 py-1 pl-2.5 pr-1.5 text-xs text-texto-fraco transition-colors hover:border-borda-forte hover:text-texto-medio"
+            >
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+                <path d="M16.5 16.5L21 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <kbd className="rounded border border-borda bg-superficie px-1.5 py-0.5 text-[10px]">
+                Ctrl K
+              </kbd>
+            </button>
             <TrocaTema />
             <Badge tom="neutro" ponto>
               tudo mock
@@ -235,6 +280,8 @@ function Aplicacao() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      <Paleta aberta={paleta.aberta} fechar={paleta.fechar} comandos={comandos} />
 
       <footer className="mx-auto max-w-6xl px-6 pb-10 text-xs text-texto-fraco">
         Fases 0–6 rodam sem nenhuma chave de API.{" "}
