@@ -1,26 +1,35 @@
+import { motion, useReducedMotion } from "framer-motion";
 import type { ReactNode } from "react";
+import { EXPO, Esqueleto, NumeroAnimado, RAPIDO } from "./movimento";
 
-/** Primitivas visuais. Nada de biblioteca de componentes: o app e pequeno. */
+/**
+ * Primitivas visuais. Nenhuma cor literal aqui: tudo sai dos tokens em
+ * index.css, o que faz claro e escuro funcionarem sem componente duplicado.
+ */
 
 export function Card({
   titulo,
   acao,
   children,
   className = "",
+  destaque,
 }: {
   titulo?: string;
   acao?: ReactNode;
   children: ReactNode;
   className?: string;
+  destaque?: boolean;
 }) {
   return (
     <section
-      className={`rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}
+      className={`realce-topo overflow-hidden rounded-2xl border bg-superficie shadow-1 transition-shadow duration-300 ease-expo hover:shadow-2 ${
+        destaque ? "border-marca/30 shadow-marca" : "border-borda"
+      } ${className}`}
     >
       {(titulo || acao) && (
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+        <header className="flex items-center justify-between gap-3 border-b border-borda px-5 py-3.5">
           {titulo && (
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            <h2 className="text-[11px] font-semibold uppercase tracking-rotulo text-texto-fraco">
               {titulo}
             </h2>
           )}
@@ -32,62 +41,114 @@ export function Card({
   );
 }
 
+/**
+ * KPI. Aceita numero (conta ate o valor) ou string ja formatada.
+ * `prefixo`/`sufixo` existem para o numero animar sem perder "US$" ou "%".
+ */
 export function Stat({
   rotulo,
   valor,
   nota,
   destaque,
+  casas = 0,
+  prefixo,
+  sufixo,
+  icone,
 }: {
   rotulo: string;
   valor: string | number;
-  nota?: string;
-  destaque?: "positivo" | "atencao" | "neutro";
+  nota?: ReactNode;
+  destaque?: "positivo" | "atencao" | "negativo" | "marca" | "neutro";
+  casas?: number;
+  prefixo?: string;
+  sufixo?: string;
+  icone?: ReactNode;
 }) {
-  const cor =
-    destaque === "positivo"
-      ? "text-emerald-700"
-      : destaque === "atencao"
-        ? "text-amber-700"
-        : "text-slate-900";
+  const cor = {
+    positivo: "text-positivo",
+    atencao: "text-atencao",
+    negativo: "text-perigo",
+    marca: "text-marca",
+    neutro: "text-texto",
+  }[destaque ?? "neutro"];
+
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{rotulo}</div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${cor}`}>{valor}</div>
-      {nota && <div className="mt-0.5 text-xs text-slate-400">{nota}</div>}
-    </div>
+    <motion.div
+      whileHover={{ y: -2 }}
+      transition={RAPIDO}
+      className="realce-topo group rounded-xl border border-borda bg-superficie p-4 shadow-1 transition-colors duration-300 hover:border-borda-forte"
+    >
+      <div className="flex items-center gap-1.5">
+        {icone && <span className="text-texto-fraco">{icone}</span>}
+        <div className="text-[10px] font-medium uppercase tracking-rotulo text-texto-fraco">
+          {rotulo}
+        </div>
+      </div>
+      <div className={`mt-1.5 text-[26px] font-semibold leading-none tracking-tight ${cor}`}>
+        {typeof valor === "number" ? (
+          <NumeroAnimado valor={valor} casas={casas} prefixo={prefixo} sufixo={sufixo} />
+        ) : (
+          <span className="num">{valor}</span>
+        )}
+      </div>
+      {nota && <div className="mt-1.5 text-xs text-texto-fraco">{nota}</div>}
+    </motion.div>
   );
 }
 
-const CORES_BADGE: Record<string, string> = {
-  descoberto: "bg-slate-100 text-slate-700",
-  qualificado: "bg-sky-100 text-sky-800",
-  enfileirado: "bg-indigo-100 text-indigo-800",
-  abordado: "bg-violet-100 text-violet-800",
-  respondido: "bg-emerald-100 text-emerald-800",
-  convertido: "bg-emerald-600 text-white",
-  opt_out: "bg-rose-100 text-rose-800",
-  descartado: "bg-slate-100 text-slate-500",
-  aguardando_aprovacao: "bg-amber-100 text-amber-900",
-  aprovada: "bg-sky-100 text-sky-800",
-  enviada: "bg-emerald-100 text-emerald-800",
-  bloqueada: "bg-rose-100 text-rose-800",
-  rejeitada: "bg-slate-200 text-slate-600",
-  falhou: "bg-rose-100 text-rose-800",
-  rascunho: "bg-slate-100 text-slate-600",
-  descobrindo: "bg-sky-100 text-sky-800",
-  qualificando: "bg-indigo-100 text-indigo-800",
-  pronta: "bg-amber-100 text-amber-900",
-  executando: "bg-violet-100 text-violet-800",
-  concluida: "bg-emerald-100 text-emerald-800",
-  pausada: "bg-amber-100 text-amber-900",
-  mock: "bg-slate-100 text-slate-600",
-  real: "bg-emerald-100 text-emerald-800",
+/* Cada estado tem cor propria; o fundo usa o token fraco correspondente. */
+type Tom = "neutro" | "marca" | "acento" | "positivo" | "atencao" | "perigo";
+
+const TOM_DE_ESTADO: Record<string, Tom> = {
+  descoberto: "neutro",
+  qualificado: "acento",
+  enfileirado: "marca",
+  abordado: "marca",
+  respondido: "positivo",
+  convertido: "positivo",
+  opt_out: "perigo",
+  descartado: "neutro",
+  aguardando_aprovacao: "atencao",
+  aprovada: "acento",
+  enviada: "positivo",
+  entregue: "positivo",
+  bloqueada: "perigo",
+  rejeitada: "neutro",
+  falhou: "perigo",
+  rascunho: "neutro",
+  descobrindo: "acento",
+  qualificando: "marca",
+  pronta: "atencao",
+  executando: "marca",
+  concluida: "positivo",
+  pausada: "atencao",
+  mock: "neutro",
+  real: "positivo",
+  assistido: "acento",
+  automatico: "marca",
 };
 
-export function Badge({ children, tom }: { children: string; tom?: string }) {
-  const classe = CORES_BADGE[tom ?? children] ?? "bg-slate-100 text-slate-700";
+const CLASSES_TOM: Record<Tom, string> = {
+  neutro: "bg-neutro-fraco text-texto-medio ring-borda",
+  marca: "bg-marca-fraca text-marca ring-marca/25",
+  acento: "bg-acento/10 text-acento ring-acento/25",
+  positivo: "bg-positivo-fraco text-positivo ring-positivo/25",
+  atencao: "bg-atencao-fraco text-atencao ring-atencao/25",
+  perigo: "bg-perigo-fraco text-perigo ring-perigo/25",
+};
+
+export function Badge({ children, tom, ponto }: { children: string; tom?: string; ponto?: boolean }) {
+  const chave = tom ?? children;
+  const escolhido = (["neutro", "marca", "acento", "positivo", "atencao", "perigo"] as Tom[]).includes(
+    chave as Tom,
+  )
+    ? (chave as Tom)
+    : (TOM_DE_ESTADO[chave] ?? "neutro");
   return (
-    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${classe}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium ring-1 ring-inset ${CLASSES_TOM[escolhido]}`}
+    >
+      {ponto && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
       {children.replace(/_/g, " ")}
     </span>
   );
@@ -100,6 +161,8 @@ export function Botao({
   disabled,
   tamanho = "md",
   type = "button",
+  carregando,
+  className = "",
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -107,20 +170,41 @@ export function Botao({
   disabled?: boolean;
   tamanho?: "sm" | "md";
   type?: "button" | "submit";
+  carregando?: boolean;
+  className?: string;
 }) {
+  const reduzido = useReducedMotion();
   const base =
-    "inline-flex items-center justify-center rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-50";
-  const dimensao = tamanho === "sm" ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm";
+    "relative inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 ease-expo disabled:cursor-not-allowed disabled:opacity-45";
+  const dimensao = tamanho === "sm" ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm";
   const estilos = {
-    primario: "bg-marca-500 text-white hover:bg-marca-600",
-    secundario: "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-    perigo: "border border-rose-300 bg-white text-rose-700 hover:bg-rose-50",
-    fantasma: "text-slate-500 hover:text-slate-800",
+    primario:
+      "bg-marca text-white shadow-1 hover:bg-marca-forte hover:shadow-2 active:shadow-1",
+    secundario:
+      "border border-borda bg-superficie text-texto-medio hover:border-borda-forte hover:bg-superficie-2 hover:text-texto",
+    perigo:
+      "border border-perigo/30 bg-perigo-fraco text-perigo hover:border-perigo/50 hover:bg-perigo/10",
+    fantasma: "text-texto-fraco hover:bg-superficie-2 hover:text-texto",
   }[variante];
+
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${dimensao} ${estilos}`}>
+    <motion.button
+      type={type}
+      onClick={onClick}
+      disabled={disabled || carregando}
+      whileHover={reduzido || disabled ? undefined : { y: -1 }}
+      whileTap={reduzido || disabled ? undefined : { scale: 0.97, y: 0 }}
+      transition={{ duration: 0.15, ease: EXPO }}
+      className={`${base} ${dimensao} ${estilos} ${className}`}
+    >
+      {carregando && (
+        <span
+          className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent"
+          aria-hidden
+        />
+      )}
       {children}
-    </button>
+    </motion.button>
   );
 }
 
@@ -140,13 +224,13 @@ export function Campo({
   multiline?: boolean;
 }) {
   const classe =
-    "mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-marca-500 focus:ring-1 focus:ring-marca-500";
+    "mt-1.5 w-full rounded-lg border border-borda bg-superficie-2 px-3 py-2 text-sm text-texto outline-none transition-all duration-200 ease-expo placeholder:text-texto-fraco focus:border-marca focus:bg-superficie focus:ring-4 focus:ring-marca/12";
   return (
     <label className="block">
-      <span className="text-sm font-medium text-slate-700">{rotulo}</span>
+      <span className="text-xs font-medium uppercase tracking-rotulo text-texto-fraco">{rotulo}</span>
       {multiline ? (
         <textarea
-          className={`${classe} min-h-[5rem]`}
+          className={`${classe} min-h-[5.5rem] resize-y`}
           value={valor}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
@@ -159,20 +243,26 @@ export function Campo({
           onChange={(e) => onChange(e.target.value)}
         />
       )}
-      {ajuda && <span className="mt-1 block text-xs text-slate-400">{ajuda}</span>}
+      {ajuda && <span className="mt-1.5 block text-xs text-texto-fraco">{ajuda}</span>}
     </label>
   );
 }
 
 export function BarraScore({ valor }: { valor: number }) {
+  const reduzido = useReducedMotion();
   const pct = Math.max(0, Math.min(100, valor));
-  const cor = pct >= 60 ? "bg-emerald-500" : pct >= 35 ? "bg-amber-500" : "bg-slate-300";
+  const cor = pct >= 60 ? "bg-positivo" : pct >= 35 ? "bg-atencao" : "bg-texto-fraco";
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full ${cor}`} style={{ width: `${pct}%` }} />
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-superficie-3">
+        <motion.div
+          className={`h-full rounded-full ${cor}`}
+          initial={reduzido ? false : { width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.9, ease: EXPO }}
+        />
       </div>
-      <span className="tabular-nums text-xs text-slate-600">{pct.toFixed(0)}</span>
+      <span className="num text-xs font-medium text-texto-medio">{pct.toFixed(0)}</span>
     </div>
   );
 }
@@ -185,20 +275,52 @@ export function Aviso({
   children: ReactNode;
 }) {
   const estilos = {
-    info: "border-sky-200 bg-sky-50 text-sky-900",
-    erro: "border-rose-200 bg-rose-50 text-rose-900",
-    sucesso: "border-emerald-200 bg-emerald-50 text-emerald-900",
-    atencao: "border-amber-200 bg-amber-50 text-amber-900",
+    info: "border-acento/25 bg-acento/8 text-texto",
+    erro: "border-perigo/30 bg-perigo-fraco text-perigo",
+    sucesso: "border-positivo/30 bg-positivo-fraco text-positivo",
+    atencao: "border-atencao/30 bg-atencao-fraco text-atencao",
   }[tom];
   return (
-    <div className={`rounded-lg border px-4 py-3 text-sm ${estilos}`}>{children}</div>
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={RAPIDO}
+      className={`rounded-xl border px-4 py-3 text-sm ${estilos}`}
+    >
+      {children}
+    </motion.div>
   );
 }
 
 export function Vazio({ children }: { children: ReactNode }) {
-  return <p className="py-8 text-center text-sm text-slate-400">{children}</p>;
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
+      className="flex flex-col items-center gap-3 py-10 text-center"
+    >
+      <svg viewBox="0 0 48 48" className="h-9 w-9 text-texto-fraco/40" fill="none" aria-hidden>
+        <circle cx="21" cy="21" r="12" stroke="currentColor" strokeWidth="2.5" />
+        <path d="M30 30l9 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+      <p className="max-w-sm text-sm text-texto-fraco">{children}</p>
+    </motion.div>
+  );
 }
 
-export function Carregando() {
-  return <p className="py-8 text-center text-sm text-slate-400">carregando...</p>;
+export function Carregando({ linhas = 3 }: { linhas?: number }) {
+  return (
+    <div className="space-y-3 py-6" role="status" aria-label="Carregando">
+      <Esqueleto className="h-8 w-40" />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Esqueleto key={i} className="h-20" arredondado="rounded-xl" />
+        ))}
+      </div>
+      {Array.from({ length: linhas }).map((_, i) => (
+        <Esqueleto key={i} className="h-4 w-full" />
+      ))}
+    </div>
+  );
 }

@@ -108,7 +108,7 @@ export default function Campanhas({ nivel }: { nivel: string }) {
         }
       >
         {criando && (
-          <div className="mb-5 space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-5 space-y-3 rounded-lg border border-borda bg-superficie-2 p-4">
             <Campo rotulo="Nome" valor={nome} onChange={setNome} placeholder="Climatização — hotéis" />
             <Campo
               rotulo="Serviço"
@@ -126,7 +126,7 @@ export default function Campanhas({ nivel }: { nivel: string }) {
 
         <div className="flex flex-wrap items-center gap-2">
           <select
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm"
+            className="rounded-lg border border-borda bg-superficie-2 px-3 py-1.5 text-sm text-texto outline-none transition-colors focus:border-marca"
             value={selecionada ?? ""}
             onChange={(e) => {
               setSelecionada(e.target.value);
@@ -153,7 +153,7 @@ export default function Campanhas({ nivel }: { nivel: string }) {
             </Botao>
           )}
           {limites && (
-            <span className="ml-auto text-xs text-slate-500">
+            <span className="ml-auto text-xs text-texto-fraco">
               limite diário: {limites.restante_campanha} nesta campanha ·{" "}
               {limites.restante_usuario} na conta
             </span>
@@ -161,7 +161,7 @@ export default function Campanhas({ nivel }: { nivel: string }) {
         </div>
 
         {resultado && (
-          <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-4 text-sm md:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-superficie-2 p-4 text-sm md:grid-cols-4">
             <Metric rotulo="descobertos" valor={resultado.descobertos} />
             <Metric rotulo="duplicados" valor={resultado.duplicados} />
             <Metric rotulo="mensagens" valor={resultado.mensagens_geradas} />
@@ -179,7 +179,7 @@ export default function Campanhas({ nivel }: { nivel: string }) {
               </div>
             )}
             {Object.keys(resultado.motivos_bloqueio).length > 0 && (
-              <div className="col-span-full text-xs text-slate-500">
+              <div className="col-span-full text-xs text-texto-fraco">
                 bloqueios:{" "}
                 {Object.entries(resultado.motivos_bloqueio)
                   .map(([k, v]) => `${k.replace(/_/g, " ")} (${v})`)
@@ -194,10 +194,10 @@ export default function Campanhas({ nivel }: { nivel: string }) {
         {leads.length === 0 ? (
           <Vazio>Nenhum lead ainda. Rode a campanha.</Vazio>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase text-slate-500">
-                <tr className="border-b border-slate-100">
+          <div className="-mx-5 overflow-x-auto px-5">
+            <table className="w-full min-w-[46rem] text-sm">
+              <thead className="text-left text-[10px] uppercase tracking-rotulo text-texto-fraco">
+                <tr className="border-b border-borda">
                   <th className="py-2 pr-3">Empresa</th>
                   <th className="py-2 pr-3">CNPJ</th>
                   <th className="py-2 pr-3">Cidade</th>
@@ -209,22 +209,22 @@ export default function Campanhas({ nivel }: { nivel: string }) {
               </thead>
               <tbody>
                 {leads.map((l) => (
-                  <tr key={l.id} className="border-b border-slate-50">
-                    <td className="py-2 pr-3 font-medium text-slate-900">
+                  <tr key={l.id} className="border-b border-borda transition-colors duration-150 hover:bg-superficie-2">
+                    <td className="max-w-[16rem] truncate py-2.5 pr-3 font-medium text-texto" title={l.razao_social ?? l.nome_fantasia ?? ""}>
                       {l.razao_social ?? l.nome_fantasia}
                     </td>
-                    <td className="py-2 pr-3 font-mono text-xs text-slate-500">{l.cnpj ?? "—"}</td>
-                    <td className="py-2 pr-3 text-slate-500">
+                    <td className="num whitespace-nowrap py-2.5 pr-3 text-xs text-texto-fraco">{l.cnpj ?? "—"}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-texto-fraco">
                       {l.municipio ?? "—"}/{l.uf ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 text-slate-500">{l.email ?? "—"}</td>
-                    <td className="py-2 pr-3">
+                    <td className="max-w-[14rem] truncate py-2.5 pr-3 text-texto-fraco">{l.email ?? "—"}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3">
                       <BarraScore valor={Number(l.score)} />
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="whitespace-nowrap py-2.5 pr-3">
                       <Badge tom={l.status}>{l.status}</Badge>
                     </td>
-                    <td className="py-2 text-right">
+                    <td className="whitespace-nowrap py-2.5 text-right">
                       <Botao variante="fantasma" tamanho="sm" onClick={() => setDetalhe(l)}>
                         por quê?
                       </Botao>
@@ -245,11 +245,11 @@ export default function Campanhas({ nivel }: { nivel: string }) {
         ) : (
           <div className="space-y-3">
             {mensagens.map((m) => (
-              <article key={m.id} className="rounded-lg border border-slate-200 p-4">
+              <article key={m.id} className="rounded-lg border border-borda p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-medium text-slate-900">{m.destinatario}</span>
+                  <span className="text-sm font-medium text-texto">{m.destinatario}</span>
                   <Badge tom={m.status}>{m.status}</Badge>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-texto-fraco">
                     {m.tokens_entrada + m.tokens_saida} tokens
                   </span>
                   {m.status === "aguardando_aprovacao" && (
@@ -268,8 +268,8 @@ export default function Campanhas({ nivel }: { nivel: string }) {
                     </span>
                   )}
                 </div>
-                <p className="mb-1 text-xs font-medium text-slate-500">{m.assunto}</p>
-                <p className="whitespace-pre-line text-sm text-slate-600">{m.corpo}</p>
+                <p className="mb-1 text-xs font-medium text-texto-fraco">{m.assunto}</p>
+                <p className="whitespace-pre-line text-sm text-texto-medio">{m.corpo}</p>
               </article>
             ))}
           </div>
@@ -282,8 +282,8 @@ export default function Campanhas({ nivel }: { nivel: string }) {
 function Metric({ rotulo, valor }: { rotulo: string; valor: number }) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-wide text-slate-500">{rotulo}</div>
-      <div className="text-xl font-semibold tabular-nums text-slate-900">{valor}</div>
+      <div className="text-xs uppercase tracking-wide text-texto-fraco">{rotulo}</div>
+      <div className="text-xl font-semibold tabular-nums text-texto">{valor}</div>
     </div>
   );
 }
@@ -296,19 +296,19 @@ function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }
 
   return (
     <div
-      className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4"
+      className="fixed inset-0 z-20 flex items-center justify-center bg-texto-fraco/40 p-4"
       onClick={aoFechar}
     >
       <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
+        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-borda bg-superficie p-6 shadow-3"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">
+            <h3 className="text-lg font-semibold text-texto">
               {lead.razao_social ?? lead.nome_fantasia}
             </h3>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-texto-fraco">
               Por que este lead apareceu e por que recebeu esta nota
             </p>
           </div>
@@ -319,24 +319,24 @@ function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }
 
         {b.explicacao && <Aviso tom="info">{b.explicacao}</Aviso>}
 
-        <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
           Composição do score
         </h4>
         <div className="space-y-1.5">
           {componentes.map(([nome, valor]) => (
             <div key={nome} className="flex items-center gap-3 text-sm">
-              <span className="w-40 shrink-0 text-slate-600">{nome.replace(/_/g, " ")}</span>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full bg-marca-500" style={{ width: `${valor * 100}%` }} />
+              <span className="w-40 shrink-0 text-texto-medio">{nome.replace(/_/g, " ")}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-superficie-3">
+                <div className="h-full bg-marca" style={{ width: `${valor * 100}%` }} />
               </div>
-              <span className="w-24 text-right tabular-nums text-xs text-slate-500">
+              <span className="w-24 text-right tabular-nums text-xs text-texto-fraco">
                 {(valor * 100).toFixed(0)}% → {(contribuicoes[nome] ?? 0).toFixed(1)} pts
               </span>
             </div>
           ))}
         </div>
 
-        <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <h4 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
           Origem do dado (LGPD)
         </h4>
         <dl className="grid grid-cols-2 gap-2 text-sm">
@@ -344,8 +344,8 @@ function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFechar: () => void }
             .filter(([, v]) => typeof v === "string")
             .map(([k, v]) => (
               <div key={k}>
-                <dt className="text-xs text-slate-400">{k.replace(/_/g, " ")}</dt>
-                <dd className="text-slate-700">{String(v)}</dd>
+                <dt className="text-xs text-texto-fraco">{k.replace(/_/g, " ")}</dt>
+                <dd className="text-texto-medio">{String(v)}</dd>
               </div>
             ))}
         </dl>

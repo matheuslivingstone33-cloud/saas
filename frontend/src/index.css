@@ -2,10 +2,269 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* ===========================================================================
+   SISTEMA DE TOKENS
+   Um unico conjunto de nomes, dois temas. Nenhum componente conhece cor
+   literal: tudo passa por variavel. Trocar de tema nao re-renderiza React,
+   so troca o atributo data-tema no <html>.
+
+   Os valores sao canais RGB separados por espaco para o Tailwind conseguir
+   aplicar opacidade (bg-superficie/50 funciona).
+   =========================================================================== */
+
+:root,
+[data-tema="claro"] {
   color-scheme: light;
+
+  --cor-fundo: 252 252 253;
+  --cor-superficie: 255 255 255;
+  --cor-superficie-2: 246 246 248;
+  --cor-superficie-3: 240 240 243;
+  --cor-borda: 226 226 232;
+  --cor-borda-forte: 203 203 213;
+
+  --cor-texto: 24 24 27;
+  --cor-texto-medio: 82 82 91;
+  --cor-texto-fraco: 140 140 152;
+
+  --cor-marca: 109 62 245;
+  --cor-marca-forte: 88 44 220;
+  --cor-marca-fraca: 243 239 255;
+  --cor-acento: 8 145 178;
+
+  --cor-positivo: 5 150 105;
+  --cor-positivo-fraco: 236 253 245;
+  --cor-atencao: 180 83 9;
+  --cor-atencao-fraco: 255 251 235;
+  --cor-perigo: 225 29 72;
+  --cor-perigo-fraco: 255 241 242;
+  --cor-neutro-fraco: 244 244 246;
+
+  --sombra-1: 0 1px 2px rgb(9 9 11 / 0.05);
+  --sombra-2: 0 4px 12px -2px rgb(9 9 11 / 0.08), 0 2px 4px -2px rgb(9 9 11 / 0.04);
+  --sombra-3: 0 16px 40px -12px rgb(9 9 11 / 0.16);
+  --brilho-marca: 0 0 0 0 transparent;
+  --vidro: 255 255 255;
 }
 
-body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+[data-tema="escuro"] {
+  color-scheme: dark;
+
+  --cor-fundo: 10 10 12;
+  --cor-superficie: 19 19 23;
+  --cor-superficie-2: 26 26 32;
+  --cor-superficie-3: 34 34 41;
+  --cor-borda: 39 39 47;
+  --cor-borda-forte: 60 60 71;
+
+  --cor-texto: 244 244 245;
+  --cor-texto-medio: 161 161 170;
+  --cor-texto-fraco: 113 113 122;
+
+  --cor-marca: 139 108 255;
+  --cor-marca-forte: 160 135 255;
+  --cor-marca-fraca: 30 24 56;
+  --cor-acento: 34 211 238;
+
+  --cor-positivo: 52 211 153;
+  --cor-positivo-fraco: 6 43 33;
+  --cor-atencao: 251 191 36;
+  --cor-atencao-fraco: 47 34 6;
+  --cor-perigo: 251 113 133;
+  --cor-perigo-fraco: 51 15 25;
+  --cor-neutro-fraco: 32 32 38;
+
+  --sombra-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --sombra-2: 0 4px 16px -2px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+  --sombra-3: 0 20px 50px -12px rgb(0 0 0 / 0.7);
+  --brilho-marca: 0 0 32px -8px rgb(139 108 255 / 0.5);
+  --vidro: 19 19 23;
+}
+
+/* Sem escolha salva, segue o sistema operacional. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema]) {
+    color-scheme: dark;
+
+    --cor-fundo: 10 10 12;
+    --cor-superficie: 19 19 23;
+    --cor-superficie-2: 26 26 32;
+    --cor-superficie-3: 34 34 41;
+    --cor-borda: 39 39 47;
+    --cor-borda-forte: 60 60 71;
+
+    --cor-texto: 244 244 245;
+    --cor-texto-medio: 161 161 170;
+    --cor-texto-fraco: 113 113 122;
+
+    --cor-marca: 139 108 255;
+    --cor-marca-forte: 160 135 255;
+    --cor-marca-fraca: 30 24 56;
+    --cor-acento: 34 211 238;
+
+    --cor-positivo: 52 211 153;
+    --cor-positivo-fraco: 6 43 33;
+    --cor-atencao: 251 191 36;
+    --cor-atencao-fraco: 47 34 6;
+    --cor-perigo: 251 113 133;
+    --cor-perigo-fraco: 51 15 25;
+    --cor-neutro-fraco: 32 32 38;
+
+    --sombra-1: 0 1px 2px rgb(0 0 0 / 0.4);
+    --sombra-2: 0 4px 16px -2px rgb(0 0 0 / 0.5), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+    --sombra-3: 0 20px 50px -12px rgb(0 0 0 / 0.7);
+    --brilho-marca: 0 0 32px -8px rgb(139 108 255 / 0.5);
+    --vidro: 19 19 23;
+  }
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--cor-borda));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: rgb(var(--cor-fundo));
+    color: rgb(var(--cor-texto));
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /*
+    Troca de tema e INSTANTANEA, de proposito.
+
+    Animar a troca exigiria transicionar cor de fundo, borda e texto de TODO
+    elemento em sincronia. Se so o body anima, existe um intervalo em que o
+    texto ja e escuro e o cartao ainda e escuro — conteudo invisivel no meio da
+    transicao. Congelar as transicoes durante o swap evita isso por completo.
+  */
+  [data-trocando-tema] *,
+  [data-trocando-tema] *::before,
+  [data-trocando-tema] *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Numero em tabela e KPI nunca "dansa" ao mudar de valor. */
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--cor-marca));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--cor-marca) / 0.25);
+  }
+
+  /* Barra de rolagem discreta, coerente com o tema. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--cor-borda-forte));
+    border: 3px solid rgb(var(--cor-fundo));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--cor-texto-fraco));
+  }
+}
+
+@layer components {
+  /* Superficie de vidro usada no cabecalho fixo. */
+  .vidro {
+    background-color: rgb(var(--vidro) / 0.72);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+  }
+
+  /* Fio de luz no topo dos cartoes — some no tema claro. */
+  .realce-topo {
+    position: relative;
+  }
+  .realce-topo::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(255 255 255 / 0.08) 20%,
+      rgb(255 255 255 / 0.14) 50%,
+      rgb(255 255 255 / 0.08) 80%,
+      transparent
+    );
+    opacity: 0;
+    pointer-events: none;
+  }
+  [data-tema="escuro"] .realce-topo::before {
+    opacity: 1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tema]) .realce-topo::before {
+      opacity: 1;
+    }
+  }
+
+  /* Brilho de fundo do cabecalho da aplicacao. */
+  .aura {
+    position: absolute;
+    pointer-events: none;
+    border-radius: 999px;
+    filter: blur(80px);
+    opacity: 0.28;
+    background: radial-gradient(
+      circle,
+      rgb(var(--cor-marca)) 0%,
+      rgb(var(--cor-acento) / 0.4) 45%,
+      transparent 70%
+    );
+  }
+
+  .cintilar {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--cor-superficie-2)) 25%,
+      rgb(var(--cor-superficie-3)) 37%,
+      rgb(var(--cor-superficie-2)) 63%
+    );
+    background-size: 400% 100%;
+    animation: cintilar 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes cintilar {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Quem pediu menos movimento recebe menos movimento — sem excecao. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

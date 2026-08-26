@@ -84,7 +84,7 @@ export default function Creditos({ aoMudar }: { aoMudar: () => void }) {
       {saldo.bloqueado && <Aviso tom="erro">Consumo bloqueado: {saldo.motivo_bloqueio}</Aviso>}
 
       <Card titulo="Planos — quanto de token cada um entrega">
-        <p className="mb-4 text-sm text-slate-600">{vitrine.observacao}</p>
+        <p className="mb-4 text-sm text-texto-medio">{vitrine.observacao}</p>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {vitrine.planos.map((p) => (
             <PlanoCard
@@ -96,7 +96,7 @@ export default function Creditos({ aoMudar }: { aoMudar: () => void }) {
             />
           ))}
         </div>
-        <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
+        <div className="mt-4 flex flex-wrap gap-4 text-xs text-texto-fraco">
           {Object.entries(vitrine.custo_em_creditos).map(([op, custo]) => (
             <span key={op}>
               {op.replace(/_/g, " ")}: <strong>{custo} crédito(s)</strong>
@@ -108,13 +108,13 @@ export default function Creditos({ aoMudar }: { aoMudar: () => void }) {
       <Card titulo="Recarga avulsa">
         <div className="grid gap-4 md:grid-cols-3">
           {vitrine.pacotes_avulsos.map((p) => (
-            <div key={p.codigo} className="rounded-lg border border-slate-200 p-4">
-              <div className="font-medium text-slate-900">{p.nome}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
+            <div key={p.codigo} className="rounded-lg border border-borda p-4">
+              <div className="font-medium text-texto">{p.nome}</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-texto">
                 {p.creditos}
-                <span className="ml-1 text-sm font-normal text-slate-500">créditos</span>
+                <span className="ml-1 text-sm font-normal text-texto-fraco">créditos</span>
               </div>
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-texto-fraco">
                 {moeda(p.preco_reais)} · {moeda(p.centavos_por_credito / 100)}/crédito
               </div>
               <div className="mt-3">
@@ -133,8 +133,8 @@ export default function Creditos({ aoMudar }: { aoMudar: () => void }) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-xs uppercase text-slate-500">
-                <tr className="border-b border-slate-100">
+              <thead className="text-left text-xs uppercase text-texto-fraco">
+                <tr className="border-b border-borda">
                   <th className="py-2 pr-3">Quando</th>
                   <th className="py-2 pr-3">Tipo</th>
                   <th className="py-2 pr-3">Descrição</th>
@@ -144,23 +144,23 @@ export default function Creditos({ aoMudar }: { aoMudar: () => void }) {
               </thead>
               <tbody>
                 {extrato.itens.map((i) => (
-                  <tr key={i.id} className="border-b border-slate-50">
-                    <td className="py-2 pr-3 text-xs text-slate-500">
+                  <tr key={i.id} className="border-b border-borda">
+                    <td className="py-2 pr-3 text-xs text-texto-fraco">
                       {dataHora(i.created_at)}
                     </td>
                     <td className="py-2 pr-3">
                       <Badge>{i.tipo}</Badge>
                     </td>
-                    <td className="py-2 pr-3 text-slate-600">{i.descricao ?? "—"}</td>
+                    <td className="py-2 pr-3 text-texto-medio">{i.descricao ?? "—"}</td>
                     <td
                       className={`py-2 pr-3 text-right tabular-nums ${
-                        i.quantidade < 0 ? "text-rose-700" : "text-emerald-700"
+                        i.quantidade < 0 ? "text-perigo" : "text-positivo"
                       }`}
                     >
                       {i.quantidade > 0 ? "+" : ""}
                       {i.quantidade}
                     </td>
-                    <td className="py-2 text-right tabular-nums text-slate-700">{i.saldo_apos}</td>
+                    <td className="py-2 text-right tabular-nums text-texto-medio">{i.saldo_apos}</td>
                   </tr>
                 ))}
               </tbody>
@@ -187,29 +187,29 @@ function PlanoCard({
   return (
     <div
       className={`rounded-lg border p-4 ${
-        atual ? "border-marca-500 ring-1 ring-marca-500" : "border-slate-200"
+        atual ? "border-marca ring-1 ring-marca" : "border-borda"
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="font-medium text-slate-900">{plano.nome}</span>
+        <span className="font-medium text-texto">{plano.nome}</span>
         {atual && <Badge tom="convertido">atual</Badge>}
       </div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900">
+      <div className="mt-1 text-2xl font-semibold text-texto">
         {moeda(plano.preco_reais)}
-        <span className="text-sm font-normal text-slate-500">/mês</span>
+        <span className="text-sm font-normal text-texto-fraco">/mês</span>
       </div>
 
       {eq && (
-        <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs">
-          <div className="font-medium text-slate-700">{tokens(eq.tokens_mes)} tokens/mês</div>
-          <div className="mt-0.5 text-slate-500">
+        <div className="mt-3 rounded-md bg-superficie-2 p-3 text-xs">
+          <div className="font-medium text-texto-medio">{tokens(eq.tokens_mes)} tokens/mês</div>
+          <div className="mt-0.5 text-texto-fraco">
             ≈ {numero(eq.leads_estimados)} leads · {numero(eq.tokens_por_lead)} tokens por lead
           </div>
-          <div className="mt-1 text-[11px] text-slate-400">{eq.aviso}</div>
+          <div className="mt-1 text-[11px] text-texto-fraco">{eq.aviso}</div>
         </div>
       )}
 
-      <ul className="mt-3 space-y-1 text-xs text-slate-600">
+      <ul className="mt-3 space-y-1 text-xs text-texto-medio">
         {plano.destaques.map((d) => (
           <li key={d}>· {d}</li>
         ))}

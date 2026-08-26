@@ -60,16 +60,16 @@ export default function Onboarding({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2 text-xs text-texto-fraco">
         {["Seu serviço", "O que o Cérebro entendeu", "Nível de autonomia"].map((t, i) => (
           <span
             key={t}
             className={`rounded-full px-3 py-1 ${
               passo === i + 1
-                ? "bg-marca-500 text-white"
+                ? "bg-marca text-white"
                 : passo > i + 1
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-slate-100 text-slate-500"
+                  ? "bg-positivo-fraco text-positivo"
+                  : "bg-superficie-3 text-texto-fraco"
             }`}
           >
             {i + 1}. {t}
@@ -103,17 +103,17 @@ export default function Onboarding({
 
       {passo === 2 && previa && (
         <Card titulo="Passo 2 — quem compra o seu serviço">
-          <p className="mb-4 text-sm text-slate-600">{previa.justificativa}</p>
+          <p className="mb-4 text-sm text-texto-medio">{previa.justificativa}</p>
 
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
             Ramos que vamos procurar
           </h3>
           <ul className="mb-5 space-y-1.5">
             {previa.ramos.map((r) => (
               <li key={r.codigo} className="flex items-center gap-3 text-sm">
-                <span className="w-16 shrink-0 font-mono text-xs text-slate-400">{r.codigo}</span>
-                <span className="flex-1 text-slate-700">{r.descricao}</span>
-                <span className="tabular-nums text-xs text-slate-400">
+                <span className="w-16 shrink-0 font-mono text-xs text-texto-fraco">{r.codigo}</span>
+                <span className="flex-1 text-texto-medio">{r.descricao}</span>
+                <span className="tabular-nums text-xs text-texto-fraco">
                   aderência {(r.peso * 100).toFixed(0)}%
                 </span>
               </li>
@@ -129,12 +129,12 @@ export default function Onboarding({
           )}
 
           <div className="mt-4">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
               Termos de busca
             </h3>
             <div className="flex flex-wrap gap-1.5">
               {previa.termos.map((t) => (
-                <span key={t} className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
+                <span key={t} className="rounded bg-superficie-3 px-2 py-0.5 text-xs text-texto-medio">
                   {t}
                 </span>
               ))}
@@ -176,13 +176,13 @@ export default function Onboarding({
                 onClick={() => setNivel(opcao.valor)}
                 className={`rounded-lg border p-4 text-left transition ${
                   nivel === opcao.valor
-                    ? "border-marca-500 bg-marca-50 ring-1 ring-marca-500"
-                    : "border-slate-200 hover:border-slate-300"
+                    ? "border-marca bg-marca-fraca ring-1 ring-marca"
+                    : "border-borda hover:border-borda-forte"
                 }`}
               >
-                <div className="font-medium text-slate-900">{opcao.titulo}</div>
-                <p className="mt-1 text-sm text-slate-600">{opcao.descricao}</p>
-                <p className="mt-2 text-xs text-slate-400">{opcao.para}</p>
+                <div className="font-medium text-texto">{opcao.titulo}</div>
+                <p className="mt-1 text-sm text-texto-medio">{opcao.descricao}</p>
+                <p className="mt-2 text-xs text-texto-fraco">{opcao.para}</p>
               </button>
             ))}
           </div>

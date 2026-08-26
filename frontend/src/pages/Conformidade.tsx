@@ -41,44 +41,44 @@ export default function Conformidade() {
       </Aviso>
 
       <Card titulo="Avaliação de Legítimo Interesse (LIA)">
-        <p className="text-sm text-slate-600">{String(lia.finalidade)}</p>
+        <p className="text-sm text-texto-medio">{String(lia.finalidade)}</p>
 
-        <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
           Balanceamento
         </h3>
         <dl className="space-y-2 text-sm">
           {Object.entries(balanceamento).map(([chave, valor]) => (
             <div key={chave}>
-              <dt className="text-xs uppercase text-slate-400">{chave}</dt>
-              <dd className="text-slate-700">{valor}</dd>
+              <dt className="text-xs uppercase text-texto-fraco">{chave}</dt>
+              <dd className="text-texto-medio">{valor}</dd>
             </div>
           ))}
         </dl>
 
         <div className="mt-5 grid gap-5 md:grid-cols-2">
           <div>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
               Salvaguardas ({salvaguardas.length})
             </h3>
-            <ul className="space-y-1 text-sm text-slate-600">
+            <ul className="space-y-1 text-sm text-texto-medio">
               {salvaguardas.map((s) => (
                 <li key={s}>· {s}</li>
               ))}
             </ul>
           </div>
           <div>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
               Direitos do titular
             </h3>
-            <ul className="space-y-1 text-sm text-slate-600">
+            <ul className="space-y-1 text-sm text-texto-medio">
               {direitos.map((d) => (
                 <li key={d}>· {d}</li>
               ))}
             </ul>
-            <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-texto-fraco">
               Fontes de dados
             </h3>
-            <ul className="space-y-1 text-sm text-slate-600">
+            <ul className="space-y-1 text-sm text-texto-medio">
               {fontes.map((f) => (
                 <li key={f}>· {f}</li>
               ))}
@@ -86,10 +86,10 @@ export default function Conformidade() {
           </div>
         </div>
 
-        <p className="mt-5 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+        <p className="mt-5 rounded-md bg-superficie-2 p-3 text-sm text-texto-medio">
           {String(lia.conclusao)}
         </p>
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 text-xs text-texto-fraco">
           Hash do documento: <code>{String(lia.hash)}</code>
         </p>
       </Card>
@@ -99,8 +99,8 @@ export default function Conformidade() {
           <Vazio>Ninguém pediu descadastro ainda.</Vazio>
         ) : (
           <table className="w-full text-sm">
-            <thead className="text-left text-xs uppercase text-slate-500">
-              <tr className="border-b border-slate-100">
+            <thead className="text-left text-xs uppercase text-texto-fraco">
+              <tr className="border-b border-borda">
                 <th className="py-2 pr-3">Contato</th>
                 <th className="py-2 pr-3">Origem</th>
                 <th className="py-2">Quando</th>
@@ -108,10 +108,10 @@ export default function Conformidade() {
             </thead>
             <tbody>
               {optOuts.itens.map((o) => (
-                <tr key={o.contato} className="border-b border-slate-50">
-                  <td className="py-2 pr-3 text-slate-700">{o.contato}</td>
-                  <td className="py-2 pr-3 text-slate-500">{o.origem.replace(/_/g, " ")}</td>
-                  <td className="py-2 text-xs text-slate-400">
+                <tr key={o.contato} className="border-b border-borda">
+                  <td className="py-2 pr-3 text-texto-medio">{o.contato}</td>
+                  <td className="py-2 pr-3 text-texto-fraco">{o.origem.replace(/_/g, " ")}</td>
+                  <td className="py-2 text-xs text-texto-fraco">
                     {dataHora(o.registrado_em)}
                   </td>
                 </tr>
@@ -125,7 +125,7 @@ export default function Conformidade() {
         <ul className="space-y-2 text-sm">
           <li>
             <a
-              className="text-marca-600 underline"
+              className="text-marca-forte underline"
               href={`${import.meta.env.VITE_API_URL ?? "http://localhost:8000"}/legal/privacidade`}
               target="_blank"
               rel="noreferrer"
@@ -135,7 +135,7 @@ export default function Conformidade() {
           </li>
           <li>
             <a
-              className="text-marca-600 underline"
+              className="text-marca-forte underline"
               href={`${import.meta.env.VITE_API_URL ?? "http://localhost:8000"}/legal/ia`}
               target="_blank"
               rel="noreferrer"
