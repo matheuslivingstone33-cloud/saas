@@ -11,8 +11,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
+from app.api import estatico
 from app.api.routes import (
     billing,
     campaigns,
@@ -132,13 +133,17 @@ async def _provedor(_: Request, exc: ProviderNotConfigured) -> JSONResponse:
 
 # --- Rotas -------------------------------------------------------------------
 @app.get("/", tags=["sistema"], include_in_schema=False)
-def raiz() -> dict:
-    """Recepcao da API.
+def raiz():  # noqa: ANN201
+    """Raiz: a interface, se estiver compilada; senao, a recepcao da API.
 
-    Sem isto, abrir localhost:8000 no navegador devolve {"detail":"Not Found"},
-    que parece defeito e nao e: a interface vive na 5173 e conversa com /v1.
-    Quem chega aqui merece saber para onde ir.
+    Com `frontend/dist` presente, o app inteiro roda neste unico processo —
+    sem Vite, sem esbuild, sem CORS. Sem o build, quem abre localhost:8000
+    receberia {"detail":"Not Found"}, que parece defeito e nao e; entao
+    devolvemos um mapa do que existe aqui.
     """
+    dist = estatico.diretorio_da_interface()
+    if dist is not None:
+        return FileResponse(dist / "index.html", headers={"Cache-Control": "no-store"})
     return {
         "app": settings.app_name,
         "versao": "0.1.0",
@@ -167,3 +172,6 @@ app.include_router(compliance.publico)
 app.include_router(leads.router, prefix=settings.api_prefix)
 app.include_router(messages.router, prefix=settings.api_prefix)
 app.include_router(stream.router, prefix=settings.api_prefix)
+
+# Por ULTIMO: o coringa de SPA so pode ver o que nenhuma rota de API pegou.
+estatico.montar(app)
