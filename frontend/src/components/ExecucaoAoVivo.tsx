@@ -107,14 +107,29 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
           return;
         }
         if (etapa === "erro") setErro(String(dados.detalhe ?? "falha na execução"));
-        empurrar(etapa, dados);
+        // "aberto" e handshake de protocolo — nao diz nada ao usuario.
+        if (etapa !== "aberto") empurrar(etapa, dados);
       });
     }
 
     fonte.onerror = () => {
       // Chega aqui quando o servidor fecha OU a conexao cai. Em ambos os casos
       // fechamos: reabrir custaria outra execucao paga.
+      //
+      // O EventSource NAO expoe o codigo HTTP ao JavaScript. Entao, quando o
+      // servidor recusa com 409 (campanha ja rodando, ou o intervalo minimo
+      // entre execucoes), tudo o que chega aqui e "erro" — sem nenhum evento
+      // antes. Silencio nessa hora parece defeito; o usuario merece o motivo.
       if (!encerrado) {
+        setEventos((atual) => {
+          if (atual.length === 0) {
+            setErro(
+              "Não foi possível iniciar agora. A campanha pode já estar rodando " +
+                "ou ter rodado há poucos segundos — aguarde um momento e tente de novo.",
+            );
+          }
+          return atual;
+        });
         encerrar();
         aoTerminarRef.current();
       }
@@ -172,6 +187,12 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
             <Metrica rotulo="mensagens" valor={redigidas} />
           </div>
         </header>
+
+        {erro && (
+          <div className="border-b border-perigo/30 bg-perigo-fraco px-5 py-3 text-sm text-perigo">
+            {erro}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <ol className="relative space-y-2.5 border-l border-borda pl-5">
@@ -391,7 +412,14 @@ function Corpo({ etapa, dados }: { etapa: string; dados: Record<string, unknown>
     case "fim":
       return <span className="text-sm text-texto-medio">campanha encerrada</span>;
 
-    default:
-      return <span className="text-sm text-texto-fraco">{JSON.stringify(dados).slice(0, 120)}</span>;
+    default: {
+      // Etapa que a interface ainda nao conhece: mostra os campos de forma
+      // legivel em vez de despejar JSON na cara do usuario.
+      const resumo = Object.entries(dados)
+        .filter(([, v]) => v !== null && typeof v !== "object")
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .join(" · ");
+      return <span className="text-sm text-texto-fraco">{resumo || etapa}</span>;
+    }
   }
 }

@@ -131,6 +131,25 @@ async def _provedor(_: Request, exc: ProviderNotConfigured) -> JSONResponse:
 
 
 # --- Rotas -------------------------------------------------------------------
+@app.get("/", tags=["sistema"], include_in_schema=False)
+def raiz() -> dict:
+    """Recepcao da API.
+
+    Sem isto, abrir localhost:8000 no navegador devolve {"detail":"Not Found"},
+    que parece defeito e nao e: a interface vive na 5173 e conversa com /v1.
+    Quem chega aqui merece saber para onde ir.
+    """
+    return {
+        "app": settings.app_name,
+        "versao": "0.1.0",
+        "descricao": "API do Prospector AI. A interface roda separada, na porta 5173.",
+        "documentacao": "/docs",
+        "saude": "/health",
+        "provedores": f"{settings.api_prefix}/providers",
+        "tudo_mock": settings.is_all_mock(),
+    }
+
+
 @app.get("/health", tags=["sistema"])
 def health_raiz() -> dict:
     """Liveness na raiz — usado pelo HEALTHCHECK do container."""
