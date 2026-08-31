@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 1 concluída
+**Última atualização:** 2026-08-31 · Etapa 2 concluída
 
 ---
 
@@ -46,8 +46,9 @@ impulsionar as vendas de verdade. Dois botões:
 - Abaixo, um chat com a IA.
 
 Roteiro da conversa:
-1. **Autônomo ou empresa?** — essa pergunta é triagem, não formalidade: o MVP é
-   B2B e não prospecta PF desconhecida.
+1. **Autônomo ou empresa?** — a pergunta personaliza o que vem depois; ela não
+   desqualifica ninguém. Um refrigerista autônomo é cliente ideal. O guardrail
+   B2B vale para quem é PROSPECTADO (só PJ), não para quem usa o produto.
 2. Se **autônomo**: "me conta em uma ou duas linhas o que o seu negócio faz"
 3. Se **empresa**: pergunta o nome, depois "me conta em uma ou duas linhas o que
    a {nome_empresa} faz?"
@@ -136,8 +137,8 @@ ordem da jornada do usuário.
 |---|---|---|
 | 0 | **Este handoff** | ✅ feito |
 | 1 | **Navegação nova** — Busca / Descoberta / Conversas | ✅ feito |
-| 2 | **Landing page + onboarding por chat** | ⏳ próximo |
-| 3 | **Conversas / Motor 4** — o motor de conversa | ⏸️ aguardando |
+| 2 | **Landing page + onboarding por chat** | ✅ feito |
+| 3 | **Conversas / Motor 4** — o motor de conversa | ⏳ próximo |
 
 ### O que a Etapa 1 entregou
 
@@ -154,6 +155,31 @@ ordem da jornada do usuário.
 - **`scripts/limpar_demo.py`** — devolve o banco ao estado de seed preservando
   usuário, CNAEs e **opt-outs** (apagar opt-out para limpar demo seria voltar a
   contatar quem pediu para não ser contatado).
+
+### O que a Etapa 2 entregou
+
+- **Landing** (`pages/Landing.tsx`) — herói, "como funciona" em 3 passos, quatro
+  provas concretas e chamada final. Dois botões: "Usar de forma gratuita" e
+  "Suporte". Nenhum número inventado: prova social falsa em produto novo é o
+  jeito mais rápido de perder o cliente na primeira tela.
+- **Onboarding por chat** (`pages/OnboardingChat.tsx`) — o roteiro combinado:
+  autônomo/empresa → nome → "o que a {empresa} faz?" → região → **a IA mostra os
+  ramos que vai procurar** (vindos de `/v1/cerebro/expandir`, não de texto
+  ensaiado) → escolha da autonomia. Se o entendimento estiver errado, o usuário
+  corrige antes de gastar consulta paga.
+- **Painel de suporte** — diz que o WhatsApp com IA **ainda não está no ar**.
+  Botão de suporte que abre vazio queima confiança exatamente quando a pessoa
+  precisou de ajuda.
+- **Entrada em `localStorage`** (`prospector:entrou`) — não é autenticação, é
+  memória de navegação. "Ver a página inicial" no menu da conta volta para a
+  landing.
+
+### Achado da Etapa 2
+
+`onboarding_completo` é **derivado** no backend (`empresa AND servico_padrao`),
+não um campo gravável. O chat chegou a enviá-lo no `PATCH /v1/me` — código morto
+com cara de funcional. Removido: o que conclui o onboarding é preencher os dois
+campos.
 
 ### Dois defeitos reais corrigidos no caminho
 

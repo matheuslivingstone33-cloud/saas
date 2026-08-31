@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type NivelAutonomia, type Perfil } from "./lib/api";
-import { Aviso, Badge, Carregando } from "./components/ui";
+import { Aviso, Badge, Botao, Carregando } from "./components/ui";
 import { EXPO, paginaVariantes, useVariantes } from "./components/movimento";
 import Abertura, { useAbertura } from "./components/Abertura";
 import { ProvedorTema, TrocaTema } from "./components/tema";
 import Paleta, { usePaleta, type Comando } from "./components/Paleta";
-import Onboarding from "./pages/Onboarding";
+import Landing from "./pages/Landing";
+import OnboardingChat from "./pages/OnboardingChat";
 import Busca from "./pages/Busca";
 import Descoberta from "./pages/Descoberta";
 import Conversas from "./pages/Conversas";
@@ -73,6 +74,9 @@ const CONTA: { chave: Rota; rotulo: string }[] = [
 
 const TODAS: Rota[] = [...PRINCIPAIS.map((a) => a.chave), ...CONTA.map((a) => a.chave)];
 const CHAVE_CAMPANHA = "prospector:campanha";
+// Marca que o visitante ja passou da landing. Nao e autenticacao — e so
+// memoria de navegacao, para nao mostrar a pagina de venda a cada carregamento.
+const CHAVE_ENTROU = "prospector:entrou";
 
 function rotaAtual(): Rota {
   const hash = window.location.hash.replace("#/", "") as Rota;
@@ -94,6 +98,14 @@ function Aplicacao() {
   const [forcarOnboarding, setForcarOnboarding] = useState(false);
   const [versao, setVersao] = useState(0);
   const [menuConta, setMenuConta] = useState(false);
+  const [suporte, setSuporte] = useState(false);
+  const [entrou, setEntrou] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(CHAVE_ENTROU) === "1";
+    } catch {
+      return false;
+    }
+  });
   // A campanha em foco sobrevive ao recarregamento: sem isso, atualizar a
   // pagina na Descoberta jogaria o usuario de volta para a Busca.
   const [campanha, setCampanha] = useState<string | null>(() => {
@@ -128,6 +140,25 @@ function Aplicacao() {
   const irPara = useCallback((destino: Rota) => {
     window.location.hash = `#/${destino}`;
     setMenuConta(false);
+  }, []);
+
+  const entrar = useCallback(() => {
+    setEntrou(true);
+    try {
+      localStorage.setItem(CHAVE_ENTROU, "1");
+    } catch {
+      /* sem localStorage: a landing reaparece no proximo carregamento */
+    }
+  }, []);
+
+  const voltarParaLanding = useCallback(() => {
+    setEntrou(false);
+    setMenuConta(false);
+    try {
+      localStorage.removeItem(CHAVE_ENTROU);
+    } catch {
+      /* nada a fazer */
+    }
   }, []);
 
   const escolherCampanha = useCallback((id: string) => {
@@ -182,6 +213,16 @@ function Aplicacao() {
   ];
 
   if (abrindo) return <Abertura aoTerminar={() => setAberturaFechada(true)} />;
+  if (!entrou) {
+    return (
+      <>
+        <Landing aoComecar={entrar} aoSuporte={() => setSuporte(true)} />
+        <AnimatePresence>
+          {suporte && <PainelSuporte aoFechar={() => setSuporte(false)} />}
+        </AnimatePresence>
+      </>
+    );
+  }
   if (erro && !perfil)
     return (
       <div className="mx-auto max-w-2xl p-8">
@@ -283,6 +324,7 @@ function Aplicacao() {
                 setMenuConta(false);
                 setForcarOnboarding(true);
               }}
+              verLanding={voltarParaLanding}
             />
           </div>
         </div>
@@ -312,7 +354,7 @@ function Aplicacao() {
             exit="saida"
           >
             {precisaOnboarding ? (
-              <Onboarding
+              <OnboardingChat
                 perfil={perfil}
                 aoConcluir={() => {
                   setForcarOnboarding(false);
@@ -363,6 +405,7 @@ function MenuConta({
   nivel,
   trocarAutonomia,
   refazerOnboarding,
+  verLanding,
 }: {
   perfil: Perfil;
   aberto: boolean;
@@ -371,6 +414,7 @@ function MenuConta({
   nivel: NivelAutonomia;
   trocarAutonomia: (n: NivelAutonomia) => void;
   refazerOnboarding: () => void;
+  verLanding: () => void;
 }) {
   const caixa = useRef<HTMLDivElement>(null);
 
@@ -482,6 +526,13 @@ function MenuConta({
               >
                 Refazer onboarding
               </button>
+              <button
+                role="menuitem"
+                onClick={verLanding}
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm text-texto-fraco transition-colors hover:bg-superficie-2 hover:text-texto"
+              >
+                Ver a página inicial
+              </button>
             </nav>
 
             <div className="border-t border-borda px-4 py-2">
@@ -493,5 +544,73 @@ function MenuConta({
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+
+/**
+ * Suporte.
+ *
+ * O plano e suporte por WhatsApp com IA — mandando audio, soando natural, para
+ * o cliente ver a qualidade da automacao na pratica. Isso ainda nao existe.
+ *
+ * Enquanto nao existe, a tela DIZ que nao existe. Um botao de suporte que abre
+ * um vazio, ou que promete atendimento que ninguem vai responder, queima
+ * confianca exatamente no momento em que a pessoa precisou de ajuda.
+ */
+function PainelSuporte({ aoFechar }: { aoFechar: () => void }) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-fundo/70 p-4 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={aoFechar}
+    >
+      <motion.div
+        role="dialog"
+        aria-label="Suporte"
+        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8 }}
+        transition={{ duration: 0.3, ease: EXPO }}
+        className="realce-topo w-full max-w-md rounded-2xl border border-borda bg-superficie p-6 shadow-3"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-positivo-fraco">
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-positivo" fill="currentColor" aria-hidden>
+              <path d="M12 2a10 10 0 0 0-8.7 15l-1.2 4.4 4.5-1.2A10 10 0 1 0 12 2zm0 2a8 8 0 1 1-4.2 14.8l-.3-.2-2.3.6.6-2.2-.2-.4A8 8 0 0 1 12 4z" />
+            </svg>
+          </span>
+          <div>
+            <h2 className="text-base font-semibold text-texto">Suporte por WhatsApp</h2>
+            <p className="text-xs text-texto-fraco">com um agente de IA</p>
+          </div>
+        </div>
+
+        <p className="mt-4 text-sm leading-relaxed text-texto-medio">
+          O suporte vai ser feito por IA no WhatsApp — respondendo por texto e por
+          áudio, para você ver na prática a qualidade da automação que o produto usa.
+        </p>
+
+        <div className="mt-4 rounded-xl border border-atencao/30 bg-atencao-fraco p-3">
+          <p className="text-sm text-atencao">
+            <strong>Ainda não está no ar.</strong> O canal será ligado junto com os
+            provedores reais. Não vamos abrir um número que ninguém atende.
+          </p>
+        </div>
+
+        <p className="mt-4 text-xs leading-relaxed text-texto-fraco">
+          Quando entrar, o agente vai se identificar como IA logo na primeira mensagem —
+          exigência do Marco da IA, e o que separa "nossa automação é boa" de um
+          problema jurídico.
+        </p>
+
+        <div className="mt-5 flex justify-end">
+          <Botao onClick={aoFechar}>entendi</Botao>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
