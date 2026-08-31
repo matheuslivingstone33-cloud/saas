@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { api, type Dashboard, type Provedores } from "../lib/api";
+import {
+  api,
+  type Dashboard,
+  type EstadoAprendizado,
+  type Provedores,
+  type RamoAprendido,
+} from "../lib/api";
 
 type Margem = Awaited<ReturnType<typeof api.margem>>;
 import { Aviso, Badge, Card, Carregando, Stat } from "../components/ui";
@@ -10,14 +16,16 @@ export default function Painel() {
   const [dados, setDados] = useState<Dashboard | null>(null);
   const [provedores, setProvedores] = useState<Provedores>({});
   const [margem, setMargem] = useState<Margem | null>(null);
+  const [aprendizado, setAprendizado] = useState<EstadoAprendizado | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.dashboard(), api.provedores(), api.margem()])
-      .then(([d, p, m]) => {
+    Promise.all([api.dashboard(), api.provedores(), api.margem(), api.pesos()])
+      .then(([d, p, m, a]) => {
         setDados(d);
         setProvedores(p.provedores);
         setMargem(m);
+        setAprendizado(a);
       })
       .catch((e) => setErro(String(e)));
   }, []);
@@ -161,6 +169,8 @@ export default function Painel() {
         </Card>
       )}
 
+      {aprendizado && <Mira estado={aprendizado} />}
+
       <Card titulo="Provedores">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {Object.entries(provedores).map(([nome, p]) => (
@@ -180,6 +190,89 @@ export default function Painel() {
           produção é feita um provedor por vez na Fase 7.
         </p>
       </Card>
+    </div>
+  );
+}
+
+
+/**
+ * A mira aprendida por ramo (Etapa 7).
+ *
+ * Esta tela existe por um motivo especifico: o sistema passou a inclinar a
+ * busca com base nas respostas que cada cliente recebe. Se ele deixa de trazer
+ * hoteis, a UNICA evidencia seria a ausencia de hoteis na lista — e ausencia
+ * nao aparece em lugar nenhum. Aprendizado invisivel e indistinguivel de
+ * supersticao, entao ele fica aqui, com o numero de respostas que o produziu.
+ */
+function Mira({ estado }: { estado: EstadoAprendizado }) {
+  const ramos = estado.mira;
+
+  return (
+    <Card titulo="A mira — o que as respostas ensinaram">
+      {ramos.length === 0 ? (
+        <p className="text-sm text-texto-medio">
+          Nenhuma resposta registrada ainda. Conforme os leads respondem, cada ramo ganha um
+          fator próprio <strong>para a sua empresa</strong>: quem responde sobe, quem pede
+          descadastro desce. Os ramos vêm do Cérebro e valem para todo mundo; isto é o que só o
+          seu histórico sabe.
+        </p>
+      ) : (
+        <>
+          <div className="space-y-3">
+            {ramos.map((r) => (
+              <LinhaDoRamo key={r.cnae} ramo={r} />
+            ))}
+          </div>
+          <p className="mt-4 text-xs text-texto-fraco">
+            O fator multiplica o peso do Cérebro e anda entre 0,5 e 1,5 — ele inclina a busca,
+            nunca apaga um ramo. São necessárias 20 respostas de um ramo antes do primeiro
+            ajuste: com três, o que parece padrão ainda é acaso.
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function LinhaDoRamo({ ramo }: { ramo: RamoAprendido }) {
+  const acima = ramo.fator > 1.001;
+  const abaixo = ramo.fator < 0.999;
+  const rotulo = acima ? "mira reforçada" : abaixo ? "mira reduzida" : "sem ajuste ainda";
+  const cor = acima ? "text-positivo" : abaixo ? "text-atencao" : "text-texto-fraco";
+  // 0,5 -> 0% e 1,5 -> 100%: o centro da barra e o peso original do Cerebro.
+  const posicao = Math.min(100, Math.max(0, ((ramo.fator - 0.5) / 1.0) * 100));
+
+  return (
+    <div className="rounded-xl border border-borda p-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-texto">
+          {ramo.descricao || `CNAE ${ramo.cnae}`}
+        </span>
+        <span className={`shrink-0 text-sm font-semibold ${cor}`}>
+          {ramo.fator.toFixed(2)}×
+        </span>
+      </div>
+      <div className="relative mt-2 h-1.5 overflow-hidden rounded bg-superficie-3">
+        <div className="absolute left-1/2 top-0 h-full w-px bg-borda-forte" />
+        <div
+          className={`h-full rounded ${acima ? "bg-positivo" : abaixo ? "bg-atencao" : "bg-borda-forte"}`}
+          style={{ width: `${Math.max(2, posicao)}%` }}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-texto-fraco">
+        <span className={cor}>{rotulo}</span>
+        <span>
+          {ramo.amostras} {ramo.amostras === 1 ? "resposta" : "respostas"}
+        </span>
+        {ramo.faltam_amostras > 0 && (
+          <span>faltam {ramo.faltam_amostras} para o próximo ajuste</span>
+        )}
+        {Object.entries(ramo.intencoes).map(([intencao, n]) => (
+          <span key={intencao} className="rounded bg-superficie-3 px-1.5 py-0.5">
+            {intencao.replace(/_/g, " ")} {n}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

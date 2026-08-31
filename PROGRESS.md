@@ -182,6 +182,38 @@ completo exercitado pela interface no navegador.
 
 ---
 
+## Etapa 7 — Aprendizado por intenção ✅
+
+- **O sinal estava contando errado.** O lead passa por `respondido` a caminho
+  de `opt_out`, e `respondido` valia como **sucesso**: um "me tire da lista"
+  primeiro ensinava que a mira estava certa e logo depois que estava errada —
+  duas amostras contraditórias por um único fato. Agora quem responde ensina
+  pela **intenção**, uma vez só, e as transições que o Motor 4 dispara em
+  seguida passam `aprender=False`.
+- **Segundo eixo de aprendizado: o ramo.** `ramo_weights` guarda um fator por
+  (tenant, CNAE). O peso do CNAE vem do Cérebro e é igual para todo mundo; se
+  hotel não responde para *este* prestador, só o histórico dele sabe. É a única
+  parte do produto que fica mais difícil de copiar com o tempo.
+- **As intenções deixaram de pesar igual.** `objecao` é **positiva** — "está
+  caro" diz que o ramo compra e o momento estava errado; ensinar o Cérebro a
+  fugir dali seria trocar mira certa por silêncio. `recusa` é levemente
+  negativa ("já temos fornecedor" é frase de quem consome). Só
+  `pedido_opt_out` vale -1. `ausencia` vale 0: resposta de férias não é
+  resposta.
+- **O fator multiplica, não substitui**, e anda entre 0,5 e 1,5 com mínimo de
+  20 respostas por ramo. Um loop guloso apagaria hotéis da mira por causa de
+  três respostas ruins — e ninguém veria, porque ausência de lead não aparece
+  em tela nenhuma.
+- **Por isso a mira virou tela** (cartão no Painel), com o número de respostas
+  que produziu cada fator e quantas faltam para o próximo ajuste. Aprendizado
+  invisível é indistinguível de superstição.
+- **`restaurar` desfaz os dois eixos.** Restaurar metade daria falsa sensação
+  de reset a quem clicou justamente por desconfiar do resultado.
+- Migration `0010` (`ramo_weights`), sem backfill: intenção de resposta antiga
+  não está gravada em lugar que permita reconstruir. **13 testes.**
+
+---
+
 ## Decisões estruturais
 
 | Decisão | Por quê |
@@ -194,3 +226,4 @@ completo exercitado pela interface no navegador.
 | Dinheiro em **micro-dólares** inteiros | nunca float |
 | SDK oficial + `HttpClient.guard()` | usa o cliente suportado de cada provedor sem abrir mão do controle central |
 | Crédito = 1 **contato revelado**; token = vitrine | o cliente entende crédito; o mercado compara token. Era "1 lead descoberto" até a Etapa 6 |
+| Aprendizado por ramo **multiplica** o peso do Cérebro | o Cérebro continua no comando e o fator só inclina; substituir deixaria o histórico apagar ramo bom |

@@ -45,6 +45,7 @@ class LeadService:
         *,
         motivo: str | None = None,
         ator: Ator = Ator.SISTEMA,
+        aprender: bool = True,
     ) -> Lead:
         atual = lead.status
         lead_state.validar(atual, novo)
@@ -55,11 +56,17 @@ class LeadService:
 
         # Gancho do loop de aprendizado: desfecho de lead realimenta os pesos
         # do ScoringService daquele tenant (Fase 1).
-        self.aprendizado.observar(
-            user_id=lead.user_id,
-            resultado=novo,
-            componentes=(lead.score_breakdown or {}).get("componentes"),
-        )
+        #
+        # `aprender=False` existe para quem JA ensinou pelo outro caminho. O
+        # Motor 4 credita a resposta pela intencao, que sabe a diferenca entre
+        # "ja temos fornecedor" e "me tire da lista"; contar de novo aqui somaria
+        # duas amostras pelo mesmo fato, uma delas com o sinal errado.
+        if aprender:
+            self.aprendizado.observar(
+                user_id=lead.user_id,
+                resultado=novo,
+                componentes=(lead.score_breakdown or {}).get("componentes"),
+            )
         self.audit.transicao_lead(
             lead_id=lead.id,
             de=atual.value,

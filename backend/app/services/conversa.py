@@ -277,10 +277,25 @@ class ServicoDeConversa:
             user_id=lead.user_id,
         )
 
+        # O que esta resposta ensinou sobre a MIRA. Este e o unico lugar que
+        # credita o sinal: as transicoes abaixo passam `aprender=False` para nao
+        # contar o mesmo fato duas vezes, com o agravante de que a transicao
+        # para `respondido` nao sabe se a resposta foi "manda a proposta" ou
+        # "me tire da lista" — e as duas ensinam coisas opostas.
+        self.leads.aprendizado.observar_intencao(
+            user_id=lead.user_id,
+            intencao=intencao.value,
+            cnae=lead.cnae_principal,
+            componentes=(lead.score_breakdown or {}).get("componentes"),
+        )
+
         # O lead respondeu — isso vale mesmo quando a resposta e um "nao".
         if lead.status is StatusLead.ABORDADO:
             self.leads.transicionar(
-                lead, StatusLead.RESPONDIDO, motivo=f"respondeu ({intencao.value})"
+                lead,
+                StatusLead.RESPONDIDO,
+                motivo=f"respondeu ({intencao.value})",
+                aprender=False,
             )
 
         if intencao in SEM_RESPOSTA:
@@ -316,12 +331,17 @@ class ServicoDeConversa:
                     user_id=lead.user_id,
                     motivo="pedido explicito na resposta do lead",
                 )
-            self.leads.transicionar(lead, StatusLead.OPT_OUT, motivo="pediu descadastro")
+            self.leads.transicionar(
+                lead, StatusLead.OPT_OUT, motivo="pediu descadastro", aprender=False
+            )
             resultado.motivo = "opt-out registrado; nao respondemos e nao voltamos a contatar"
 
         elif intencao is Intencao.RECUSA:
             self.leads.transicionar(
-                lead, StatusLead.DESCARTADO, motivo="declarou que nao tem interesse"
+                lead,
+                StatusLead.DESCARTADO,
+                motivo="declarou que nao tem interesse",
+                aprender=False,
             )
             resultado.motivo = "recusa respeitada; conversa encerrada sem resposta"
 

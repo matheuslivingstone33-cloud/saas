@@ -201,7 +201,7 @@ Cérebro, e hoje não tem onde colocar isso.
 
 ---
 
-## 7. O Motor 4 é o melhor professor que o Cérebro poderia ter
+## 7. O Motor 4 é o melhor professor que o Cérebro poderia ter ✅ *(entregue na Etapa 7, 31/08/2026)*
 
 **O que existe.** `LoopAprendizado` realimenta os pesos do scoring a partir do
 **desfecho do lead** — sinal raro, lento e que só chega quando já gastamos tudo.
@@ -227,6 +227,26 @@ Iguaçu.
 > (tenant, CNAE). Medir antes de construir.
 
 Depende de volume de respostas — ou seja, depende do §2. Por isso vem depois.
+
+### O que a Etapa 7 encontrou ao medir
+
+A correção acima estava certa, e faltava uma coisa que só apareceu lendo o
+código: **o sinal já chegava, e chegava contando errado.** O lead passa por
+`respondido` a caminho de `opt_out`, e `respondido` estava em `SUCESSO` — então
+um "me tire da lista" gerava duas amostras contraditórias pelo mesmo fato, e a
+primeira ensinava exatamente o contrário do que aconteceu. Não era um
+refinamento pendente; era ruído entrando no loop desde a Fase 1.
+
+Os três itens listados foram entregues: `ramo_weights` guarda o fator por
+(tenant, CNAE), `VALOR_POR_INTENCAO` separa as intenções (com `objecao`
+**positiva**, porque "está caro" diz que o ramo compra), e o crédito do sinal
+passou a acontecer num lugar só.
+
+A decisão mais importante da etapa não foi de aprendizado, foi de tela: o fator
+por ramo virou um cartão no Painel, com o número de respostas que o produziu.
+Um sistema que silenciosamente para de trazer hotéis é indistinguível de um
+sistema quebrado — a evidência seria a ausência de hotéis, e ausência não
+aparece em lugar nenhum.
 
 ---
 
@@ -289,15 +309,16 @@ vendido**:
 | ~~4~~ | ~~**Cadência (Motor 5) + supressão de bounce**~~ | ✅ **entregue em 31/08/2026** |
 | ~~5~~ | ~~**Resposta manual dentro do produto**~~ | ✅ **entregue em 31/08/2026** |
 | ~~6~~ | ~~**Paywall no servidor + alinhar planos**~~ | ✅ **entregue em 31/08/2026** |
-| **7** | **Aprendizado por intenção** | precisa do volume de respostas que a Etapa 4 gera |
+| ~~7~~ | ~~**Aprendizado por intenção**~~ | ✅ **entregue em 31/08/2026** |
 | **8** | **JWT + admin + webhook assinado** | último momento possível antes de qualquer pessoa de fora |
 | **9** | **WhatsApp como canal** | a maior, e a que mais depende do resto estável |
 
 **Etapa 4 primeiro** porque o produto sabia encontrar e sabia conversar, mas não
 sabia insistir — e insistir com educação é literalmente o trabalho que o cliente
 está comprando. A 5 veio logo atrás, e era pequena. A 6 fechou o paywall e o
-preço. **A próxima é a 7**: aprendizado por intenção (§7) — que agora tem o
-volume de respostas de que precisava.
+preço. A 7 fechou o aprendizado por intenção e, de quebra, um defeito de sinal
+que estava no loop desde a Fase 1. **A próxima é a 8**: JWT, admin e webhook
+assinado — o último momento possível antes de qualquer pessoa de fora.
 
 ### O que a Etapa 4 ensinou
 

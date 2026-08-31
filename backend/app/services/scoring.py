@@ -89,8 +89,16 @@ class Resultado:
 
 
 class ScoringService:
-    def __init__(self, pesos: Pesos | None = None) -> None:
+    def __init__(
+        self,
+        pesos: Pesos | None = None,
+        fatores_ramo: dict[str, float] | None = None,
+    ) -> None:
         self.pesos = (pesos or PESOS_PADRAO).normalizados()
+        #: Multiplicadores por CNAE aprendidos com as respostas DESTE tenant
+        #: (ver `services/aprendizado.py`). Vazio = ninguem respondeu ainda, e
+        #: a mira do Cerebro vale integral.
+        self.fatores_ramo = fatores_ramo or {}
 
     def pontuar(
         self,
@@ -121,10 +129,21 @@ class ScoringService:
 
     # -- componentes ----------------------------------------------------------
     def _aderencia_cnae(self, lead: Lead, expansao: Expansao) -> float:
-        peso = expansao.peso_do_cnae(lead.cnae_principal)
+        """Peso do Cerebro, inclinado pelo que ESTE cliente ja respondeu.
+
+        O Cerebro diz que hotel consome climatizacao — isso vale para todo
+        mundo. O fator diz se hotel responde a ESTE prestador, e so o historico
+        dele sabe. Multiplicar em vez de substituir mantem o Cerebro no comando:
+        o fator anda entre 0.5 e 1.5 e nunca zera um ramo.
+        """
+        peso = expansao.peso_do_cnae(lead.cnae_principal) * self._fator(lead.cnae_principal)
         for secundario in lead.cnaes_secundarios or []:
-            peso = max(peso, expansao.peso_do_cnae(str(secundario)) * 0.7)
+            codigo = str(secundario)
+            peso = max(peso, expansao.peso_do_cnae(codigo) * 0.7 * self._fator(codigo))
         return min(1.0, peso)
+
+    def _fator(self, cnae: str | None) -> float:
+        return self.fatores_ramo.get(cnae or "", 1.0)
 
     def _aderencia_texto(
         self, lead: Lead, expansao: Expansao, embedding_lead: list[float] | None

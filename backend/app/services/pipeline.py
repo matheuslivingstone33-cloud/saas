@@ -225,7 +225,10 @@ class PipelineStub:
             return
 
         emb = self.portas.llm.embutir([_texto_do_lead(lead) for lead in leads])
-        scoring = ScoringService(self.aprendizado.pesos_de(campanha.user_id))
+        scoring = ScoringService(
+            self.aprendizado.pesos_de(campanha.user_id),
+            self.aprendizado.fatores_de_ramo(campanha.user_id),
+        )
 
         for lead, vetor in zip(leads, emb.vetores, strict=True):
             lead.embedding = vetor

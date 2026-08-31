@@ -47,7 +47,7 @@ def pesos(
     session: Session = Depends(db),
     user: User = Depends(usuario_atual),
 ) -> dict:
-    """Pesos vigentes do ScoringService para este tenant e o estado do loop."""
+    """Pesos vigentes do ScoringService, o estado do loop e a mira por ramo."""
     return LoopAprendizado(session).estado(user.id)
 
 
@@ -56,8 +56,16 @@ def recalcular(
     session: Session = Depends(db),
     user: User = Depends(usuario_atual),
 ) -> dict:
-    """Aplica um passo do loop de aprendizado (se houver amostra suficiente)."""
-    return LoopAprendizado(session).recalcular(user.id).to_dict()
+    """Aplica um passo dos DOIS eixos do loop (se houver amostra suficiente).
+
+    Um passo so, nos dois: separar em duas rotas faria com que recalcular os
+    componentes e esquecer os ramos fosse um estado alcancavel — e a diferenca
+    entre os dois nao e visivel de fora.
+    """
+    loop = LoopAprendizado(session)
+    ajuste = loop.recalcular(user.id).to_dict()
+    ajuste["ramos"] = loop.recalcular_ramos(user.id).to_dict()
+    return ajuste
 
 
 @router.post("/pesos/restaurar")

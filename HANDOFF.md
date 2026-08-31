@@ -8,16 +8,16 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 6 concluída — cobrar por revelação
+**Última atualização:** 2026-08-31 · Etapa 7 concluída — aprendizado por intenção
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
-**Estado em 31/08/2026:** Etapas 0 a 6 fechadas. **290 testes verdes**,
+**Estado em 31/08/2026:** Etapas 0 a 7 fechadas. **303 testes verdes**,
 `ruff` e `tsc --noEmit` limpos, migrations sobem e descem nos dois dialetos.
-Tudo commitado **e publicado**: `main` == `origin/main`, último commit
-`2784efe`. Nenhuma chave de API — o sistema inteiro roda em mock.
+Tudo commitado **e publicado**: `main` == `origin/main`. Nenhuma chave de
+API — o sistema inteiro roda em mock.
 
 Para retomar, três comandos (detalhe na seção 5):
 
@@ -36,52 +36,33 @@ cd backend && .venv/Scripts/python.exe scripts/limpar_demo.py --aplicar && .venv
 O terceiro devolve o banco de demonstração a um estado limpo e povoado —
 útil antes de abrir a interface para conferir alguma coisa.
 
-### A próxima é a Etapa 7 — aprendizado por intenção
+> Se o banco de demo estiver numa migration antiga, ele quebra com
+> `no such table`. `cd backend && .venv/Scripts/python.exe -m alembic upgrade head`
+> resolve — a suíte usa banco próprio e não avisa que o de demo ficou para trás.
 
-**A ideia.** O `LoopAprendizado` aprende com o **desfecho** do lead, que é um
-sinal raro e tardio. Desde o Motor 4 existe um sinal mais barato e muito mais
-cedo: a **intenção da resposta**. Vinte `recusa` no mesmo CNAE não é azar — é
-o Cérebro tendo errado o ramo. Argumento completo em
-[docs/IDEIAS.md](docs/IDEIAS.md) §7.
+### A próxima é a Etapa 8 — autenticação de verdade
 
-**Comece verificando o que já chega.** Isto muda o tamanho da etapa e o
-`docs/IDEIAS.md` exagera um pouco: parte do sinal de intenção **já** alimenta
-o loop hoje, de carona na máquina de estados. `recusa` leva o lead a
-`descartado` e `pedido_opt_out` leva a `opt_out` — os dois estão em
-`FRACASSO`; qualquer resposta leva a `respondido`, que está em `SUCESSO`. E
-`LeadService.transicionar` chama `aprendizado.observar` em toda transição
-([services/leads.py:58](backend/app/services/leads.py)). Meça antes de
-construir: pode ser que falte menos do que parece.
+**A ideia.** Não existe login. O usuário vem do header `X-User-Email` com
+fallback no usuário de seed ([api/deps.py:33](backend/app/api/deps.py)). É a
+última divergência aberta da §9.1 e o **último momento possível** antes de
+qualquer pessoa de fora tocar no produto: um `curl` com o e-mail de outro
+tenant hoje devolve os leads daquele tenant.
 
-**O que de fato falta**, e é o coração da etapa:
+**O que a etapa precisa cobrir**, em ordem de risco:
 
-1. **Aprendizado por RAMO, não só por componente de score.** Hoje
-   `aprendizado.py` ajusta os pesos dos seis componentes do score
-   (`COMPONENTES` em `services/scoring.py`). O peso do **CNAE** vem do
-   Cérebro e é igual para todo tenant: se hotel não responde para *este*
-   cliente, nada aprende isso. É aqui que mora o fosso — cada cliente afina a
-   própria mira, e o ativo é o histórico dele.
-2. **Distinguir as intenções entre si.** Para a máquina de estados, `recusa`
-   e `pedido_opt_out` acabam no mesmo balde de fracasso. Não são a mesma
-   coisa: "já temos fornecedor" diz que o ramo está certo e o momento errado;
-   "me tire da lista" diz que a mira está errada. Misturar as duas ensina o
-   Cérebro a fugir de ramo bom.
-3. **Um lugar para guardar o peso por (tenant, CNAE).** `ScoreWeights` guarda
-   pesos de componente. Peso por ramo precisa de coluna/tabela nova — e,
-   pelas outras etapas, **migration** (ver guardrail 7).
+1. **JWT** no lugar do header, com refresh e expiração. Não invente esquema
+   próprio de senha.
+2. **Webhook assinado.** `POST /v1/inbound/email` e `POST /v1/inbound/retorno`
+   aceitam qualquer requisição hoje. Sem assinatura, qualquer pessoa registra
+   uma "resposta" de qualquer lead — e desde a Etapa 7 isso **move a mira do
+   cliente**, não só a thread. Envenenar o aprendizado ficou barato.
+3. **Isolamento por tenant testado de fora.** Há filtro por `user_id` nos
+   repositórios, mas nenhum teste que tente ler dado alheio via HTTP.
 
-**Onde mexer:** `services/aprendizado.py` (o loop), `services/conversa.py`
-(onde a intenção é classificada — é de lá que sai o gancho novo),
-`services/cerebro.py` (o peso do ramo, hoje sem ajuste por tenant) e
-`models/learning.py`.
-
-**A armadilha desta etapa:** aprendizado que se move rápido demais vira
-superstição. O loop atual já tem as defesas certas — mínimo de 20 amostras,
-passo amortecido de 0.15, piso/teto e `restaurar_padrao()`. O que for
-acrescentado precisa das mesmas, e por um motivo concreto: com três respostas
-ruins de hotel, um loop guloso apagaria hotéis da mira do cliente para
-sempre — e ninguém veria isso acontecer, porque ausência de lead não aparece
-em tela nenhuma.
+**A armadilha desta etapa:** autenticação atravessa TODA rota, e a suíte usa o
+usuário de seed em toda parte. Fazer o `client` de teste autenticar de verdade
+vai quebrar dezenas de testes de uma vez — vale trocar a fixture primeiro, num
+commit próprio, antes de mexer em qualquer rota.
 
 ---
 
@@ -195,6 +176,7 @@ Fases 0 a 7 concluídas (detalhe em [PROGRESS.md](PROGRESS.md)). Em resumo:
 | **Abordagem** (Motor 3) | personalização + envio com limites, opt-out e autonomia | ✅ |
 | **Conversa** (Motor 4) | receber, classificar intenção, responder ou se calar | ✅ |
 | **Cadência** (Motor 5) | 2º e 3º toque com ângulo próprio, e onde a cadência para | ✅ |
+| **Aprendizado** | pesos por componente **e** fator de mira por (tenant, CNAE), a partir da intenção | ✅ |
 
 Também prontos: compliance LGPD completo (LIA, opt-out de 1 clique, direitos do
 titular, retenção, auditoria encadeada por hash), créditos e planos com teto e
@@ -202,7 +184,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**290 testes verdes · lint limpo.**
+**303 testes verdes · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -224,6 +206,25 @@ crítico das mãos do modelo: "me tire da lista" não pode depender de
 interpretação. E "não quero receber, mas quanto custa?" é opt-out — em caso de
 dúvida o direito do titular ganha do negócio.
 
+### 3.3 A mesma intenção ensina a mira (Etapa 7)
+
+Desde a Etapa 7 a intenção não decide só a resposta: ela **move a busca**. Cada
+resposta credita um valor em [-1, 1] para o CNAE daquele lead, por tenant.
+
+| Intenção | Vale | Por quê |
+|---|---|---|
+| `interesse` | +1,0 | o alvo estava certo |
+| `duvida` / `pedido_humano` | +0,5 | engajou de verdade |
+| `objecao` | **+0,3** | "está caro" diz que o ramo compra e o momento errou |
+| `recusa` | -0,3 | "já temos fornecedor" é frase de quem consome |
+| `pedido_opt_out` | -1,0 | irritar a ponto de pedir saída = mira errada |
+| `ausencia` | 0 | resposta de férias não é resposta |
+
+O fator resultante **multiplica** o peso do Cérebro, anda entre 0,5 e 1,5 e só
+se move com 20 respostas daquele ramo. Aparece no **Painel**, com as contagens
+que o produziram — sem isso, um sistema que para de trazer hotéis é
+indistinguível de um sistema quebrado.
+
 ---
 
 ## 4. Plano de execução
@@ -241,9 +242,50 @@ o argumento de cada uma está em [docs/IDEIAS.md](docs/IDEIAS.md) §11.
 | 4 | **Cadência (Motor 5) + supressão de bounce** | ✅ feito |
 | 5 | **Resposta manual dentro do produto** | ✅ feito |
 | 6 | **Paywall no servidor + cobrar por revelação** | ✅ feito |
+| 7 | **Aprendizado por intenção** — a mira que cada cliente afina | ✅ feito |
 
 As etapas seguintes, com o argumento de cada uma, estão em
 [docs/IDEIAS.md](docs/IDEIAS.md).
+
+### O que a Etapa 7 entregou
+
+O `docs/IDEIAS.md` mandava medir antes de construir, e a medição achou algo
+pior que uma funcionalidade faltando: **ruído entrando no loop desde a Fase 1.**
+
+- **Um fato, uma amostra.** O lead passa por `respondido` a caminho de
+  `opt_out`, e `respondido` estava em `SUCESSO` — então "me tire da lista"
+  primeiro ensinava que a mira estava certa e logo depois que estava errada.
+  Agora quem responde ensina pela **intenção**, num lugar só; as transições que
+  o Motor 4 dispara em seguida passam `aprender=False`.
+- **`ramo_weights`** — fator por (tenant, CNAE). É o fosso: o peso do CNAE vem
+  do Cérebro e é igual para todo mundo; se hotel não responde para *este*
+  prestador, só o histórico dele sabe. Um concorrente copia a tela numa semana
+  e o prompt numa tarde, mas não copia dois anos de resposta de hotel.
+- **As intenções deixaram de pesar igual** (tabela em 3.3). A decisão que mais
+  muda resultado é `objecao` ser **positiva**: tratar "sem orçamento este ano"
+  como erro de mira ensinaria o Cérebro a abandonar justamente o ramo que
+  reconheceu a necessidade.
+- **O fator multiplica, não substitui**, com piso 0,5, teto 1,5, passo de 0,15
+  e mínimo de 20 respostas por ramo. Um loop guloso apagaria hotéis da mira por
+  causa de três respostas ruins.
+- **Por isso virou tela.** Cartão no Painel com fator, contagem por intenção e
+  quantas respostas faltam para o próximo ajuste. Aprendizado invisível é
+  indistinguível de superstição — e a evidência de um ramo apagado seria a
+  *ausência* de leads, que não aparece em lugar nenhum.
+- **`restaurar` desfaz os dois eixos.** Zerar só os componentes deixaria a mira
+  de pé dando falsa sensação de reset, justamente para quem clicou por
+  desconfiar do resultado.
+- **Migration 0010** (`ramo_weights`), sem backfill — intenção de resposta
+  antiga não está gravada de forma que permita reconstruir o balde, e inventar
+  histórico seria ensinar com dado que nunca foi medido.
+- **13 testes.**
+
+### Um defeito de forma que o teste achou
+
+`GET /v1/cerebro/pesos` devolvia um objeto **sem** a chave `estatisticas`
+enquanto o tenant não tivesse aprendido nada, e com ela depois. Resposta que
+muda de forma conforme o estado quebra quem a consome — e quebra exatamente no
+cliente novo, que é o pior lugar. Agora vem sempre, vazia no começo.
 
 ### O que a Etapa 6 entregou
 
@@ -533,6 +575,14 @@ Valem para qualquer etapa, sempre:
   revelação só no envio — só que no modo assistido o rascunho fica esperando
   aprovação com o nome da empresa no corpo e o e-mail no destinatário. O
   contato já estava à vista de graça. Cobra-se na **geração**.
+- **Sinal contado duas vezes por passar por dois estados.** O loop aprendia
+  na transição, e um opt-out atravessa `respondido` antes de chegar em
+  `opt_out` — duas amostras opostas pelo mesmo fato. Quando dois caminhos
+  observam o mesmo evento, um dos dois tem que se calar explicitamente
+  (`aprender=False`); "os dois contam um pouquinho" não é uma opção.
+- **O banco de demo não avisa que ficou para trás.** A suíte usa banco próprio,
+  então testes verdes convivem com um `data/` numa migration antiga — que só
+  quebra ao abrir a tela, com `no such table`. `alembic upgrade head` resolve.
 - **A interface parece travada no preview quando o painel do navegador está
   oculto.** As animações do framer-motion dependem de `requestAnimationFrame`,
   que fica estrangulado em aba oculta: a transição de página trava por 20s e
@@ -552,6 +602,7 @@ backend/app/
   services/conversa.py      Motor 4 + a resposta manual (assumir/devolver)
   services/revelacao.py     o paywall: mascara de contato e cota de revelação
   services/scoring.py       score explicável, com pesos aprendidos
+  services/aprendizado.py   os dois eixos: peso por componente e mira por ramo
   services/compliance.py    LIA, opt-out, direitos do titular, retenção
   services/observador.py    eventos da execução ao vivo
   domain/lead_state.py      máquina de estados do lead
@@ -592,10 +643,13 @@ decisão em [docs/IDEIAS.md](docs/IDEIAS.md).
 | 2 | ~~**Duas tabelas de preço**~~ — resolvida na Etapa 6: grátis = 10 contatos/mês, 3 por busca | `services/creditos.py` | ✅ |
 | 3 | ~~**"Assumir a conversa" sai do produto**~~ — resolvida na Etapa 5 | `services/conversa.py` | ✅ |
 | 4 | ~~**Não existia segundo toque**~~ — resolvida na Etapa 4 | `services/cadencia.py` | ✅ |
-| 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | Etapa 8 |
+| 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | **Etapa 8 — a próxima** |
 
 A número 4 era a mais cara das cinco, e a única que não aparecia em nenhuma
 tela: o produto parece completo até o dia em que ninguém responde.
+
+A número 5 ficou mais cara depois da Etapa 7: o webhook de resposta é aberto, e
+agora uma resposta forjada não mexe só na thread — **move a mira do cliente**.
 
 ### 9.2 Outras pendências
 
@@ -625,6 +679,17 @@ tela: o produto parece completo até o dia em que ninguém responde.
   decidir** se automação é um eixo próprio de cota ou se some de vez — hoje
   ela não aparece em lugar nenhum da tela, o que é pior que qualquer uma das
   duas respostas.
+- **O recálculo do aprendizado é manual.** `POST /v1/cerebro/pesos/recalcular`
+  existe e nada o chama sozinho: as amostras se acumulam e o fator só se move
+  se alguém clicar. Fica **por decidir** se vira passo do pipeline, tarefa
+  periódica, ou continua manual de propósito — aprendizado que anda sozinho e
+  sem plateia é justamente o que a etapa tentou evitar, então "manual" é uma
+  resposta legítima, mas hoje ninguém escolheu.
+- **Bounce ainda ensina pelo desfecho.** Um endereço que não existe leva o lead
+  a `descartado`, e isso continua creditando fracasso nos componentes. O único
+  fato ali é que o e-mail estava errado — não que o ramo seja ruim. Não move a
+  mira por ramo (que só aprende de resposta humana, de propósito), mas polui o
+  outro eixo. **Falta decidir** se a transição por bounce passa a `aprender=False`.
 - **Autenticação.** Não existe login: o usuário vem do header `X-User-Email` com
   fallback no usuário de seed. É dev-only e precisa virar JWT antes de qualquer
   exposição pública. É a **Etapa 8** e a última divergência aberta da §9.1.

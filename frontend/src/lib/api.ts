@@ -231,6 +231,26 @@ export type Intencao =
   | "ausencia"
   | "indefinida";
 
+/** Um ramo que este cliente ja aprendeu a mirar melhor (ou pior). */
+export type RamoAprendido = {
+  cnae: string;
+  descricao: string;
+  fator: number;
+  amostras: number;
+  media_sinal: number;
+  versao: number;
+  intencoes: Partial<Record<Intencao, number>>;
+  faltam_amostras: number;
+};
+
+export type EstadoAprendizado = {
+  versao: number;
+  amostras: number;
+  pesos: Record<string, number>;
+  origem: string;
+  mira: RamoAprendido[];
+};
+
 export type ResultadoConversa = {
   lead_id: string;
   intencao: Intencao;
@@ -355,9 +375,7 @@ export const api = {
   // cerebro
   expandir: (servico: string, regiao: string) =>
     post<Expansao>("/v1/cerebro/expandir", { servico, regiao, max_ramos: 6, max_termos: 6 }),
-  pesos: () => get<{ versao: number; amostras: number; pesos: Record<string, number> }>(
-    "/v1/cerebro/pesos",
-  ),
+  pesos: () => get<EstadoAprendizado>("/v1/cerebro/pesos"),
 
   // leads e mensagens
   leads: (campaignId?: string) =>

@@ -23,6 +23,8 @@ TABELAS_ESPERADAS = {
     "credit_ledger",
     "audit_logs",
     "cost_events",
+    "score_weights",
+    "ramo_weights",
 }
 
 

@@ -6,7 +6,7 @@ from app.models.campaign import Campaign
 from app.models.cost_event import CostEvent
 from app.models.credit_ledger import CreditLedger
 from app.models.lead import Lead, RamoCnae
-from app.models.learning import ScoreWeights
+from app.models.learning import RamoWeights, ScoreWeights
 from app.models.message import Message
 from app.models.opt_out import OptOut
 from app.models.privacy import PrivacyRequest
@@ -23,6 +23,7 @@ __all__ = [
     "OptOut",
     "PrivacyRequest",
     "RamoCnae",
+    "RamoWeights",
     "ScoreWeights",
     "Subscription",
     "User",
