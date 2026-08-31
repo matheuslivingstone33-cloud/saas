@@ -64,6 +64,13 @@ class Message(Base, UUIDPk, Timestamps):
     erro: Mapped[str | None] = mapped_column(LongText)
     tentativas: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # O que o provedor devolveu DEPOIS do envio: 'permanente' (o endereco nao
+    # existe), 'transitorio' (caixa cheia, servidor fora) ou 'reclamacao' (a
+    # pessoa marcou como spam). Coluna, e nao chave no JSON, porque e disto que
+    # sai a taxa de retorno da campanha — e essa conta precisa rodar igual no
+    # SQLite e no PostgreSQL.
+    retorno: Mapped[str | None] = mapped_column(String(20), index=True)
+
     custo_micros: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     tokens_entrada: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     tokens_saida: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

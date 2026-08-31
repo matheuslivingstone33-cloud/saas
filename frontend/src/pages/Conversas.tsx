@@ -1,6 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Lead, type Mensagem, type NivelAutonomia } from "../lib/api";
+import {
+  api,
+  type Cadencia,
+  type EstadoCadencia,
+  type Lead,
+  type Mensagem,
+  type NivelAutonomia,
+} from "../lib/api";
 import { EXPO } from "../components/movimento";
 import { Aviso, Badge, Botao, Carregando, Vazio } from "../components/ui";
 import Revisao from "../components/Revisao";
@@ -57,12 +64,18 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
   const [detalhe, setDetalhe] = useState<Lead | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [simulando, setSimulando] = useState<Lead | null>(null);
+  const [cadencia, setCadencia] = useState<Cadencia | null>(null);
 
   const carregar = useCallback(async () => {
     try {
-      const [l, m] = await Promise.all([api.leads(), api.mensagens()]);
+      const [l, m, c] = await Promise.all([
+        api.leads(),
+        api.mensagens(),
+        api.cadencia(),
+      ]);
       setLeads(l.itens);
       setMensagens(m.itens);
+      setCadencia(c);
     } catch (e) {
       setErro(String(e));
     } finally {
@@ -130,6 +143,21 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
     }
   }
 
+  async function rodarCadencia() {
+    setOcupado(true);
+    setErro(null);
+    try {
+      // `forcar` pula a espera de 3 dias — e so ela. Opt-out, resposta do
+      // lead e campanha pausada continuam segurando o toque.
+      await api.rodarCadencia(true);
+      await carregar();
+    } catch (e) {
+      setErro(String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   if (carregando) return <Carregando />;
 
   if (conversas.length === 0) {
@@ -161,6 +189,20 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
             <div className="border-b border-borda p-3">
               <Botao tamanho="sm" onClick={() => setRevisando(true)} className="w-full">
                 revisar {pendentes.length} pendente{pendentes.length === 1 ? "" : "s"}
+              </Botao>
+            </div>
+          )}
+
+          {cadencia !== null && cadencia.devidos > 0 && (
+            <div className="border-b border-borda p-3">
+              <Botao
+                tamanho="sm"
+                variante="secundario"
+                disabled={ocupado}
+                onClick={() => void rodarCadencia()}
+                className="w-full"
+              >
+                enviar {cadencia.devidos} toque{cadencia.devidos === 1 ? "" : "s"} em atraso
               </Botao>
             </div>
           )}
@@ -242,7 +284,13 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
               <footer className="border-t border-borda bg-superficie-2 px-5 py-3">
                 <RodapeDaConversa
                   conversa={atual}
+                  cadencia={cadencia}
+                  estadoCadencia={
+                    cadencia?.pendentes.find((p) => p.lead_id === atual.lead.id) ?? null
+                  }
+                  ocupado={ocupado}
                   aoSimular={() => setSimulando(atual.lead)}
+                  aoRodarCadencia={() => void rodarCadencia()}
                 />
               </footer>
             </>
@@ -282,10 +330,18 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
  */
 function RodapeDaConversa({
   conversa,
+  cadencia,
+  estadoCadencia,
+  ocupado,
   aoSimular,
+  aoRodarCadencia,
 }: {
   conversa: Conversa;
+  cadencia: Cadencia | null;
+  estadoCadencia: EstadoCadencia | null;
+  ocupado: boolean;
   aoSimular: () => void;
+  aoRodarCadencia: () => void;
 }) {
   const temResposta = conversa.mensagens.some((m) => m.direcao === "entrada");
   const pendente = conversa.mensagens.some((m) => m.status === "aguardando_aprovacao");
@@ -315,15 +371,55 @@ function RodapeDaConversa({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <p className="text-xs text-texto-fraco">
-        Aguardando o lead responder. Quando responder, o agente classifica a intenção e
-        decide — inclusive quando é melhor não responder.
+      <p className="min-w-[16rem] flex-1 text-xs text-texto-fraco">
+        {textoDaCadencia(estadoCadencia, cadencia)}
       </p>
-      <Botao variante="secundario" tamanho="sm" className="ml-auto" onClick={aoSimular}>
+      {estadoCadencia !== null && !estadoCadencia.encerrada && (
+        <Botao
+          variante="secundario"
+          tamanho="sm"
+          disabled={ocupado}
+          onClick={aoRodarCadencia}
+        >
+          enviar o toque {estadoCadencia.proximo_toque} agora
+        </Botao>
+      )}
+      <Botao variante="secundario" tamanho="sm" onClick={aoSimular}>
         simular resposta
       </Botao>
     </div>
   );
+}
+
+/**
+ * O que dizer enquanto o lead nao responde.
+ *
+ * Antes do Motor 5 esta linha dizia so "aguardando o lead responder" — e
+ * dava a entender que o sistema tinha desistido. Agora ela diz a verdade:
+ * quantos toques ja sairam, quando sai o proximo, e quando a cadencia
+ * terminou, por que terminou.
+ */
+function textoDaCadencia(
+  estado: EstadoCadencia | null,
+  cadencia: Cadencia | null,
+): string {
+  const total = cadencia?.max_toques ?? 3;
+  if (estado === null) {
+    return "Aguardando o lead responder. Quando responder, o agente classifica a intenção e decide — inclusive quando é melhor não responder.";
+  }
+  if (estado.encerrada) return `Cadência encerrada: ${estado.motivo}.`;
+  if (estado.devido) {
+    return `Toque ${estado.proximo_toque} de ${total} pronto para sair (${estado.angulo ?? ""}).`;
+  }
+  return `Toque ${estado.toques_enviados} de ${total} enviado. O próximo sai ${quando(estado.proximo_em)} — sem cobrar o silêncio, com outro ângulo.`;
+}
+
+function quando(iso: string | null): string {
+  if (!iso) return "em breve";
+  const dias = Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+  if (dias <= 0) return "hoje";
+  if (dias === 1) return "amanhã";
+  return `em ${dias} dias`;
 }
 
 function Balao({

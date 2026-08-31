@@ -194,10 +194,37 @@ class FakeLLM:
         )
 
     def _email(self, ctx: dict) -> str:
+        """Abordagem por angulo do toque.
+
+        Os tres textos sao DIFERENTES de proposito: um toque que so repete
+        o anterior com "conforme minha mensagem" e o jeito mais rapido de
+        virar spam aos olhos de quem recebe — e aos olhos do provedor.
+        """
         nome = ctx.get("nome", "equipe")
         servico = ctx.get("servico", "nosso servico")
         municipio = ctx.get("municipio", "sua regiao")
         gancho = ctx.get("gancho", "a operacao de voces")
+        ramo = ctx.get("ramo_descricao") or "empresas do mesmo ramo"
+
+        if ctx.get("angulo") == "prova":
+            return (
+                f"Ola, equipe da {nome}.\n\n"
+                f"Em {ramo}, o que mais aparece e o custo escondido da "
+                "manutencao corretiva: o equipamento roda ate parar, e a "
+                f"parada acontece no pior dia do mes.\n\n"
+                "Com um preventivo simples a conta costuma cair porque some "
+                f"a urgencia — nao porque o servico ficou mais barato.\n\n"
+                f"Se ajudar, mando em duas linhas como isso ficaria para {nome}."
+            )
+        if ctx.get("angulo") == "saida":
+            return (
+                f"Ola, equipe da {nome}.\n\n"
+                f"Escrevi sobre {servico} e nao tive retorno — o que "
+                "normalmente quer dizer que nao e prioridade agora, e tudo "
+                f"bem.\n\n"
+                "Encerro o assunto por aqui? Se preferir que eu volte mais "
+                "para a frente, uma palavra basta."
+            )
         return (
             f"Ola, equipe da {nome}.\n\n"
             f"Trabalhamos com {servico} atendendo empresas em {municipio}. "

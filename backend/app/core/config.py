@@ -109,6 +109,23 @@ class Settings(BaseSettings):
     max_envios_por_campanha_dia: int = 200
     max_envios_por_usuario_dia: int = 500
 
+    # --- Cadencia (Motor 5) --------------------------------------------------
+    # Tres toques: D0 (o insight), D+3 (a prova), D+7 (a saida). Os dias sao
+    # contados a partir do ULTIMO envio, nao do primeiro: se um toque atrasou,
+    # o proximo atrasa junto em vez de sair colado nele.
+    cadencia_ativa: bool = True
+    cadencia_max_toques: int = 3
+    cadencia_dias_para_toque2: int = 3
+    cadencia_dias_para_toque3: int = 4
+
+    # --- Entregabilidade -----------------------------------------------------
+    # Acima desta taxa de retorno a campanha PAUSA. Dominio queimado nao volta,
+    # e leva junto o e-mail que o cliente usa para faturar.
+    bounce_taxa_maxima: float = 0.02
+    # Abaixo desta amostra a taxa nao significa nada: 1 bounce em 3 envios e
+    # 33%, e nao diz nada sobre reputacao.
+    bounce_amostra_minima: int = 20
+
     @field_validator(
         "places_mode", "llm_mode", "search_mode", "email_mode", "whatsapp_mode",
         "billing_mode", mode="before",

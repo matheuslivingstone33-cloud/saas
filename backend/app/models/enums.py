@@ -98,6 +98,10 @@ class OrigemOptOut(StrEnum):
     RESPOSTA_MANUAL = "resposta_manual"
     SOLICITACAO_TITULAR = "solicitacao_titular"
     BOUNCE_PERMANENTE = "bounce_permanente"
+    # Reclamacao de spam nao e a mesma coisa que endereco invalido: o endereco
+    # existe e a pessoa disse que a mensagem era abuso. Guardar separado e o
+    # que permite medir reputacao — e explicar a supressao depois.
+    RECLAMACAO_SPAM = "reclamacao_spam"
     LISTA_SUPRESSAO = "lista_supressao"
     IMPORTACAO = "importacao"
 
@@ -144,6 +148,7 @@ class TipoEvento(StrEnum):
     RESPOSTA_RECEBIDA = "resposta_recebida"
     CONVERSA_RESPONDIDA = "conversa_respondida"
     CONVERSA_ENCERRADA = "conversa_encerrada"
+    BOUNCE_REGISTRADO = "bounce_registrado"
 
 
 class TipoSolicitacao(StrEnum):

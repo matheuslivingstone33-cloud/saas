@@ -10,8 +10,10 @@
 | **5** | Créditos, planos e pacotes de tokens | ✅ concluída |
 | **6** | Frontend (React) | ✅ concluída |
 | **7** | Integração e produção | ✅ código pronto — ⏳ falta virar as chaves |
+| **Motor 4** | Conversa de duas pontas | ✅ concluída |
+| **Motor 5** | Cadência de toques + entregabilidade | ✅ concluída |
 
-**Verificado nesta máquina:** 164 testes verdes · `ruff` limpo · migrations
+**Verificado nesta máquina:** 252 testes verdes · `ruff` limpo · migrations
 `upgrade head` / `downgrade base` ok · frontend `npm run build` ok · fluxo
 completo exercitado pela interface no navegador.
 
@@ -122,6 +124,29 @@ completo exercitado pela interface no navegador.
 | **SNS de bounce/complaint do SES** | Fecha o ciclo de supressão automática |
 | **Papel de admin em `/v1/margem/consolidado`** | Hoje qualquer usuário autenticado vê o consolidado |
 | **Dump completo da Receita** | A amostra tem 19 CNPJs; em produção, tabela indexada |
+
+---
+
+## Motor 5 — Cadência e entregabilidade ✅
+
+- **Três toques por lead** (D0, D+3, D+7), cada um com **ângulo próprio**: o
+  insight, a prova, a saída. Um toque que repete o anterior é spam com outro
+  nome — e "seguindo minha mensagem anterior" transfere ao lead a culpa pelo
+  silêncio.
+- **Sem tabela nova.** O toque é uma `messages` com número nos metadados e
+  chave de idempotência por toque. Quem decide é o **estado da conversa lido
+  na hora**, não um agendamento gravado: nenhuma linha velha de fila consegue
+  disparar para quem já respondeu.
+- **Onde para:** resposta do lead, opt-out, recusa, descarte, conversão,
+  bounce, campanha pausada, ou fim do toque 3. `concluida` **não** para — é o
+  estado normal de toda campanha, e tratá-la como parada faria o motor inteiro
+  virar código morto.
+- **Entregabilidade:** bounce permanente suprime e descarta; reclamação de spam
+  suprime com origem própria e manda o lead para opt-out; retorno temporário
+  não suprime nada. Acima de 2% de retorno (com 20 envios de amostra) a
+  campanha pausa sozinha — dominío queimado não volta, e leva junto o e-mail
+  com que o cliente fatura.
+- Migration `0007` (`messages.retorno`, `reclamacao_spam`, `bounce_registrado`).
 
 ---
 

@@ -107,6 +107,36 @@ class Expansao:
         }
 
 
+def expansao_de_dict(dados: dict | None) -> Expansao | None:
+    """Reconstroi a Expansao que ficou gravada em `campaigns.expansao`.
+
+    Serve a quem precisa do entendimento do Cerebro DEPOIS da descoberta — a
+    cadencia, por exemplo, que escreve o toque 2 dias depois. Expandir de novo
+    daria o mesmo resultado e custaria balde 2 outra vez; o que o Cerebro
+    entendeu daquela campanha ja esta gravado.
+    """
+    if not dados:
+        return None
+    return Expansao(
+        servico=dados.get("servico", ""),
+        regiao=dados.get("regiao", ""),
+        ramos=[
+            RamoRelevante(
+                codigo=r.get("codigo", ""),
+                descricao=r.get("descricao", ""),
+                distancia=float(r.get("distancia", 0.0)),
+                peso=float(r.get("peso", 0.0)),
+                termos=list(r.get("termos") or []),
+            )
+            for r in (dados.get("ramos") or [])
+        ],
+        termos=list(dados.get("termos") or []),
+        excluir_termos=list(dados.get("excluir_termos") or []),
+        justificativa=dados.get("justificativa", ""),
+        excluidos_como_concorrente=list(dados.get("excluidos_como_concorrente") or []),
+    )
+
+
 class ExpansorDeServico:
     """`expandir_servico()` — a porta de entrada do Cerebro."""
 

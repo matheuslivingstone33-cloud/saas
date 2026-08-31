@@ -234,6 +234,45 @@ export type ResultadoConversa = {
   lead_quente: boolean;
 };
 
+/** Motor 5 — onde o lead esta na cadencia de toques. */
+export type EstadoCadencia = {
+  lead_id: string;
+  empresa: string | null;
+  toques_enviados: number;
+  proximo_toque: number | null;
+  proximo_em: string | null;
+  devido: boolean;
+  encerrada: boolean;
+  motivo: string;
+  angulo: string | null;
+};
+
+export type Cadencia = {
+  ativa: boolean;
+  max_toques: number;
+  dias: { toque2: number; toque3: number };
+  devidos: number;
+  pendentes: EstadoCadencia[];
+};
+
+export type ResultadoCadencia = {
+  avaliados: number;
+  gerados: number;
+  enviados: number;
+  aguardando_aprovacao: number;
+  bloqueados: number;
+  motivos: Record<string, number>;
+  toques: {
+    lead_id: string;
+    empresa: string | null;
+    toque: number;
+    angulo: string;
+    assunto: string;
+    enviada: boolean;
+    aguardando_aprovacao: boolean;
+  }[];
+};
+
 export type ResultadoExecucao = {
   campaign_id: string;
   nivel_autonomia: string;
@@ -315,6 +354,18 @@ export const api = {
   simularResposta: (leadId: string, corpo: string) =>
     post<ResultadoConversa>(`/v1/leads/${leadId}/simular-resposta`, { corpo }),
   rejeitar: (id: string) => post<Mensagem>(`/v1/messages/${id}/rejeitar`),
+
+  // motor 5 — cadencia
+  cadencia: () => get<Cadencia>("/v1/cadencia"),
+  // `forcar` pula a ESPERA e so ela: os guardrails continuam valendo. So
+  // existe em modo mock — sem isso a cadencia so seria visivel daqui a 3 dias.
+  rodarCadencia: (forcar = false) =>
+    post<ResultadoCadencia>("/v1/cadencia/executar", { forcar, limite: 50 }),
+  simularRetorno: (leadId: string, tipo: "permanente" | "transitorio" | "reclamacao") =>
+    post<{ suprimido: boolean; motivo: string; campanha_pausada: boolean }>(
+      `/v1/leads/${leadId}/simular-retorno`,
+      { tipo },
+    ),
 
   // creditos
   saldo: () => get<Saldo>("/v1/billing/saldo"),

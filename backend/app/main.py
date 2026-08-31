@@ -16,11 +16,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.api import estatico
 from app.api.routes import (
     billing,
+    cadencia,
     campaigns,
     cerebro,
     compliance,
     conta,
     conversas,
+    entregabilidade,
     leads,
     messages,
     stream,
@@ -174,8 +176,11 @@ app.include_router(leads.router, prefix=settings.api_prefix)
 app.include_router(messages.router, prefix=settings.api_prefix)
 app.include_router(stream.router, prefix=settings.api_prefix)
 app.include_router(conversas.router, prefix=settings.api_prefix)
+app.include_router(cadencia.router, prefix=settings.api_prefix)
+app.include_router(entregabilidade.router, prefix=settings.api_prefix)
 # Webhook do provedor: sem prefixo de usuario, quem chama e o provedor.
 app.include_router(conversas.publico, prefix=settings.api_prefix)
+app.include_router(entregabilidade.publico, prefix=settings.api_prefix)
 
 # Por ULTIMO: o coringa de SPA so pode ver o que nenhuma rota de API pegou.
 estatico.montar(app)

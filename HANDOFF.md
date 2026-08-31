@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 3 concluída — as três etapas fechadas
+**Última atualização:** 2026-08-31 · Etapa 4 concluída — Cadência (Motor 5)
 
 ---
 
@@ -109,6 +109,7 @@ Fases 0 a 7 concluídas (detalhe em [PROGRESS.md](PROGRESS.md)). Em resumo:
 | **Descoberta** (Motor 1) | QueryBuilder → Places → Receita Federal → dedup | ✅ |
 | **Abordagem** (Motor 3) | personalização + envio com limites, opt-out e autonomia | ✅ |
 | **Conversa** (Motor 4) | receber, classificar intenção, responder ou se calar | ✅ |
+| **Cadência** (Motor 5) | 2º e 3º toque com ângulo próprio, e onde a cadência para | ✅ |
 
 Também prontos: compliance LGPD completo (LIA, opt-out de 1 clique, direitos do
 titular, retenção, auditoria encadeada por hash), créditos e planos com teto e
@@ -116,7 +117,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**188 testes verdes · lint limpo.**
+**252 testes verdes · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -151,6 +152,51 @@ ordem da jornada do usuário.
 | 1 | **Navegação nova** — Busca / Descoberta / Conversas | ✅ feito |
 | 2 | **Landing page + onboarding por chat** | ✅ feito |
 | 3 | **Conversas / Motor 4** — o motor de conversa | ✅ feito |
+| 4 | **Cadência (Motor 5) + supressão de bounce** | ✅ feito |
+
+As etapas seguintes, com o argumento de cada uma, estão em
+[docs/IDEIAS.md](docs/IDEIAS.md).
+
+### O que a Etapa 4 entregou
+
+- **`services/cadencia.py`** — o Motor 5. Três toques (D0, D+3, D+7), cada um
+  com **ângulo próprio**: o insight, a prova, e a saída ("encerro por aqui?").
+  Nunca "seguindo minha mensagem anterior" — isso confessa que ninguém quis
+  responder e transfere ao lead a culpa pelo silêncio.
+- **Sem tabela nova.** Um toque é uma `messages` como qualquer outra, com o
+  número do toque nos metadados e chave de idempotência por toque
+  (`campanha:lead:email:t2`). O que decide o toque é o **estado da conversa
+  lido na hora**, não um agendamento gravado — assim nenhuma linha velha de
+  fila consegue disparar para quem já respondeu.
+- **`services/entregabilidade.py`** — o retorno do provedor. Bounce permanente
+  suprime e descarta; reclamação de spam suprime com origem própria e manda o
+  lead para opt-out; retorno temporário **não suprime nada** (caixa cheia hoje
+  não é cliente ruim para sempre). Acima de 2% de retorno a campanha **pausa
+  sozinha**, com amostra mínima de 20 envios.
+- **`POST /v1/inbound/retorno`** (webhook, 202 mesmo sem casar) e
+  **`POST /v1/leads/{id}/simular-retorno`** (só em mock, igual ao Motor 4).
+- **`GET /v1/cadencia`** e **`POST /v1/cadencia/executar`**; `forcar=true` pula
+  **só a espera** e não existe com `EMAIL_MODE=real`.
+- **Migration 0007** — `messages.retorno` (coluna, não chave em JSON: é dela
+  que sai a taxa, e a conta tem que rodar igual nos dois dialetos) mais
+  `origem_opt_out.reclamacao_spam` e `tipo_evento.bounce_registrado`.
+- **A tela deixou de mentir por omissão.** O rodapé dizia "aguardando o lead
+  responder" e dava a entender que o sistema tinha desistido. Agora diz
+  "Toque 1 de 3 enviado. O próximo sai em 3 dias" — e, quando acaba, por que
+  acabou.
+- **27 testes** do Motor 5, a maioria sobre quando o toque **não** sai.
+
+### O bug que só apareceu ao abrir a tela
+
+**`concluida` não pode parar a cadência.** Eu tinha posto `concluida` junto de
+`pausada` e `falhou` na lista de campanhas que não recebem toque. Parece
+óbvio — e está errado: **toda** campanha termina em `concluida` assim que o
+pipeline roda, e a rodada acaba em segundos enquanto o toque 2 sai três dias
+depois. Com isso o Motor 5 nunca rodaria para ninguém: código morto com
+cobertura verde, porque as fixtures do teste usavam `executando`. Só apareceu
+ao abrir Conversas no navegador e ver a lista de cadência vazia. O que encerra
+a cadência é o estado do **lead**, não o da rodada que o encontrou.
+
 
 ### O que a Etapa 3 entregou
 
@@ -320,6 +366,8 @@ backend/app/
   services/cerebro.py       Motor 2 — serviço → ramos que consomem
   services/descoberta.py    Motor 1 — QueryBuilder + Places + Receita + dedup
   services/envio.py         Motor 3 — personalização + SendService
+  services/cadencia.py      Motor 5 — 2º e 3º toque, e onde a cadência para
+  services/entregabilidade.py  bounce, reclamação e pausa por reputação
   services/scoring.py       score explicável, com pesos aprendidos
   services/compliance.py    LIA, opt-out, direitos do titular, retenção
   services/observador.py    eventos da execução ao vivo
@@ -337,11 +385,31 @@ frontend/src/
 ```
 
 Documentos: [README.md](README.md) · [PROGRESS.md](PROGRESS.md) ·
+[docs/IDEIAS.md](docs/IDEIAS.md) ·
 [docs/ARQUITETURA.md](docs/ARQUITETURA.md) · [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md)
 
 ---
 
 ## 9. Pendências conhecidas
+
+### 9.1 Divergências entre este documento e o código
+
+Achadas na leitura de 31/08/2026. Não são bugs: são lugares onde a visão e o
+repositório contam histórias diferentes. Argumento completo e proposta de
+decisão em [docs/IDEIAS.md](docs/IDEIAS.md).
+
+| # | Divergência | Onde | Status |
+|---|---|---|---|
+| 1 | **Paywall só no cliente** — a tela corta em 3, a API devolve as 42 | `frontend/src/pages/Descoberta.tsx:98` | Etapa 6 |
+| 2 | **Duas tabelas de preço** — a visão (2.6) diz "grátis 10 leads / 3 automações"; o código tem TRIAL 50 · STARTER R$197 · PRO R$597 · SCALE R$1.497 | `backend/app/services/creditos.py:68` | Etapa 6 |
+| 3 | **"Assumir a conversa" sai do produto** — abre `mailto:`, a resposta cai na caixa pessoal e o Motor 4 fica cego | `frontend/src/pages/Conversas.tsx` | Etapa 5 |
+| 4 | ~~**Não existia segundo toque**~~ — resolvida na Etapa 4 | `services/cadencia.py` | ✅ |
+| 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | Etapa 8 |
+
+A número 4 era a mais cara das cinco, e a única que não aparecia em nenhuma
+tela: o produto parece completo até o dia em que ninguém responde.
+
+### 9.2 Outras pendências
 
 - **Ofício adjacente na expansão.** Para "manutenção de ar-condicionado", o
   Cérebro trouxe "Instalação e manutenção elétrica" (peso 11) como alvo.
@@ -354,6 +422,12 @@ Documentos: [README.md](README.md) · [PROGRESS.md](PROGRESS.md) ·
   estabilizar.
 - **Chaves de API.** Nenhum provedor real ligado. O roteiro da virada está em
   [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md): um provedor por vez.
+- **`limpar_demo.py` preserva supressão de bounce.** O script preserva todos os
+  opt-outs de propósito — apagar seria voltar a contatar quem pediu para sair.
+  Só que agora existe supressão vinda de **bounce**, que não é vontade de
+  titular nenhum: é endereço que não existe. Num banco de demo isso gruda para
+  sempre numa empresa fictícia. **Falta decidir** se o script passa a limpar as
+  supressões de origem `bounce_permanente` (mantendo intactas as humanas).
 - **Autenticação.** Não existe login: o usuário vem do header `X-User-Email` com
   fallback no usuário de seed. É dev-only e precisa virar JWT antes de qualquer
   exposição pública.

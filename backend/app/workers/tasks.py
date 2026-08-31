@@ -42,6 +42,27 @@ def executar_retencao(dry_run: bool = False) -> dict:
         return resultado.to_dict()
 
 
+def executar_cadencia(user_id: str | None = None, limite: int = 200) -> dict:
+    """Motor 5: os toques devidos de hoje. Agendar diariamente no worker.
+
+    Roda para TODOS os usuarios quando `user_id` nao vem. Nao precisa de janela
+    nem de trava: o que decide se um toque sai e o estado da conversa lido
+    agora, entao rodar duas vezes no mesmo dia nao gera toque duplicado — a
+    chave de idempotencia por toque recusa o segundo.
+    """
+    alvo = uuid.UUID(str(user_id)) if user_id else None
+    with session_scope() as session:
+        from app.services.cadencia import ServicoDeCadencia
+
+        portas = ProviderRegistry(cost=CostRecorder.para_sessao(session, user_id=alvo))
+        try:
+            resultado = ServicoDeCadencia(session, portas).executar(alvo, limite=limite)
+        finally:
+            portas.fechar()
+        log.info("cadencia_worker", **resultado.to_dict())
+        return resultado.to_dict()
+
+
 def ping() -> str:
     """Tarefa trivial usada no smoke test da fila."""
     return "pong"

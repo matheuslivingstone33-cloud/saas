@@ -12,6 +12,12 @@ Toda mensagem sai com:
   * declaracao de que foi escrita por IA (Marco da IA);
   * link de descadastro de 1 clique (LGPD);
   * assunto e corpo especificos daquele lead.
+
+A partir do Motor 5 a mesma engrenagem escreve os TOQUES da cadencia. Cada
+toque tem um ANGULO proprio, e isso nao e enfeite: "seguindo minha mensagem
+anterior" e uma confissao de que ninguem quis responder, e transfere para o
+lead a culpa pelo silencio. Cada toque precisa ser uma mensagem inteira, que
+se sustenta sozinha se for a primeira que a pessoa abrir.
 """
 
 from __future__ import annotations
@@ -36,6 +42,29 @@ LIMIAR_INTENCAO = 60.0
 #: Teto de buscas de intencao por lote — protege a margem.
 MAX_BUSCAS_INTENCAO = 5
 
+#: Angulo de cada toque da cadencia. O toque 3 e o unico que pede permissao
+#: para encerrar — e o que mais responde, porque responder custa uma palavra.
+ANGULOS: dict[int, str] = {1: "insight", 2: "prova", 3: "saida"}
+
+#: Instrucao dada ao redator por angulo. O toque nunca cobra a resposta
+#: anterior: cobrar transforma o silencio em divida do lead.
+_PEDIDO: dict[str, str] = {
+    "insight": (
+        "Escreva para {nome} ({ramo_descricao}) em {municipio}."
+    ),
+    "prova": (
+        "Segundo contato com {nome} ({ramo_descricao}). NAO cobre a mensagem "
+        "anterior nem cite que ela existiu. Traga um exemplo concreto de como "
+        "esse problema costuma aparecer nesse ramo e o que muda quando e "
+        "resolvido."
+    ),
+    "saida": (
+        "Terceiro e ultimo contato com {nome}. Mensagem curta perguntando se "
+        "deve encerrar o assunto por aqui. Sem cobranca, sem culpa e sem "
+        "insistir: se a resposta for nao, esta encerrado."
+    ),
+}
+
 DECLARACAO_IA = (
     "Esta mensagem foi redigida por um agente de inteligencia artificial a "
     "servico de {empresa}. Responda a este e-mail para falar com uma pessoa."
@@ -53,6 +82,8 @@ class Personalizacao:
     tokens_saida: int = 0
     usou_web_search: bool = False
     modelo: str = "mock"
+    toque: int = 1
+    angulo: str = "insight"
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +91,8 @@ class Personalizacao:
             "sinais": self.sinais,
             "usou_web_search": self.usou_web_search,
             "modelo": self.modelo,
+            "toque": self.toque,
+            "angulo": self.angulo,
             "tokens": {"entrada": self.tokens_entrada, "saida": self.tokens_saida},
         }
 
@@ -88,9 +121,18 @@ class PersonalizationService:
         remetente: User | None = None,
         *,
         usar_intencao: bool = True,
+        toque: int = 1,
     ) -> Personalizacao:
-        sinais = self._sinais_de_intencao(lead, usar_intencao=usar_intencao)
+        angulo = ANGULOS.get(toque, "saida")
+        # Sinal de intencao (balde 2) so no primeiro toque: o que a busca acha
+        # nao muda em tres dias, e pagar de novo pelo mesmo dado corroi a
+        # margem sem melhorar a mensagem.
+        sinais = self._sinais_de_intencao(
+            lead, usar_intencao=usar_intencao and toque == 1
+        )
         contexto = self._contexto(lead, campanha, expansao, sinais)
+        contexto["toque"] = toque
+        contexto["angulo"] = angulo
 
         resposta = self.portas.llm.completar(
             LLMRequest(
@@ -101,10 +143,7 @@ class PersonalizationService:
                 mensagens=[
                     LLMMessage(
                         role="user",
-                        content=(
-                            f"Escreva para {contexto['nome']} "
-                            f"({contexto['ramo_descricao']}) em {contexto['municipio']}."
-                        ),
+                        content=_PEDIDO[angulo].format(**contexto),
                     )
                 ],
                 tarefa="email_abordagem",
@@ -117,7 +156,7 @@ class PersonalizationService:
         corpo = f"{resposta.texto}\n\n---\n{declaracao}"
 
         return Personalizacao(
-            assunto=self._assunto(lead, campanha),
+            assunto=self._assunto(lead, campanha, toque),
             corpo=corpo,
             declaracao_ia=declaracao,
             gancho=contexto["gancho"],
@@ -126,6 +165,8 @@ class PersonalizationService:
             tokens_saida=resposta.tokens_saida,
             usou_web_search=bool(sinais),
             modelo=resposta.modelo,
+            toque=toque,
+            angulo=angulo,
         )
 
     # -- internos -------------------------------------------------------------
@@ -176,11 +217,25 @@ class PersonalizationService:
             "nota_publica": ctx.get("nota"),
         }
 
-    def _assunto(self, lead: Lead, campanha: Campaign) -> str:
+    def _assunto(self, lead: Lead, campanha: Campaign, toque: int = 1) -> str:
+        """Assunto por toque.
+
+        Nao reaproveitamos o assunto do toque 1 com "Re:" na frente: seria uma
+        resposta a uma conversa que nunca existiu. Cada toque anuncia o que
+        ele proprio traz.
+        """
         nome = lead.nome_fantasia or lead.razao_social or "sua empresa"
         servico = campanha.servico.strip()
         if len(servico) > 45:
             servico = servico[:45].rsplit(" ", 1)[0]
+        # Cortar no meio de uma enumeracao deixa pontuacao solta, e o assunto
+        # sai com "eletrica,: um exemplo" — o tipo de detalhe que faz a
+        # mensagem parecer gerada por maquina antes de alguem le-la.
+        servico = servico.rstrip(" ,;:-")
+        if toque >= 3:
+            return f"Encerro por aqui, {nome}?"[:200]
+        if toque == 2:
+            return f"{servico}: um exemplo pratico para {nome}"[:200]
         return f"{servico} para {nome}"[:200]
 
 
