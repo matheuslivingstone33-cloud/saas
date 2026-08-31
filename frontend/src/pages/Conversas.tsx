@@ -65,6 +65,7 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
   const [ocupado, setOcupado] = useState(false);
   const [simulando, setSimulando] = useState<Lead | null>(null);
   const [cadencia, setCadencia] = useState<Cadencia | null>(null);
+  const [compondo, setCompondo] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -126,6 +127,12 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
     if (!selecionada && conversas.length > 0) setSelecionada(conversas[0].lead.id);
   }, [conversas, selecionada]);
 
+  // Trocar de conversa fecha a caixa: um rascunho na tela de outro lead e o
+  // jeito mais facil de mandar a mensagem certa para a empresa errada.
+  useEffect(() => {
+    setCompondo(false);
+  }, [selecionada]);
+
   const atual = conversas.find((c) => c.lead.id === selecionada) ?? null;
   const pendentes = mensagens.filter((m) => m.status === "aguardando_aprovacao");
 
@@ -150,6 +157,35 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
       // `forcar` pula a espera de 3 dias — e so ela. Opt-out, resposta do
       // lead e campanha pausada continuam segurando o toque.
       await api.rodarCadencia(true);
+      await carregar();
+    } catch (e) {
+      setErro(String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function enviarManual(texto: string) {
+    if (!atual) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      await api.responder(atual.lead.id, texto);
+      setCompondo(false);
+      await carregar();
+    } catch (e) {
+      setErro(String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function devolverParaIA() {
+    if (!atual) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      await api.devolverParaIA(atual.lead.id);
       await carregar();
     } catch (e) {
       setErro(String(e));
@@ -282,16 +318,27 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
               </div>
 
               <footer className="border-t border-borda bg-superficie-2 px-5 py-3">
-                <RodapeDaConversa
-                  conversa={atual}
-                  cadencia={cadencia}
-                  estadoCadencia={
-                    cadencia?.pendentes.find((p) => p.lead_id === atual.lead.id) ?? null
-                  }
-                  ocupado={ocupado}
-                  aoSimular={() => setSimulando(atual.lead)}
-                  aoRodarCadencia={() => void rodarCadencia()}
-                />
+                {compondo ? (
+                  <Compositor
+                    lead={atual.lead}
+                    ocupado={ocupado}
+                    aoCancelar={() => setCompondo(false)}
+                    aoEnviar={(texto) => void enviarManual(texto)}
+                  />
+                ) : (
+                  <RodapeDaConversa
+                    conversa={atual}
+                    cadencia={cadencia}
+                    estadoCadencia={
+                      cadencia?.pendentes.find((p) => p.lead_id === atual.lead.id) ?? null
+                    }
+                    ocupado={ocupado}
+                    aoSimular={() => setSimulando(atual.lead)}
+                    aoRodarCadencia={() => void rodarCadencia()}
+                    aoEscrever={() => setCompondo(true)}
+                    aoDevolver={() => void devolverParaIA()}
+                  />
+                )}
               </footer>
             </>
           )}
@@ -335,6 +382,8 @@ function RodapeDaConversa({
   ocupado,
   aoSimular,
   aoRodarCadencia,
+  aoEscrever,
+  aoDevolver,
 }: {
   conversa: Conversa;
   cadencia: Cadencia | null;
@@ -342,21 +391,47 @@ function RodapeDaConversa({
   ocupado: boolean;
   aoSimular: () => void;
   aoRodarCadencia: () => void;
+  aoEscrever: () => void;
+  aoDevolver: () => void;
 }) {
   const temResposta = conversa.mensagens.some((m) => m.direcao === "entrada");
   const pendente = conversa.mensagens.some((m) => m.status === "aguardando_aprovacao");
   const abordado = foiAbordado(conversa.mensagens);
 
+  // Conversa assumida vem antes de tudo: enquanto ela valer, o agente esta
+  // calado, e prometer que ele responde seria mentira.
+  if (conversa.lead.assumido_em !== null) {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-[16rem] flex-1 text-xs text-texto-fraco">
+          <span className="font-medium text-texto-medio">Você assumiu esta conversa.</span>{" "}
+          O agente não escreve mais aqui — nem toque de cadência, nem réplica.
+        </p>
+        <Botao tamanho="sm" disabled={ocupado} onClick={aoEscrever}>
+          escrever
+        </Botao>
+        <Botao variante="fantasma" tamanho="sm" disabled={ocupado} onClick={aoDevolver}>
+          devolver para a IA
+        </Botao>
+      </div>
+    );
+  }
+
   if (conversa.estado === "em_negociacao") {
-    return <FaixaLeadQuente lead={conversa.lead} />;
+    return <FaixaLeadQuente lead={conversa.lead} aoAssumir={aoEscrever} />;
   }
 
   if (temResposta && pendente) {
     return (
-      <p className="text-xs text-texto-fraco">
-        <span className="font-medium text-texto-medio">O lead respondeu.</span> O agente já
-        redigiu a réplica acima — ela sai quando você aprovar.
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-[16rem] flex-1 text-xs text-texto-fraco">
+          <span className="font-medium text-texto-medio">O lead respondeu.</span> O agente já
+          redigiu a réplica acima — ela sai quando você aprovar.
+        </p>
+        <Botao variante="secundario" tamanho="sm" onClick={aoEscrever}>
+          escrever você mesmo
+        </Botao>
+      </div>
     );
   }
 
@@ -384,7 +459,10 @@ function RodapeDaConversa({
           enviar o toque {estadoCadencia.proximo_toque} agora
         </Botao>
       )}
-      <Botao variante="secundario" tamanho="sm" onClick={aoSimular}>
+      <Botao variante="secundario" tamanho="sm" onClick={aoEscrever}>
+        escrever você mesmo
+      </Botao>
+      <Botao variante="fantasma" tamanho="sm" onClick={aoSimular}>
         simular resposta
       </Botao>
     </div>
@@ -433,6 +511,11 @@ function Balao({
 }) {
   const pendente = mensagem.status === "aguardando_aprovacao";
   const doLead = mensagem.direcao === "entrada";
+  // Quem escreveu esta mensagem sai do MESMO campo que carrega a
+  // declaracao de IA: se a mensagem se declara escrita por um agente, foi
+  // o agente; se nao se declara, foi uma pessoa. Assinar como "Prospector
+  // AI" o que o usuario digitou seria a mesma mentira ao contrario.
+  const daIA = mensagem.declaracao_ia !== null;
 
   // A mensagem do lead vem da ESQUERDA, a nossa da direita. Sem essa
   // separacao visual a thread de duas pontas volta a parecer um monologo.
@@ -464,12 +547,22 @@ function Balao({
       className="ml-auto max-w-[85%]"
     >
       <div className="mb-1 flex items-center justify-end gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-rotulo text-marca">
-          Prospector AI
+        <span
+          className={`text-[10px] font-medium uppercase tracking-rotulo ${
+            daIA ? "text-marca" : "text-texto-medio"
+          }`}
+        >
+          {daIA ? "Prospector AI" : "você"}
         </span>
         <Badge tom={mensagem.status}>{mensagem.status}</Badge>
       </div>
-      <div className="rounded-2xl rounded-tr-sm border border-marca/20 bg-marca-fraca px-4 py-3">
+      <div
+        className={`rounded-2xl rounded-tr-sm border px-4 py-3 ${
+          daIA
+            ? "border-marca/20 bg-marca-fraca"
+            : "border-borda-forte bg-superficie-3"
+        }`}
+      >
         {mensagem.assunto && (
           <p className="mb-1.5 text-xs font-medium text-texto">{mensagem.assunto}</p>
         )}
@@ -507,7 +600,7 @@ function Balao({
  * diferentes, e juntá-las num clique só usa a empolgação do momento para
  * vender. A pessoa fecha o negócio; o plano ela decide quando quiser.
  */
-function FaixaLeadQuente({ lead }: { lead: Lead }) {
+function FaixaLeadQuente({ lead, aoAssumir }: { lead: Lead; aoAssumir: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -532,14 +625,68 @@ function FaixaLeadQuente({ lead }: { lead: Lead }) {
           hora de você entrar na conversa.
         </p>
       </div>
-      <Botao
-        onClick={() => {
-          if (lead.email) window.location.href = `mailto:${lead.email}`;
-        }}
-        disabled={!lead.email}
-      >
+      <Botao onClick={aoAssumir} disabled={!lead.email}>
         assumir a conversa
       </Botao>
+    </motion.div>
+  );
+}
+
+/**
+ * A caixa de escrever.
+ *
+ * O texto sai como foi digitado: nao passa por LLM. Reescrever o que a
+ * pessoa escreveu seria colocar palavra na boca dela — e ela assinou.
+ *
+ * Por isso tambem a mensagem NAO leva a declaracao de IA: o Marco da IA
+ * manda declarar quando e IA, nao manda mentir que e. O link de descadastro
+ * continua, porque LGPD nao muda conforme quem digitou.
+ */
+function Compositor({
+  lead,
+  ocupado,
+  aoEnviar,
+  aoCancelar,
+}: {
+  lead: Lead;
+  ocupado: boolean;
+  aoEnviar: (texto: string) => void;
+  aoCancelar: () => void;
+}) {
+  const [texto, setTexto] = useState("");
+  const vazio = texto.trim().length === 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: EXPO }}
+      className="space-y-2.5"
+    >
+      <textarea
+        autoFocus
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        placeholder={`Escreva para ${lead.nome_fantasia ?? lead.razao_social ?? "o lead"}…`}
+        className="min-h-[5.5rem] w-full resize-y rounded-lg border border-borda bg-superficie px-3 py-2 text-sm text-texto outline-none transition-all duration-200 ease-expo placeholder:text-texto-fraco focus:border-marca focus:ring-4 focus:ring-marca/12"
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="min-w-[14rem] flex-1 text-xs text-texto-fraco">
+          Sai como você escreveu, do seu remetente, com o link de descadastro. Ao
+          enviar, você assume a conversa e o agente para de escrever neste lead.
+        </p>
+        <Botao variante="fantasma" tamanho="sm" onClick={aoCancelar} disabled={ocupado}>
+          cancelar
+        </Botao>
+        <Botao
+          tamanho="sm"
+          carregando={ocupado}
+          disabled={vazio || ocupado}
+          onClick={() => aoEnviar(texto.trim())}
+        >
+          enviar
+        </Botao>
+      </div>
     </motion.div>
   );
 }

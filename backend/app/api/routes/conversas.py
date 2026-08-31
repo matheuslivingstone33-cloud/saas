@@ -53,6 +53,13 @@ class SimulacaoResposta(BaseModel):
     assunto: str | None = Field(default=None, max_length=300)
 
 
+class RespostaManual(BaseModel):
+    """O que a pessoa escreveu. Sai como escrito, sem passar por LLM."""
+
+    corpo: str = Field(min_length=1, max_length=20000)
+    assunto: str | None = Field(default=None, max_length=300)
+
+
 def _lead_por_email(session: Session, endereco: str) -> Lead | None:
     """Acha o lead pelo endereco que respondeu.
 
@@ -133,6 +140,46 @@ def simular_resposta(
         canal=Canal.EMAIL,
     )
     return resultado.to_dict()
+
+
+@router.post("/leads/{lead_id}/responder")
+def responder(
+    lead_id: uuid.UUID,
+    payload: RespostaManual,
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),
+    portas: ProviderRegistry = Depends(registry),
+) -> dict:
+    """A pessoa escreve e o sistema envia — a conversa NAO sai do produto.
+
+    Enviar por fora (um `mailto:`, por exemplo) parece equivalente e nao e: a
+    resposta do lead voltaria para a caixa pessoal, fora do alcance do Motor 4,
+    e a thread ficaria com um buraco exatamente no trecho que importa.
+    """
+    lead = LeadRepository(session).get(lead_id, user_id=user.id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+
+    resultado = ServicoDeConversa(session, portas).responder_manualmente(
+        lead=lead, corpo=payload.corpo, autor=user, assunto=payload.assunto
+    )
+    return resultado.to_dict()
+
+
+@router.post("/leads/{lead_id}/devolver-para-ia")
+def devolver_para_ia(
+    lead_id: uuid.UUID,
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),
+    portas: ProviderRegistry = Depends(registry),
+) -> dict:
+    """Devolve a conversa ao agente. Assumir nao pode ser porta sem volta."""
+    lead = LeadRepository(session).get(lead_id, user_id=user.id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+
+    devolvida = ServicoDeConversa(session, portas).devolver_para_ia(lead, user)
+    return {"lead_id": str(lead.id), "devolvida": devolvida, "assumida": False}
 
 
 @router.get("/conversas/intencoes")

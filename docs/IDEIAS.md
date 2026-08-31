@@ -32,7 +32,7 @@ diferentes — e decidir qual das duas vale é pré-requisito para o resto.
 |---|---|---|---|
 | 1 | **Paywall só no cliente**: a tela corta em 3, a API devolve as 42 | `frontend/src/pages/Descoberta.tsx:98` | virar corte de servidor (§4) |
 | 2 | **Duas tabelas de preço**: visão diz "grátis 10 leads / 3 automações", código tem TRIAL 50 · STARTER R$197 · PRO R$597 · SCALE R$1.497 | `HANDOFF.md` §2.6 × `backend/app/services/creditos.py:68` | escolher uma (§4) |
-| 3 | **"Assumir a conversa" sai do produto**: abre `mailto:`, a resposta do lead cai na caixa pessoal | `frontend/src/pages/Conversas.tsx:438` | responder por dentro (§5) |
+| 3 | ~~**"Assumir a conversa" sai do produto**~~ | resolvida | ✅ Etapa 5 |
 | 4 | ~~**Não existe segundo toque**~~ | resolvida | ✅ Etapa 4 |
 | 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | JWT antes de qualquer usuário real (§10) |
 
@@ -148,7 +148,7 @@ frase.
 
 ---
 
-## 5. A resposta manual tem que acontecer dentro do produto
+## 5. A resposta manual dentro do produto ✅ *(entregue na Etapa 5, 31/08/2026)*
 
 **O problema.** No momento mais valioso da jornada — o lead esquentou —
 `Conversas.tsx` abre um `mailto:`. A conversa sai do sistema. A resposta do lead
@@ -161,6 +161,16 @@ aprova, rejeita e despacha.
 identidade do usuário. É pequena, e destrava quatro coisas de uma vez: a thread
 continua de duas pontas, o Motor 4 continua enxergando, a auditoria fica íntegra,
 e o "Abordagem IA / Manual" da visão (§2.4 do handoff) finalmente existe.
+
+> **Entregue** em `ServicoDeConversa.responder_manualmente`, com
+> `POST /v1/leads/{id}/responder`, `POST /v1/leads/{id}/devolver-para-ia` e a
+> caixa de escrever na tela de Conversas. 20 testes.
+>
+> Uma decisão que só apareceu ao construir: a mensagem escrita por gente **não
+> leva a declaração de IA**. O Marco da IA manda declarar quando é IA; não
+> manda mentir que é. O link de descadastro fica, porque a LGPD não muda
+> conforme quem digitou. E `leads.assumido_em` cala o agente — sem isso o
+> toque 2 sairia por cima do que a pessoa acabou de escrever.
 
 ---
 
@@ -254,7 +264,7 @@ vendido**:
 | # | Etapa | Por que nesta posição |
 |---|---|---|
 | ~~4~~ | ~~**Cadência (Motor 5) + supressão de bounce**~~ | ✅ **entregue em 31/08/2026** |
-| **5** | **Resposta manual dentro do produto** | pequena, e destrava o momento mais valioso da jornada (§5) |
+| ~~5~~ | ~~**Resposta manual dentro do produto**~~ | ✅ **entregue em 31/08/2026** |
 | **6** | **Paywall no servidor + alinhar planos** | só faz sentido cobrar depois que o produto produz resposta |
 | **7** | **Aprendizado por intenção** | precisa do volume de respostas que a Etapa 4 gera |
 | **8** | **JWT + admin + webhook assinado** | último momento possível antes de qualquer pessoa de fora |
@@ -262,8 +272,9 @@ vendido**:
 
 **Etapa 4 primeiro** porque o produto sabia encontrar e sabia conversar, mas não
 sabia insistir — e insistir com educação é literalmente o trabalho que o cliente
-está comprando. **A próxima é a 5**, e ela é pequena: a resposta manual dentro
-do produto (§5).
+está comprando. A 5 veio logo atrás, e era pequena. **A próxima é a 6**: cobrar
+por revelação em vez de por descoberta (§4) — que resolve de uma vez o paywall
+de mentira e as duas tabelas de preço.
 
 ### O que a Etapa 4 ensinou
 

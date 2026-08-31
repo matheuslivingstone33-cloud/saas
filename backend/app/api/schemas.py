@@ -80,6 +80,9 @@ class LeadOut(_ORM):
     score_breakdown: dict[str, Any] | None
     status: StatusLead
     provenance: dict[str, Any]
+    # Quando uma pessoa assumiu a conversa. A interface precisa saber para nao
+    # prometer que o agente vai responder quando ele foi calado de proposito.
+    assumido_em: datetime | None
     created_at: datetime
 
 

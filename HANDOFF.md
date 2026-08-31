@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 4 concluída — Cadência (Motor 5)
+**Última atualização:** 2026-08-31 · Etapa 5 concluída — a resposta manual
 
 ---
 
@@ -117,7 +117,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**252 testes verdes · lint limpo.**
+**272 testes verdes · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -153,9 +153,48 @@ ordem da jornada do usuário.
 | 2 | **Landing page + onboarding por chat** | ✅ feito |
 | 3 | **Conversas / Motor 4** — o motor de conversa | ✅ feito |
 | 4 | **Cadência (Motor 5) + supressão de bounce** | ✅ feito |
+| 5 | **Resposta manual dentro do produto** | ✅ feito |
 
 As etapas seguintes, com o argumento de cada uma, estão em
 [docs/IDEIAS.md](docs/IDEIAS.md).
+
+### O que a Etapa 5 entregou
+
+O botão "assumir a conversa" abria um `mailto:`. Parece equivalente e não é:
+a resposta do lead voltava para a caixa pessoal do usuário, **fora do alcance
+do Motor 4**, e a thread ficava com um buraco exatamente no trecho que decide
+o negócio.
+
+- **`ServicoDeConversa.responder_manualmente`** — a pessoa escreve, o
+  `SendService` envia. Mesmo caminho de saída de sempre, mesmos guardrails.
+- **Sem declaração de IA, com link de descadastro.** O Marco da IA manda
+  declarar quando **é** IA; não manda mentir que é. Carimbar "escrita por um
+  agente" no que a pessoa digitou seria declaração falsa. Já a LGPD não muda
+  conforme quem digitou: continua sendo contato comercial não solicitado, e o
+  descadastro continua.
+- **O texto não passa por LLM.** Reescrever o que alguém digitou é colocar
+  palavra na boca de quem assina. Há teste que falha se um LLM for chamado.
+- **Opt-out não cede para humano nenhum.** O direito é do titular, não do
+  remetente: enviar manualmente para um contato suprimido devolve 451.
+- **`leads.assumido_em`** (migration 0008) — quando uma pessoa assume, o
+  agente **cala**: nem toque de cadência, nem réplica do Motor 4. Sem isso o
+  toque 2 sairia por cima da mensagem recém-escrita, dois remetentes falando
+  ao mesmo tempo com o mesmo lead.
+- **Assumir tem volta** — `POST /v1/leads/{id}/devolver-para-ia`. Sem isso um
+  clique errado calaria aquele lead para sempre, e ausência de mensagem não
+  aparece em tela nenhuma.
+- **A thread diz quem escreveu.** O balão sai assinado "você" ou "Prospector
+  AI", derivado do **mesmo campo** que carrega a declaração de IA: se a
+  mensagem se declara escrita por um agente, foi o agente.
+- **20 testes.**
+
+### Detalhe de texto que valia consertar
+
+O assunto da réplica cortava em contagem de caractere e saía
+*"Re: manutencao predial preventiva: eletrica, hidraulica e climat"*. Agora
+corta em palavra inteira e fecha com reticências — sem elas o corte cai no
+meio de uma enumeração e parece erro de digitação, não texto cortado. É a
+linha que a pessoa lê antes de decidir se abre.
 
 ### O que a Etapa 4 entregou
 
@@ -373,6 +412,7 @@ backend/app/
   services/envio.py         Motor 3 — personalização + SendService
   services/cadencia.py      Motor 5 — 2º e 3º toque, e onde a cadência para
   services/entregabilidade.py  bounce, reclamação e pausa por reputação
+  services/conversa.py      Motor 4 + a resposta manual (assumir/devolver)
   services/scoring.py       score explicável, com pesos aprendidos
   services/compliance.py    LIA, opt-out, direitos do titular, retenção
   services/observador.py    eventos da execução ao vivo
@@ -407,7 +447,7 @@ decisão em [docs/IDEIAS.md](docs/IDEIAS.md).
 |---|---|---|---|
 | 1 | **Paywall só no cliente** — a tela corta em 3, a API devolve as 42 | `frontend/src/pages/Descoberta.tsx:98` | Etapa 6 |
 | 2 | **Duas tabelas de preço** — a visão (2.6) diz "grátis 10 leads / 3 automações"; o código tem TRIAL 50 · STARTER R$197 · PRO R$597 · SCALE R$1.497 | `backend/app/services/creditos.py:68` | Etapa 6 |
-| 3 | **"Assumir a conversa" sai do produto** — abre `mailto:`, a resposta cai na caixa pessoal e o Motor 4 fica cego | `frontend/src/pages/Conversas.tsx` | Etapa 5 |
+| 3 | ~~**"Assumir a conversa" sai do produto**~~ — resolvida na Etapa 5 | `services/conversa.py` | ✅ |
 | 4 | ~~**Não existia segundo toque**~~ — resolvida na Etapa 4 | `services/cadencia.py` | ✅ |
 | 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | Etapa 8 |
 

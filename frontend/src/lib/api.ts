@@ -153,6 +153,9 @@ export type Lead = {
   } | null;
   status: string;
   provenance: Record<string, unknown>;
+  /** Quando uma PESSOA assumiu a conversa. Preenchido = o agente calou:
+   *  nao ha mais toque de cadencia nem replica do Motor 4 neste lead. */
+  assumido_em: string | null;
   created_at: string;
 };
 
@@ -361,6 +364,17 @@ export const api = {
   // existe em modo mock — sem isso a cadencia so seria visivel daqui a 3 dias.
   rodarCadencia: (forcar = false) =>
     post<ResultadoCadencia>("/v1/cadencia/executar", { forcar, limite: 50 }),
+  // etapa 5 — a resposta manual acontece DENTRO do produto: enviar por fora
+  // (um mailto:) tiraria a resposta do lead do alcance do Motor 4.
+  responder: (leadId: string, corpo: string) =>
+    post<{ enviada: boolean; assumida: boolean; motivo: string }>(
+      `/v1/leads/${leadId}/responder`,
+      { corpo },
+    ),
+  devolverParaIA: (leadId: string) =>
+    post<{ devolvida: boolean; assumida: boolean }>(
+      `/v1/leads/${leadId}/devolver-para-ia`,
+    ),
   simularRetorno: (leadId: string, tipo: "permanente" | "transitorio" | "reclamacao") =>
     post<{ suprimido: boolean; motivo: string; campanha_pausada: boolean }>(
       `/v1/leads/${leadId}/simular-retorno`,

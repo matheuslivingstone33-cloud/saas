@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.registry import ProviderRegistry
+from app.core.errors import BloqueadoPorCompliance
 from app.core.ids import now
 from app.core.logging import get_logger
 from app.models.campaign import Campaign
@@ -50,6 +51,7 @@ from app.models.enums import (
 )
 from app.models.lead import Lead
 from app.models.message import Message
+from app.models.user import User
 from app.ports.dto import LLMMessage, LLMRequest
 from app.repositories.misc import MessageRepository, OptOutRepository, UserRepository
 from app.services.audit import AuditService
@@ -105,6 +107,26 @@ class ResultadoConversa:
             "aguardando_aprovacao": self.aguardando_aprovacao,
             "lead_quente": self.intencao in QUENTES,
             **self.detalhes,
+        }
+
+
+@dataclass(slots=True)
+class ResultadoManual:
+    """Resultado de uma mensagem escrita por uma pessoa."""
+
+    lead_id: uuid.UUID
+    mensagem_id: uuid.UUID | None = None
+    enviada: bool = False
+    assumida: bool = False
+    motivo: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "lead_id": str(self.lead_id),
+            "mensagem_id": str(self.mensagem_id) if self.mensagem_id else None,
+            "enviada": self.enviada,
+            "assumida": self.assumida,
+            "motivo": self.motivo,
         }
 
 
@@ -264,6 +286,17 @@ class ServicoDeConversa:
         if intencao in SEM_RESPOSTA:
             return self._encerrar(lead, intencao, resultado)
 
+        # Conversa que uma pessoa assumiu: o agente para de escrever.
+        #
+        # Esta checagem vem DEPOIS de `SEM_RESPOSTA` de proposito. Opt-out,
+        # recusa e pedido de humano continuam sendo processados mesmo aqui: o
+        # direito do titular nao depende de quem esta conduzindo a conversa, e
+        # um "me tire da lista" que chegasse numa conversa assumida nao pode
+        # ficar sem supressao registrada.
+        if lead.assumido_em is not None:
+            resultado.motivo = "conversa assumida por uma pessoa; o agente nao responde"
+            return resultado
+
         return self._responder(lead, intencao, resultado)
 
     # -- decisao --------------------------------------------------------------
@@ -360,7 +393,7 @@ class ServicoDeConversa:
                     else StatusMensagem.AGUARDANDO_APROVACAO
                 ),
                 destinatario=lead.email,
-                assunto=f"Re: {campanha.servico[:60]}" if campanha else "Re: sua resposta",
+                assunto=self._assunto_de_resposta(campanha),
                 corpo=f"{texto}\n\n---\n{declaracao}",
                 declaracao_ia=declaracao,
                 link_descadastro=f"https://app.prospector.local/descadastro/{lead.id}",
@@ -406,6 +439,152 @@ class ServicoDeConversa:
             automatica=automatica,
         )
         return resultado
+
+    # -- a pessoa assume ------------------------------------------------------
+    def responder_manualmente(
+        self,
+        *,
+        lead: Lead,
+        corpo: str,
+        autor: User,
+        assunto: str | None = None,
+    ) -> ResultadoManual:
+        """Uma PESSOA escreve, e o sistema envia.
+
+        Antes disto, "assumir a conversa" abria um `mailto:` — e a conversa
+        saia do produto no momento em que ela mais valia. A resposta do lead
+        voltava para a caixa pessoal, o Motor 4 ficava cego justamente no lead
+        que estava dando certo, e a auditoria perdia o trecho mais importante.
+
+        Tres decisoes que este metodo carrega:
+
+        1. **Sem declaracao de IA.** O Marco da IA manda declarar quando e IA;
+           nao manda mentir que e. Carimbar "escrita por um agente" numa
+           mensagem que uma pessoa digitou seria declaracao falsa.
+        2. **Com link de descadastro.** LGPD nao muda porque quem digitou foi
+           gente: continua sendo contato comercial nao solicitado.
+        3. **Os guardrails valem igual.** Opt-out em especial: nenhum humano
+           passa por cima de "nao me contate" — o direito e do titular, nao do
+           remetente.
+        """
+        texto = (corpo or "").strip()
+        if not texto:
+            raise BloqueadoPorCompliance("Mensagem vazia: nao ha o que enviar.")
+
+        campanha = self.session.get(Campaign, lead.campaign_id) if lead.campaign_id else None
+        destino = (lead.email or "").strip().lower()
+        bloqueio = self.envio.checar_bloqueios(campanha, lead, destino)
+        if bloqueio is not None:
+            raise BloqueadoPorCompliance(
+                f"Envio bloqueado ({bloqueio.motivo}): {bloqueio.detalhe}".strip(": ")
+            )
+
+        ordem = self._proxima_ordem(lead)
+        chave = f"{lead.campaign_id}:{lead.id}:manual:{ordem}"
+        if self.mensagens.por_idempotency_key(chave) is not None:
+            return ResultadoManual(
+                lead_id=lead.id, motivo="mensagem ja registrada para este turno"
+            )
+
+        # A conversa passa a ser da pessoa. Sem isto, o toque 2 da cadencia
+        # sairia por cima do que ela acabou de escrever.
+        assumida_agora = lead.assumido_em is None
+        if assumida_agora:
+            lead.assumido_em = now()
+
+        mensagem = self.mensagens.add(
+            Message(
+                user_id=lead.user_id,
+                campaign_id=lead.campaign_id,
+                lead_id=lead.id,
+                canal=Canal.EMAIL,
+                direcao=Direcao.SAIDA,
+                # Quem escreveu foi gente: pedir que ela aprove a propria
+                # mensagem seria teatro de aprovacao.
+                status=StatusMensagem.APROVADA,
+                destinatario=lead.email,
+                assunto=(assunto or self._assunto_de_resposta(campanha))[:300],
+                corpo=texto,
+                declaracao_ia=None,
+                link_descadastro=self.envio.compliance.link_para(
+                    lead, self.envio.settings.url_publica
+                ),
+                idempotency_key=chave,
+                aprovado_em=now(),
+                ordem=ordem,
+                created_at=now(),
+                metadados={"gerado_por": "humano", "autor": str(autor.id)},
+            )
+        )
+
+        self.audit.registrar(
+            evento=TipoEvento.MENSAGEM_GERADA,
+            entidade_tipo="mensagem",
+            entidade_id=mensagem.id,
+            dados={
+                "lead_id": str(lead.id),
+                "gerado_por": "humano",
+                "autor": str(autor.id),
+                "declara_ia": False,
+                "assumiu_a_conversa": assumida_agora,
+            },
+            ator=Ator.USUARIO,
+            user_id=lead.user_id,
+        )
+
+        enviada = self.envio.despachar(mensagem)
+        log.info(
+            "resposta_manual",
+            lead_id=str(lead.id),
+            enviada=enviada,
+            assumiu=assumida_agora,
+        )
+        return ResultadoManual(
+            lead_id=lead.id,
+            mensagem_id=mensagem.id,
+            enviada=enviada,
+            assumida=True,
+            motivo="mensagem enviada" if enviada else (mensagem.erro or "falha ao enviar"),
+        )
+
+    def devolver_para_ia(self, lead: Lead, autor: User) -> bool:
+        """Devolve a conversa ao agente. Assumir nao pode ser porta sem volta.
+
+        Sem isto, um clique errado calaria a cadencia daquele lead para sempre
+        — e o usuario nao teria como perceber, porque a ausencia de mensagem
+        nao aparece em lugar nenhum.
+        """
+        if lead.assumido_em is None:
+            return False
+        lead.assumido_em = None
+        self.session.flush()
+        self.audit.registrar(
+            evento=TipoEvento.LEAD_TRANSICAO,
+            entidade_tipo="lead",
+            entidade_id=lead.id,
+            dados={"acao": "devolvida_para_ia", "autor": str(autor.id)},
+            ator=Ator.USUARIO,
+            user_id=lead.user_id,
+        )
+        log.info("conversa_devolvida_para_ia", lead_id=str(lead.id))
+        return True
+
+    def _assunto_de_resposta(self, campanha: Campaign | None) -> str:
+        """"Re:" do servico da campanha, cortado em palavra inteira.
+
+        Cortar em contagem de caractere produzia "Re: manutencao predial
+        preventiva: eletrica, hidraulica e climat" — a linha que a pessoa le
+        antes de decidir se abre.
+        """
+        if campanha is None:
+            return "Re: sua mensagem"
+        servico = campanha.servico.strip()
+        if len(servico) > 60:
+            # As reticencias nao sao enfeite: sem elas o corte cai no meio de
+            # uma enumeracao e o assunto termina em "hidraulica e", que parece
+            # erro de digitacao em vez de texto cortado.
+            servico = servico[:60].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+        return f"Re: {servico}"
 
     # -- auxiliares -----------------------------------------------------------
     def classificar(self, texto: str, lead: Lead | None = None) -> Intencao:

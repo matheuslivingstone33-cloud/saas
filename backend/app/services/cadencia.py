@@ -377,6 +377,11 @@ class ServicoDeCadencia:
             return "lead descartado"
         if lead.status is not StatusLead.ABORDADO:
             return "ainda nao recebeu o primeiro contato"
+        if lead.assumido_em is not None:
+            # Uma pessoa assumiu a conversa. O toque 2 sairia por cima do que
+            # ela acabou de escrever — dois remetentes falando ao mesmo tempo
+            # com o mesmo lead, cada um sem saber do outro.
+            return "voce assumiu esta conversa"
         if enviados >= self.max_toques():
             return f"cadencia completa ({enviados} toques)"
         if self._tem_entrada(lead.id):

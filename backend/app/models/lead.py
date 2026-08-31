@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -96,6 +98,14 @@ class Lead(Base, UUIDPk, Timestamps, SoftDelete):
     contexto: Mapped[dict | None] = mapped_column(JSONType)
     resumo: Mapped[str | None] = mapped_column(LongText)
     tentativas_contato: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Quando uma PESSOA assumiu esta conversa e passou a escrever ela mesma.
+    #
+    # Existe para calar o agente: a partir daqui a cadencia nao manda mais
+    # toque e o Motor 4 nao redige mais replica. Sem isso, o toque 2 sairia por
+    # cima da mensagem que o usuario acabou de escrever — dois remetentes
+    # falando ao mesmo tempo com o mesmo lead.
+    assumido_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     campaign: Mapped[Campaign] = relationship(back_populates="leads")
 

@@ -12,8 +12,9 @@
 | **7** | Integração e produção | ✅ código pronto — ⏳ falta virar as chaves |
 | **Motor 4** | Conversa de duas pontas | ✅ concluída |
 | **Motor 5** | Cadência de toques + entregabilidade | ✅ concluída |
+| **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 
-**Verificado nesta máquina:** 252 testes verdes · `ruff` limpo · migrations
+**Verificado nesta máquina:** 272 testes verdes · `ruff` limpo · migrations
 `upgrade head` / `downgrade base` ok · frontend `npm run build` ok · fluxo
 completo exercitado pela interface no navegador.
 
@@ -147,6 +148,21 @@ completo exercitado pela interface no navegador.
   campanha pausa sozinha — dominío queimado não volta, e leva junto o e-mail
   com que o cliente fatura.
 - Migration `0007` (`messages.retorno`, `reclamacao_spam`, `bounce_registrado`).
+
+---
+
+## Etapa 5 — Resposta manual ✅
+
+- A pessoa escreve na thread e o `SendService` envia: a conversa **não sai do
+  produto**. Antes, "assumir a conversa" abria um `mailto:` e a resposta do
+  lead voltava para a caixa pessoal, fora do alcance do Motor 4.
+- **Sem declaração de IA** (o Marco da IA manda declarar quando é IA, não
+  mentir que é) e **com link de descadastro** (LGPD não muda conforme quem
+  digitou). O texto não passa por LLM — há teste que falha se passar.
+- **Opt-out não cede para humano nenhum**: envio manual para contato
+  suprimido devolve 451.
+- `leads.assumido_em` cala o agente enquanto a pessoa conduz — e
+  `devolver-para-ia` religa. Migration `0008`.
 
 ---
 
