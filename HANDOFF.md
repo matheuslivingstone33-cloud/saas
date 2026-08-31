@@ -12,6 +12,79 @@
 
 ---
 
+## 0. Onde paramos — leia isto antes de qualquer coisa
+
+**Estado em 31/08/2026:** Etapas 0 a 6 fechadas. **290 testes verdes**,
+`ruff` e `tsc --noEmit` limpos, migrations sobem e descem nos dois dialetos.
+Tudo commitado **e publicado**: `main` == `origin/main`, último commit
+`2784efe`. Nenhuma chave de API — o sistema inteiro roda em mock.
+
+Para retomar, três comandos (detalhe na seção 5):
+
+```bash
+cd backend && .venv/Scripts/python.exe -m pytest tests -q
+```
+
+```bash
+cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+```bash
+cd backend && .venv/Scripts/python.exe scripts/limpar_demo.py --aplicar && .venv/Scripts/python.exe scripts/demo_fase0.py
+```
+
+O terceiro devolve o banco de demonstração a um estado limpo e povoado —
+útil antes de abrir a interface para conferir alguma coisa.
+
+### A próxima é a Etapa 7 — aprendizado por intenção
+
+**A ideia.** O `LoopAprendizado` aprende com o **desfecho** do lead, que é um
+sinal raro e tardio. Desde o Motor 4 existe um sinal mais barato e muito mais
+cedo: a **intenção da resposta**. Vinte `recusa` no mesmo CNAE não é azar — é
+o Cérebro tendo errado o ramo. Argumento completo em
+[docs/IDEIAS.md](docs/IDEIAS.md) §7.
+
+**Comece verificando o que já chega.** Isto muda o tamanho da etapa e o
+`docs/IDEIAS.md` exagera um pouco: parte do sinal de intenção **já** alimenta
+o loop hoje, de carona na máquina de estados. `recusa` leva o lead a
+`descartado` e `pedido_opt_out` leva a `opt_out` — os dois estão em
+`FRACASSO`; qualquer resposta leva a `respondido`, que está em `SUCESSO`. E
+`LeadService.transicionar` chama `aprendizado.observar` em toda transição
+([services/leads.py:58](backend/app/services/leads.py)). Meça antes de
+construir: pode ser que falte menos do que parece.
+
+**O que de fato falta**, e é o coração da etapa:
+
+1. **Aprendizado por RAMO, não só por componente de score.** Hoje
+   `aprendizado.py` ajusta os pesos dos seis componentes do score
+   (`COMPONENTES` em `services/scoring.py`). O peso do **CNAE** vem do
+   Cérebro e é igual para todo tenant: se hotel não responde para *este*
+   cliente, nada aprende isso. É aqui que mora o fosso — cada cliente afina a
+   própria mira, e o ativo é o histórico dele.
+2. **Distinguir as intenções entre si.** Para a máquina de estados, `recusa`
+   e `pedido_opt_out` acabam no mesmo balde de fracasso. Não são a mesma
+   coisa: "já temos fornecedor" diz que o ramo está certo e o momento errado;
+   "me tire da lista" diz que a mira está errada. Misturar as duas ensina o
+   Cérebro a fugir de ramo bom.
+3. **Um lugar para guardar o peso por (tenant, CNAE).** `ScoreWeights` guarda
+   pesos de componente. Peso por ramo precisa de coluna/tabela nova — e,
+   pelas outras etapas, **migration** (ver guardrail 7).
+
+**Onde mexer:** `services/aprendizado.py` (o loop), `services/conversa.py`
+(onde a intenção é classificada — é de lá que sai o gancho novo),
+`services/cerebro.py` (o peso do ramo, hoje sem ajuste por tenant) e
+`models/learning.py`.
+
+**A armadilha desta etapa:** aprendizado que se move rápido demais vira
+superstição. O loop atual já tem as defesas certas — mínimo de 20 amostras,
+passo amortecido de 0.15, piso/teto e `restaurar_padrao()`. O que for
+acrescentado precisa das mesmas, e por um motivo concreto: com três respostas
+ruins de hotel, um loop guloso apagaria hotéis da mira do cliente para
+sempre — e ninguém veria isso acontecer, porque ausência de lead não aparece
+em tela nenhuma.
+
+---
+
 ## 1. O que é o produto
 
 SaaS que **descobre, qualifica e conversa** com os clientes ideais de um
@@ -74,10 +147,18 @@ estado (**Em negociação**, **Aguardando resposta**, **Primeiro contato enviado
 thread à direita, alternância **Abordagem IA / Manual**, botões **"Rodar ao vivo"**
 e **"Piloto automático"**.
 
-Quando o lead esquenta, aparece a faixa de conversão:
+Quando o lead esquenta, aparece a faixa de conversão. O protótipo trazia:
 > 🔥 O lead está aquecido e quer fechar! O Prospector AI já preparou a proposta.
 > **[Assinar PRO e Agendar Reunião Automaticamente]**
 > *Assumir chat manualmente de forma gratuita*
+
+> ⚠️ **Este botão foi recusado de propósito — não o reconstrua sem decidir de
+> novo.** Ele junta duas decisões diferentes (cobrar e marcar reunião) num
+> clique só, usando a empolgação do momento para vender. Hoje a faixa leva a
+> **"assumir a conversa"**, que abre a caixa de escrever (Etapa 5); o plano a
+> pessoa decide quando quiser. **Agendamento automático não existe** e é a
+> única promessa do protótipo ainda sem código — se for construir, veja
+> [docs/IDEIAS.md](docs/IDEIAS.md).
 
 ### 2.5 Suporte por WhatsApp com IA
 Diferencial: o suporte é feito por IA no WhatsApp, mandando áudio, soando
@@ -147,8 +228,9 @@ dúvida o direito do titular ganha do negócio.
 
 ## 4. Plano de execução
 
-Decidido em 31/08/2026: fazer **os três**, um por vez, testando cada etapa, na
-ordem da jornada do usuário.
+Uma etapa por vez, testando cada coisa feita. A ordem começou pela jornada do
+usuário (etapas 1 a 3) e depois passou a seguir o que mais move resultado —
+o argumento de cada uma está em [docs/IDEIAS.md](docs/IDEIAS.md) §11.
 
 | # | Etapa | Estado |
 |---|---|---|
@@ -441,6 +523,20 @@ Valem para qualquer etapa, sempre:
   em estado onde toda requisição virava 500.
 - **Tela em branco com 500 em todo módulo** = falta de RAM. O Vite perde o
   processo filho do esbuild e responde `The service is no longer running`.
+- **Teste que monta o próprio estado não vê o estado que a aplicação produz.**
+  A Etapa 4 tratou `concluida` como "campanha parada" e a cadência nunca
+  rodaria para ninguém — mas as fixtures usavam `executando`, então a
+  cobertura ficou verde em cima de código morto. Só apareceu ao **abrir a
+  tela**. Vale abrir a interface uma vez antes de dar qualquer etapa por
+  fechada.
+- **Cobrar no lugar errado do fluxo vaza o produto.** A Etapa 6 quase cobrou a
+  revelação só no envio — só que no modo assistido o rascunho fica esperando
+  aprovação com o nome da empresa no corpo e o e-mail no destinatário. O
+  contato já estava à vista de graça. Cobra-se na **geração**.
+- **A interface parece travada no preview quando o painel do navegador está
+  oculto.** As animações do framer-motion dependem de `requestAnimationFrame`,
+  que fica estrangulado em aba oculta: a transição de página trava por 20s e
+  só anda a cada screenshot. Não é bug do app.
 
 ---
 
@@ -465,7 +561,12 @@ backend/app/
 
 frontend/src/
   App.tsx                   navegação, tema, paleta
-  pages/                    Painel, Campanhas, Créditos, Conformidade, Onboarding
+  pages/Landing.tsx         a primeira tela, antes de entrar
+  pages/OnboardingChat.tsx  o onboarding por conversa
+  pages/Busca.tsx           "quem você quer atender hoje?"
+  pages/Descoberta.tsx      o resultado, com o contato atrás da cota
+  pages/Conversas.tsx       thread, cadência, resposta manual
+  pages/                    Painel, Créditos, Conformidade (menu da conta)
   components/ExecucaoAoVivo.tsx   o SSE narrando o pipeline
   components/Revisao.tsx          triagem por teclado (A/R/E)
   components/Paleta.tsx           Ctrl+K
@@ -504,9 +605,11 @@ tela: o produto parece completo até o dia em que ninguém responde.
   O peso é baixo e não polui o topo, mas **falta decidir**: adjacente entra como
   alvo ou é descartado junto com o concorrente? Precisa de julgamento de domínio.
 - **`pages/Campanhas.tsx` ficou órfão.** A tela antiga foi substituída por
-  Busca + Descoberta + Conversas e não é mais importada. Ainda está no
-  repositório caso algo dela precise ser resgatado; apagar quando a Etapa 3
-  estabilizar.
+  Busca + Descoberta + Conversas e não é importada desde a Etapa 1. A
+  condição que a nota original pedia ("apagar quando a Etapa 3 estabilizar")
+  já passou faz três etapas — o arquivo pode ser apagado com
+  `git rm frontend/src/pages/Campanhas.tsx`. Ficou por decidir, não por
+  necessidade.
 - **Chaves de API.** Nenhum provedor real ligado. O roteiro da virada está em
   [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md): um provedor por vez.
 - **`limpar_demo.py` preserva supressão de bounce.** O script preserva todos os
@@ -515,6 +618,13 @@ tela: o produto parece completo até o dia em que ninguém responde.
   titular nenhum: é endereço que não existe. Num banco de demo isso gruda para
   sempre numa empresa fictícia. **Falta decidir** se o script passa a limpar as
   supressões de origem `bounce_permanente` (mantendo intactas as humanas).
+- **"3 com automação gratuita" sumiu do plano.** A visão (§2.6) tinha dois
+  eixos: 10 leads por mês **e** 3 deles com automação. A Etapa 6 implementou o
+  primeiro (10 contatos revelados, 3 por busca) e o segundo continua sendo só
+  os limites diários genéricos de envio, iguais para todo mundo. **Falta
+  decidir** se automação é um eixo próprio de cota ou se some de vez — hoje
+  ela não aparece em lugar nenhum da tela, o que é pior que qualquer uma das
+  duas respostas.
 - **Autenticação.** Não existe login: o usuário vem do header `X-User-Email` com
   fallback no usuário de seed. É dev-only e precisa virar JWT antes de qualquer
-  exposição pública.
+  exposição pública. É a **Etapa 8** e a última divergência aberta da §9.1.

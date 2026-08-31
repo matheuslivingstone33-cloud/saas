@@ -217,6 +217,15 @@ o tempo** em vez de mais fácil: um concorrente copia a tela em uma semana e o
 prompt em uma tarde, mas não copia dois anos de resposta de hotel em Foz do
 Iguaçu.
 
+> **Correção honesta, feita ao preparar a Etapa 7:** o parágrafo acima exagera.
+> Parte do sinal de intenção **já** chega ao loop hoje, de carona na máquina de
+> estados — `recusa` vira `descartado`, `pedido_opt_out` vira `opt_out`, e
+> `LeadService.transicionar` chama `aprendizado.observar` em toda transição. O
+> que falta de verdade é: (1) aprender por **ramo**, e não só pelos seis
+> componentes do score; (2) **distinguir** as intenções entre si, que hoje caem
+> todas no mesmo balde de fracasso; (3) um lugar para guardar peso por
+> (tenant, CNAE). Medir antes de construir.
+
 Depende de volume de respostas — ou seja, depende do §2. Por isso vem depois.
 
 ---
