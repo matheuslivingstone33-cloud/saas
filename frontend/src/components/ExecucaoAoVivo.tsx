@@ -21,10 +21,18 @@ import Portal from "./Portal";
 
 type Evento = { id: number; etapa: string; dados: Record<string, unknown> };
 
+export type ResumoExecucao = {
+  criados: number;
+  duplicados: number;
+  candidatos: number;
+};
+
 type Props = {
   campanhaId: string;
   limiteLeads?: number;
-  aoTerminar: () => void;
+  /** Recebe o resumo da execucao — quem chama precisa saber POR QUE a lista
+   *  ficou como ficou (nada encontrado x tudo duplicado). */
+  aoTerminar: (resumo: ResumoExecucao) => void;
   aoFechar: () => void;
 };
 
@@ -77,6 +85,10 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
   const aoTerminarRef = useRef(aoTerminar);
   aoTerminarRef.current = aoTerminar;
 
+  // O resumo e derivado dos eventos que ja chegaram, numa ref para o efeito do
+  // fluxo nao depender do estado e reabrir a conexao (abrir custa execucao).
+  const resumoRef = useRef<ResumoExecucao>({ criados: 0, duplicados: 0, candidatos: 0 });
+
   useEffect(() => {
     // ATENCAO: o EventSource RECONECTA SOZINHO quando o servidor fecha o fluxo.
     // Como abrir esta rota EXECUTA a campanha, cada reconexao era uma execucao
@@ -103,10 +115,15 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
         const dados = JSON.parse((e as MessageEvent).data || "{}");
         if (etapa === "encerrado") {
           encerrar();
-          aoTerminarRef.current();
+          aoTerminarRef.current(resumoRef.current);
           return;
         }
         if (etapa === "erro") setErro(String(dados.detalhe ?? "falha na execução"));
+        if (etapa === "encontrado") resumoRef.current.criados += 1;
+        if (etapa === "duplicado") resumoRef.current.duplicados += 1;
+        if (etapa === "busca") {
+          resumoRef.current.candidatos += Number(dados.candidatos ?? 0);
+        }
         // "aberto" e handshake de protocolo — nao diz nada ao usuario.
         if (etapa !== "aberto") empurrar(etapa, dados);
       });
@@ -131,7 +148,7 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
           return atual;
         });
         encerrar();
-        aoTerminarRef.current();
+        aoTerminarRef.current(resumoRef.current);
       }
     };
 
