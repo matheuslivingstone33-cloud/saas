@@ -138,7 +138,10 @@ class PipelineStub:
 
         # Sem saldo nao ha campanha: o bloqueio vem ANTES de qualquer chamada
         # externa, para nunca pagarmos provedor sem poder cobrar do cliente.
-        estado = self.creditos.pode_consumir(campanha.user_id, "lead_qualificado")
+        # O bloqueio olha para REVELACAO, que e o que passou a ser cobrado.
+        # Sem saldo para revelar, descobrir seria gastar balde 1 sem ter
+        # como faturar nada depois.
+        estado = self.creditos.pode_consumir(campanha.user_id, "contato_revelado")
         if estado.bloqueado:
             self._transicionar_campanha(campanha, StatusCampanha.PAUSADA)
             raise SaldoInsuficiente(estado.motivo_bloqueio)
@@ -240,19 +243,9 @@ class PipelineStub:
                 score=float(avaliacao.score),
                 explicacao=avaliacao.explicacao,
             )
-            try:
-                resultado.saldo_final = self.creditos.debitar(
-                    campanha.user_id,
-                    "lead_qualificado",
-                    referencia_tipo="lead",
-                    referencia_id=lead.id,
-                    descricao="lead descoberto e qualificado",
-                )
-            except SaldoInsuficiente:
-                # Acabou o saldo no meio da leva: para de qualificar o resto.
-                resultado.interrompido_por_saldo = True
-                break
-
+        # Qualificar NAO debita mais: descoberta custa balde 1, e barata por
+        # lead e nao vale nada sozinha. O credito sai quando o contato e
+        # revelado — que e o que o cliente compra.
         self._transicionar_campanha(campanha, StatusCampanha.PRONTA)
 
     def _abordar(
@@ -283,6 +276,13 @@ class PipelineStub:
         resultado.bloqueadas = lote.bloqueadas
         resultado.motivos_bloqueio = lote.motivos_bloqueio
         resultado.sem_contato = lote.sem_contato
+        # A leva agora para por saldo AQUI, e nao mais na qualificacao:
+        # qualificar deixou de custar credito, e o que custa e revelar o
+        # contato — que acontece no momento em que a abordagem sai.
+        resultado.interrompido_por_saldo = bool(
+            lote.motivos_bloqueio.get("cota_de_contatos")
+        )
+        resultado.saldo_final = self.creditos.saldo(campanha.user_id).creditos
 
     # -- auxiliares -----------------------------------------------------------
     def _conta(self, etapa: str, **dados) -> None:

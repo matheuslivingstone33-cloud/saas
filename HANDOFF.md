@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 5 concluída — a resposta manual
+**Última atualização:** 2026-08-31 · Etapa 6 concluída — cobrar por revelação
 
 ---
 
@@ -92,8 +92,12 @@ natural — para o cliente **ver a qualidade da nossa IA na prática**.
 > de WhatsApp frio.
 
 ### 2.6 Planos
-- **Grátis:** 10 leads por mês, sendo **3 com automação gratuita**
+- **Grátis:** 10 **contatos revelados** por mês, sendo **3 por busca**
 - **PRO:** desbloqueia o restante ("39 empresas restantes disponíveis no plano PRO")
+
+> Implementado na Etapa 6. O que se cobra é o **contato revelado**, não o lead
+> descoberto: a descoberta inteira aparece na tela, com ramo, bairro, porte,
+> score e insight — só o contato fica atrás da cota.
 
 ---
 
@@ -117,7 +121,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**272 testes verdes · lint limpo.**
+**290 testes verdes · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -154,9 +158,46 @@ ordem da jornada do usuário.
 | 3 | **Conversas / Motor 4** — o motor de conversa | ✅ feito |
 | 4 | **Cadência (Motor 5) + supressão de bounce** | ✅ feito |
 | 5 | **Resposta manual dentro do produto** | ✅ feito |
+| 6 | **Paywall no servidor + cobrar por revelação** | ✅ feito |
 
 As etapas seguintes, com o argumento de cada uma, estão em
 [docs/IDEIAS.md](docs/IDEIAS.md).
+
+### O que a Etapa 6 entregou
+
+O corte das "3 melhores" era um `slice(0, 3)` na **tela**: a API devolvia as
+42 empresas com CNPJ, e-mail e telefone. Qualquer pessoa com o devtools aberto
+— ou um `curl` — via tudo que o plano PRO cobrava. Cortina, não porta.
+
+- **O corte é do servidor** (`services/revelacao.py`). A lista **inteira**
+  continua visível: ramo, bairro, porte, score e o insight de cada empresa. O
+  que fica atrás da cota é o **contato** — razão social, CNPJ, e-mail,
+  telefone, site. Ver que existem 39 hotéis com o perfil certo e não poder
+  falar com eles é exatamente o que faz pagar; esconder que eles existem não
+  vende nada.
+- **O eixo da cobrança mudou.** Descobrir deixou de custar crédito; **contato
+  revelado** passou a custar. Cobrar por lead descoberto punia o cliente
+  quando o Cérebro errava a mira: ele pagava pelo nosso erro.
+- **Duas travas, decididas com o Matheus em 31/08:** 3 contatos por busca e
+  teto de 10 por mês no plano grátis. Só a mensal deixaria o usuário gastar
+  tudo numa busca e ficar sem nada na seguinte; só a por-busca não protegeria
+  o custo. Planos pagos não têm a trava por busca — quem paga já está
+  limitado pelo teto do mês, e uma segunda regra viraria dúvida no suporte.
+- **Abordar revela.** A mensagem cita o nome da empresa no corpo e o e-mail no
+  destinatário: sem cobrar ali, o paywall cairia com um clique em "iniciar
+  abordagem". E revela na **geração**, não no envio — no modo assistido o
+  rascunho já mostra tudo enquanto espera aprovação.
+- **Revelar é idempotente.** Um duplo clique não pode custar dois créditos.
+- **A mensagem do bloqueio diz a regra que está valendo.** Quem esbarrou na
+  trava da busca lê "3 por busca", não "créditos insuficientes" — a segunda
+  mandaria comprar crédito que não destravaria nada.
+- **Migration 0009** (`leads.revelado_em`), com backfill: todo lead que já tem
+  mensagem nasce revelado.
+- **18 testes.**
+
+> **O que isso resolveu do plano:** as divergências 1 e 2 da seção 9.1 — o
+> paywall de mentira e as duas tabelas de preço. "10 leads grátis" passou a
+> significar **10 contatos revelados**, com a descoberta inteira visível.
 
 ### O que a Etapa 5 entregou
 
@@ -413,6 +454,7 @@ backend/app/
   services/cadencia.py      Motor 5 — 2º e 3º toque, e onde a cadência para
   services/entregabilidade.py  bounce, reclamação e pausa por reputação
   services/conversa.py      Motor 4 + a resposta manual (assumir/devolver)
+  services/revelacao.py     o paywall: mascara de contato e cota de revelação
   services/scoring.py       score explicável, com pesos aprendidos
   services/compliance.py    LIA, opt-out, direitos do titular, retenção
   services/observador.py    eventos da execução ao vivo
@@ -445,8 +487,8 @@ decisão em [docs/IDEIAS.md](docs/IDEIAS.md).
 
 | # | Divergência | Onde | Status |
 |---|---|---|---|
-| 1 | **Paywall só no cliente** — a tela corta em 3, a API devolve as 42 | `frontend/src/pages/Descoberta.tsx:98` | Etapa 6 |
-| 2 | **Duas tabelas de preço** — a visão (2.6) diz "grátis 10 leads / 3 automações"; o código tem TRIAL 50 · STARTER R$197 · PRO R$597 · SCALE R$1.497 | `backend/app/services/creditos.py:68` | Etapa 6 |
+| 1 | ~~**Paywall só no cliente**~~ — resolvida na Etapa 6 | `services/revelacao.py` | ✅ |
+| 2 | ~~**Duas tabelas de preço**~~ — resolvida na Etapa 6: grátis = 10 contatos/mês, 3 por busca | `services/creditos.py` | ✅ |
 | 3 | ~~**"Assumir a conversa" sai do produto**~~ — resolvida na Etapa 5 | `services/conversa.py` | ✅ |
 | 4 | ~~**Não existia segundo toque**~~ — resolvida na Etapa 4 | `services/cadencia.py` | ✅ |
 | 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | Etapa 8 |

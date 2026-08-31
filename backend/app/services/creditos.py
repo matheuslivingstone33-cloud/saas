@@ -65,22 +65,39 @@ class PlanoCatalogo:
         }
 
 
+#: Quantos contatos o plano gratuito libera POR CAMPANHA.
+#:
+#: Duas travas em vez de uma: a mensal protege o custo, e a por campanha
+#: mantem a promessa da tela ("as 3 melhores oportunidades") valendo em toda
+#: busca nova. So a mensal deixaria o usuario gastar as 10 numa busca so e
+#: ficar sem nada na seguinte.
+REVELACOES_GRATIS_POR_CAMPANHA = 3
+
+
 CATALOGO: dict[Plano, PlanoCatalogo] = {
+    # O teto do TRIAL e de CONTATOS REVELADOS (10/mes), nao de leads
+    # descobertos: a descoberta inteira continua visivel, com ramo, bairro,
+    # porte e score. Ver que existem 39 empresas e nao poder falar com elas e
+    # exatamente o que faz pagar.
     Plano.TRIAL: PlanoCatalogo(
-        Plano.TRIAL, "Teste", 0, 50, 50, 0,
-        ("50 creditos de cortesia", "modo assistido", "sem cartao"),
+        Plano.TRIAL, "Teste", 0, 50, 10, 0,
+        (
+            "10 contatos por mes",
+            f"{REVELACOES_GRATIS_POR_CAMPANHA} por busca",
+            "sem cartao",
+        ),
     ),
     Plano.STARTER: PlanoCatalogo(
         Plano.STARTER, "Starter", 19_700, 300, 300, 90,
-        ("300 leads/mes", "e-mail com dominio proprio", "modo assistido ou automatico"),
+        ("300 contatos/mes", "e-mail com dominio proprio", "assistido ou automatico"),
     ),
     Plano.PRO: PlanoCatalogo(
         Plano.PRO, "Pro", 59_700, 1_200, 1_200, 70,
-        ("1.200 leads/mes", "sinais de intencao", "painel de margem"),
+        ("1.200 contatos/mes", "sinais de intencao", "painel de margem"),
     ),
     Plano.SCALE: PlanoCatalogo(
         Plano.SCALE, "Scale", 149_700, 4_000, 4_000, 50,
-        ("4.000 leads/mes", "multiplas campanhas", "prioridade de fila"),
+        ("4.000 contatos/mes", "multiplas campanhas", "prioridade de fila"),
     ),
 }
 
@@ -118,7 +135,12 @@ PACOTES: dict[str, PacoteAvulso] = {
 # =============================================================================
 #: Quanto cada operacao custa em CREDITOS.
 CUSTO_CREDITOS: dict[str, int] = {
-    "lead_qualificado": 1,   # descoberta + enriquecimento + score
+    # Descoberta deixou de cobrar. Ela custa balde 1 e e barata por lead, e
+    # cobrar por lead descoberto punia o cliente quando o Cerebro errava a
+    # mira: ele pagava pelo nosso erro. Fica em zero, e nao removido, para
+    # que qualquer chamada antiga custe nada em vez de cair no default de 1.
+    "lead_qualificado": 0,
+    "contato_revelado": 1,   # o que tem valor: o contato liberado
     "mensagem_enviada": 1,   # redacao + disparo
     "sinal_intencao": 2,     # web search: caro, cobrado a parte
 }
@@ -266,7 +288,10 @@ class CreditService:
         assinatura = self.assinatura(user_id)
         if assinatura is not None:
             assinatura.saldo_creditos = lancamento.saldo_apos
-            if operacao == "lead_qualificado":
+            # O teto mensal do plano conta CONTATO REVELADO. Era descoberta,
+            # e descoberta nao e o que o cliente compra: ele compra poder
+            # falar com a empresa.
+            if operacao == "contato_revelado":
                 assinatura.leads_consumidos_mes += quantidade
 
         self.audit.registrar(
@@ -397,7 +422,8 @@ class CreditService:
             "pacotes_avulsos": [p.to_dict() for p in PACOTES.values()],
             "custo_em_creditos": CUSTO_CREDITOS,
             "observacao": (
-                "1 credito = 1 lead descoberto, qualificado e abordado. "
+                "1 credito = 1 contato revelado. Descobrir nao custa credito: "
+                "voce so paga pelo contato que decidir abrir. "
                 "A conversao para tokens usa o consumo real medido no seu historico."
             ),
         }
@@ -406,6 +432,7 @@ class CreditService:
 def _tipo_de(operacao: str) -> TipoCredito:
     return {
         "lead_qualificado": TipoCredito.CONSUMO_DESCOBERTA,
+        "contato_revelado": TipoCredito.CONSUMO_DESCOBERTA,
         "mensagem_enviada": TipoCredito.CONSUMO_ENVIO,
         "sinal_intencao": TipoCredito.CONSUMO_IA,
     }.get(operacao, TipoCredito.CONSUMO_IA)

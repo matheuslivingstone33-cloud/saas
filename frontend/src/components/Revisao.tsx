@@ -238,7 +238,9 @@ export default function Revisao({ mensagens, leads, aoFechar, aoDecidir }: Props
                       <h3 className="text-[10px] font-semibold uppercase tracking-rotulo text-texto-fraco">
                         Por que esta empresa
                       </h3>
-                      <p className="mt-1.5 text-sm font-medium text-texto">{lead.razao_social}</p>
+                      <p className="mt-1.5 text-sm font-medium text-texto">
+                        {lead.razao_social ?? "Contato ainda nao revelado"}
+                      </p>
                       <p className="num mt-0.5 text-xs text-texto-fraco">{lead.cnpj ?? "sem CNPJ"}</p>
                       <div className="mt-3 flex items-baseline gap-1.5">
                         <span className="num text-2xl font-semibold text-marca">

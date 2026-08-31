@@ -31,7 +31,7 @@ export default function ExplicacaoLead({ lead, aoFechar }: { lead: Lead; aoFecha
         <header className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-lg font-semibold text-texto">
-              {lead.razao_social ?? lead.nome_fantasia}
+              {lead.razao_social ?? lead.nome_fantasia ?? "Contato ainda nao revelado"}
             </h3>
             <p className="text-sm text-texto-fraco">
               Por que este lead apareceu e por que recebeu esta nota

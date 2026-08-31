@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useState } from "react";
-import { api, type Campanha, type Lead } from "../lib/api";
+import { api, type Campanha, type Cota, type Lead } from "../lib/api";
 import { EXPO, itemVariantes, listaVariantes, NumeroAnimado } from "../components/movimento";
 import { Aviso, Badge, Botao, Carregando, Vazio } from "../components/ui";
 import ExecucaoAoVivo from "../components/ExecucaoAoVivo";
@@ -14,11 +14,14 @@ import ExplicacaoLead from "../components/ExplicacaoLead";
  *   2. quais sao as melhores? (os cartoes, ordenados por score)
  *   3. por que essas? (o insight e o "por que?" de cada uma)
  *
- * O plano gratuito mostra as 3 melhores e diz honestamente quantas ficaram de
- * fora. Esconder a existencia delas seria mais "limpo" e menos honesto.
+ * A lista inteira aparece. O que fica atras da cota e o CONTATO — razao
+ * social, CNPJ, e-mail, telefone — e nao a existencia da empresa. Ver que
+ * existem 39 hoteis com o perfil certo e nao poder falar com eles e
+ * exatamente o que faz pagar; esconder que eles existem nao vende nada.
+ *
+ * O corte e do SERVIDOR: ate a Etapa 5 isto era um `slice(0, 3)` aqui, e a
+ * API devolvia as 42 com e-mail e telefone para quem abrisse o devtools.
  */
-
-const GRATUITAS = 3;
 
 /** Ramo escolhido pelo Cérebro, como vem em `campanha.expansao`. */
 type RamoAlvo = { codigo: string; descricao: string; peso: number };
@@ -42,6 +45,8 @@ export default function Descoberta({
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [detalhe, setDetalhe] = useState<Lead | null>(null);
+  const [cota, setCota] = useState<Cota | null>(null);
+  const [revelando, setRevelando] = useState<string | null>(null);
   const [aoVivo, setAoVivo] = useState(false);
   const [jaRodou, setJaRodou] = useState(false);
   // Guarda o resumo da ultima execucao. Sem isso nao da para distinguir
@@ -64,6 +69,9 @@ export default function Descoberta({
       ]);
       setCampanha(c);
       setLeads(l.itens);
+      // A cota vem do primeiro lead porque ela e da BUSCA, nao da conta:
+      // e o mesmo numero para todos os leads desta campanha.
+      if (l.itens.length > 0) setCota(await api.cotaDeRevelacao(l.itens[0].id));
       // Campanha em rascunho e sem lead nenhum: nunca rodou. Abre a execucao
       // ao vivo automaticamente — o usuario acabou de pedir a busca, esperar
       // um segundo clique seria burocracia.
@@ -95,8 +103,21 @@ export default function Descoberta({
 
   const ramos = ramosDa(campanha);
   const ordenados = [...leads].sort((a, b) => Number(b.score) - Number(a.score));
-  const melhores = ordenados.slice(0, GRATUITAS);
-  const restantes = Math.max(0, ordenados.length - GRATUITAS);
+  const abertas = ordenados.filter((l) => l.revelado).length;
+  const restantes = ordenados.length - abertas;
+
+  async function revelar(leadId: string) {
+    setRevelando(leadId);
+    setErro(null);
+    try {
+      await api.revelar(leadId);
+      await carregar();
+    } catch (e) {
+      setErro(String(e));
+    } finally {
+      setRevelando(null);
+    }
+  }
 
   return (
     <div>
@@ -167,15 +188,9 @@ export default function Descoberta({
       {ordenados.length > 0 && (
         <div className="mt-8 flex items-baseline justify-between gap-4">
           <h2 className="text-sm font-medium text-texto">
-            {melhores.length === ordenados.length
-              ? "Oportunidades encontradas"
-              : `As ${melhores.length} melhores oportunidades para você`}
+            Oportunidades encontradas
           </h2>
-          {restantes > 0 && (
-            <p className="text-xs text-texto-fraco">
-              {restantes} {restantes === 1 ? "empresa restante disponível" : "empresas restantes disponíveis"} no plano PRO
-            </p>
-          )}
+          <p className="text-xs text-texto-fraco">{textoDaCota(cota, restantes)}</p>
         </div>
       )}
 
@@ -185,13 +200,16 @@ export default function Descoberta({
         animate="visivel"
         className="mt-4 grid gap-4 md:grid-cols-3"
       >
-        {melhores.map((lead) => (
+        {ordenados.map((lead) => (
           <CartaoLead
             key={lead.id}
             lead={lead}
             ramos={ramos}
+            cota={cota}
+            revelando={revelando === lead.id}
             aoExplicar={() => setDetalhe(lead)}
             aoAbordar={() => aoAbordar(lead.id)}
+            aoRevelar={() => void revelar(lead.id)}
           />
         ))}
       </motion.div>
@@ -260,19 +278,46 @@ function SemResultado({
   );
 }
 
+/**
+ * Quanto da cota sobrou, dito na regra que esta valendo.
+ *
+ * Quem esbarrou na trava da busca precisa ler "3 por busca", nao "compre
+ * creditos" — comprar credito nao destravaria nada para ele.
+ */
+function textoDaCota(cota: Cota | null, ocultas: number): string {
+  if (cota === null) return "";
+  if (cota.restantes_na_campanha !== null) {
+    return cota.restantes_na_campanha > 0
+      ? `${cota.restantes_na_campanha} de ${cota.por_campanha} contatos desta busca disponíveis`
+      : `${ocultas} ${ocultas === 1 ? "contato" : "contatos"} no plano PRO`;
+  }
+  return `${cota.restantes_no_mes} contatos disponíveis este mês`;
+}
+
 function CartaoLead({
   lead,
   ramos,
+  cota,
+  revelando,
   aoExplicar,
   aoAbordar,
+  aoRevelar,
 }: {
   lead: Lead;
   ramos: RamoAlvo[];
+  cota: Cota | null;
+  revelando: boolean;
   aoExplicar: () => void;
   aoAbordar: () => void;
+  aoRevelar: () => void;
 }) {
   const score = Number(lead.score);
-  const nome = lead.razao_social ?? lead.nome_fantasia ?? "Empresa";
+  // Sem contato revelado o cartao mostra o RAMO no lugar do nome: e o que
+  // a empresa e, sem dizer qual delas e.
+  const ramo = ramos.find((r) => r.codigo === lead.cnae_principal);
+  const nome = lead.revelado
+    ? (lead.razao_social ?? lead.nome_fantasia ?? "Empresa")
+    : (ramo?.descricao ?? "Empresa do ramo alvo");
   const iniciais = nome
     .split(/\s+/)
     .filter((p) => p.length > 2)
@@ -289,14 +334,21 @@ function CartaoLead({
       className="realce-topo flex flex-col rounded-2xl border border-borda bg-superficie p-5 shadow-1 transition-shadow hover:shadow-2"
     >
       <header className="flex items-start gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-marca-fraca text-xs font-semibold text-marca">
-          {iniciais || "??"}
+        <span
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold ${
+            lead.revelado
+              ? "bg-marca-fraca text-marca"
+              : "bg-superficie-3 text-texto-fraco"
+          }`}
+        >
+          {lead.revelado ? iniciais || "??" : <Cadeado />}
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-sm font-semibold text-texto" title={nome}>
             {nome}
           </h3>
           <p className="truncate text-xs text-texto-fraco">
+            {lead.bairro ? `${lead.bairro} · ` : ""}
             {lead.municipio ?? "—"}
             {lead.uf ? `/${lead.uf}` : ""}
           </p>
@@ -330,9 +382,21 @@ function CartaoLead({
       </dl>
 
       <div className="mt-4 flex items-center gap-2">
-        <Botao onClick={aoAbordar} tamanho="sm" className="flex-1">
-          Iniciar abordagem com IA
-        </Botao>
+        {lead.revelado ? (
+          <Botao onClick={aoAbordar} tamanho="sm" className="flex-1">
+            Iniciar abordagem com IA
+          </Botao>
+        ) : (
+          <Botao
+            onClick={aoRevelar}
+            tamanho="sm"
+            className="flex-1"
+            carregando={revelando}
+            disabled={revelando || Boolean(cota?.bloqueio)}
+          >
+            {cota?.bloqueio ? "disponível no PRO" : "Revelar contato"}
+          </Botao>
+        )}
         <Botao variante="fantasma" tamanho="sm" onClick={aoExplicar}>
           por quê?
         </Botao>
@@ -353,6 +417,15 @@ function CartaoLead({
  * outras. O ramo vem primeiro porque e a promessa central do produto — achamos
  * quem CONSOME o seu servico, e o ramo e a prova disso.
  */
+function Cadeado() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden>
+      <rect x="5" y="11" width="14" height="9" rx="2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M8 11V8a4 4 0 1 1 8 0v3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function insightDe(lead: Lead, ramos: RamoAlvo[]): string {
   const b = lead.score_breakdown ?? {};
   const c = (b.componentes ?? {}) as Record<string, number>;

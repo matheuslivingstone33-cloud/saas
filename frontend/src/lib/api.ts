@@ -139,6 +139,7 @@ export type Lead = {
   cnae_principal: string | null;
   porte: string;
   municipio: string | null;
+  bairro: string | null;
   uf: string | null;
   telefone: string | null;
   email: string | null;
@@ -156,6 +157,10 @@ export type Lead = {
   /** Quando uma PESSOA assumiu a conversa. Preenchido = o agente calou:
    *  nao ha mais toque de cadencia nem replica do Motor 4 neste lead. */
   assumido_em: string | null;
+  /** Contato liberado? Enquanto for false, razao social, CNPJ, e-mail,
+   *  telefone e site vem NULOS da API — o corte e do servidor. */
+  revelado: boolean;
+  revelado_em: string | null;
   created_at: string;
 };
 
@@ -276,6 +281,19 @@ export type ResultadoCadencia = {
   }[];
 };
 
+/** Quanto ainda da para revelar, e por qual regra. */
+export type Cota = {
+  plano: string;
+  teto_mes: number;
+  usadas_mes: number;
+  restantes_no_mes: number;
+  por_campanha: number | null;
+  usadas_na_campanha: number;
+  restantes_na_campanha: number | null;
+  creditos: number;
+  bloqueio: string | null;
+};
+
 export type ResultadoExecucao = {
   campaign_id: string;
   nivel_autonomia: string;
@@ -357,6 +375,10 @@ export const api = {
   simularResposta: (leadId: string, corpo: string) =>
     post<ResultadoConversa>(`/v1/leads/${leadId}/simular-resposta`, { corpo }),
   rejeitar: (id: string) => post<Mensagem>(`/v1/messages/${id}/rejeitar`),
+
+  // etapa 6 — revelacao de contato
+  revelar: (leadId: string) => post<Lead>(`/v1/leads/${leadId}/revelar`),
+  cotaDeRevelacao: (leadId: string) => get<Cota>(`/v1/leads/${leadId}/cota`),
 
   // motor 5 — cadencia
   cadencia: () => get<Cadencia>("/v1/cadencia"),

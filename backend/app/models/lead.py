@@ -99,6 +99,14 @@ class Lead(Base, UUIDPk, Timestamps, SoftDelete):
     resumo: Mapped[str | None] = mapped_column(LongText)
     tentativas_contato: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Quando o CONTATO deste lead foi liberado para o usuario.
+    #
+    # Nulo = o cartao mostra ramo, bairro, porte, score e o insight, e esconde
+    # razao social, CNPJ, e-mail, telefone e site. Ver ausencia de contato nao
+    # e o mesmo que ver a empresa: e o que faz querer pagar, e e o unico corte
+    # que nao cai quando alguem abre o devtools.
+    revelado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Quando uma PESSOA assumiu esta conversa e passou a escrever ela mesma.
     #
     # Existe para calar o agente: a partir daqui a cadencia nao manda mais

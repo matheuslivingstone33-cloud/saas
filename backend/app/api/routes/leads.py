@@ -17,6 +17,7 @@ from app.models.user import User
 from app.repositories.leads import LeadRepository
 from app.services.audit import AuditService
 from app.services.leads import LeadService
+from app.services.revelacao import ServicoDeRevelacao, mascarar
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -40,7 +41,10 @@ def listar(
         por_pagina=por_pagina,
     )
     return {
-        "itens": resultado.itens,
+        # A mascara e aplicada AQUI, na saida — nunca no banco. O motor
+        # precisa do e-mail para trabalhar antes de o usuario pagar por
+        # ve-lo; quem nao pode ver e a pessoa, nao o sistema.
+        "itens": [mascarar(lead) for lead in resultado.itens],
         "total": resultado.total,
         "pagina": resultado.pagina,
         "por_pagina": resultado.por_pagina,
@@ -53,11 +57,42 @@ def obter(
     lead_id: uuid.UUID,
     session: Session = Depends(db),
     user: User = Depends(usuario_atual),
-) -> Lead:
+) -> dict:
     lead = LeadRepository(session).get(lead_id, user_id=user.id)
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead nao encontrado")
-    return lead
+    return mascarar(lead)
+
+
+@router.post("/{lead_id}/revelar", response_model=LeadOut)
+def revelar(
+    lead_id: uuid.UUID,
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),
+) -> dict:
+    """Libera o contato deste lead — e cobra por isso.
+
+    Idempotente: revelar de novo devolve o lead sem debitar outra vez.
+    Um duplo clique nao pode custar dois creditos.
+    """
+    lead = LeadRepository(session).get(lead_id, user_id=user.id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+    ServicoDeRevelacao(session).revelar(lead)
+    return mascarar(lead)
+
+
+@router.get("/{lead_id}/cota")
+def cota_do_lead(
+    lead_id: uuid.UUID,
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),
+) -> dict:
+    """Quanto ainda da para revelar na busca deste lead."""
+    lead = LeadRepository(session).get(lead_id, user_id=user.id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead nao encontrado")
+    return ServicoDeRevelacao(session).cota(user.id, lead.campaign_id).to_dict()
 
 
 @router.get("/{lead_id}/transicoes")
@@ -87,8 +122,9 @@ def transicionar(
         raise HTTPException(status_code=404, detail="Lead nao encontrado")
     servico = LeadService(session, AuditService(session))
     try:
-        return servico.transicionar(
+        servico.transicionar(
             lead, payload.status, motivo=payload.motivo, ator=Ator.USUARIO
         )
     except TransicaoInvalida as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return mascarar(lead)

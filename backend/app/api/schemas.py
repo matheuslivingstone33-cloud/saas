@@ -64,6 +64,13 @@ class ExecucaoIn(BaseModel):
 
 # --- Leads -------------------------------------------------------------------
 class LeadOut(_ORM):
+    """O lead como a API o devolve.
+
+    Os campos de CONTATO vem nulos enquanto o lead nao foi revelado. A
+    mascara e aplicada em `services/revelacao.mascarar` — aqui embaixo
+    nao ha excecao a fazer: quem monta a resposta ja entrega mascarado.
+    """
+
     id: uuid.UUID
     campaign_id: uuid.UUID
     cnpj: str | None
@@ -72,6 +79,7 @@ class LeadOut(_ORM):
     cnae_principal: str | None
     porte: str
     municipio: str | None
+    bairro: str | None
     uf: str | None
     telefone: str | None
     email: str | None
@@ -80,6 +88,10 @@ class LeadOut(_ORM):
     score_breakdown: dict[str, Any] | None
     status: StatusLead
     provenance: dict[str, Any]
+    # Contato liberado? A interface precisa saber para desenhar o cartao
+    # aberto ou o cartao com o botao de revelar.
+    revelado: bool
+    revelado_em: datetime | None
     # Quando uma pessoa assumiu a conversa. A interface precisa saber para nao
     # prometer que o agente vai responder quando ele foi calado de proposito.
     assumido_em: datetime | None

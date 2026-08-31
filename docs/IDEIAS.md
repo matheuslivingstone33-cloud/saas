@@ -30,8 +30,8 @@ diferentes — e decidir qual das duas vale é pré-requisito para o resto.
 
 | # | Divergência | Onde | Decisão necessária |
 |---|---|---|---|
-| 1 | **Paywall só no cliente**: a tela corta em 3, a API devolve as 42 | `frontend/src/pages/Descoberta.tsx:98` | virar corte de servidor (§4) |
-| 2 | **Duas tabelas de preço**: visão diz "grátis 10 leads / 3 automações", código tem TRIAL 50 · STARTER R$197 · PRO R$597 · SCALE R$1.497 | `HANDOFF.md` §2.6 × `backend/app/services/creditos.py:68` | escolher uma (§4) |
+| 1 | ~~**Paywall só no cliente**~~ | resolvida | ✅ Etapa 6 |
+| 2 | ~~**Duas tabelas de preço**~~ | resolvida: grátis = 10 contatos/mês, 3 por busca | ✅ Etapa 6 |
 | 3 | ~~**"Assumir a conversa" sai do produto**~~ | resolvida | ✅ Etapa 5 |
 | 4 | ~~**Não existe segundo toque**~~ | resolvida | ✅ Etapa 4 |
 | 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | JWT antes de qualquer usuário real (§10) |
@@ -121,7 +121,7 @@ justamente a arquitetura de supressão que já existe aqui.
 
 ---
 
-## 4. Cobrar por revelação, não por descoberta
+## 4. Cobrar por revelação, não por descoberta ✅ *(entregue na Etapa 6, 31/08/2026)*
 
 **O problema, em duas partes.** O corte das 3 melhores é um `slice` no cliente;
 e o preço tem duas versões incompatíveis (§1).
@@ -145,6 +145,20 @@ Isso também resolve a divergência de preço sem escolher um dos dois lados: o
 "10 leads grátis" passa a significar **10 contatos revelados**, com a descoberta
 inteira visível. É mais generoso, mais honesto e mais fácil de explicar em uma
 frase.
+
+> **Entregue** em `backend/app/services/revelacao.py`, com
+> `POST /v1/leads/{id}/revelar`, `GET /v1/leads/{id}/cota` e a Descoberta
+> mostrando a lista inteira com o contato atrás do cadeado. 18 testes.
+>
+> Duas decisões que ficaram para o Matheus e vieram na hora: **3 por busca +
+> teto de 10/mês** no grátis, e **revelação como unidade cobrada** (descobrir
+> deixou de debitar). A segunda reescreveu a economia da Fase 5 e mexeu em 6
+> testes dela — todos atualizados com o porquê no comentário.
+>
+> Um detalhe que só apareceu ao construir: revelar tem que acontecer na
+> **geração** da mensagem, não no envio. No modo assistido o rascunho fica
+> esperando aprovação com o nome da empresa no corpo e o e-mail no
+> destinatário — cobrar só no despacho deixaria o contato à vista de graça.
 
 ---
 
@@ -265,16 +279,16 @@ vendido**:
 |---|---|---|
 | ~~4~~ | ~~**Cadência (Motor 5) + supressão de bounce**~~ | ✅ **entregue em 31/08/2026** |
 | ~~5~~ | ~~**Resposta manual dentro do produto**~~ | ✅ **entregue em 31/08/2026** |
-| **6** | **Paywall no servidor + alinhar planos** | só faz sentido cobrar depois que o produto produz resposta |
+| ~~6~~ | ~~**Paywall no servidor + alinhar planos**~~ | ✅ **entregue em 31/08/2026** |
 | **7** | **Aprendizado por intenção** | precisa do volume de respostas que a Etapa 4 gera |
 | **8** | **JWT + admin + webhook assinado** | último momento possível antes de qualquer pessoa de fora |
 | **9** | **WhatsApp como canal** | a maior, e a que mais depende do resto estável |
 
 **Etapa 4 primeiro** porque o produto sabia encontrar e sabia conversar, mas não
 sabia insistir — e insistir com educação é literalmente o trabalho que o cliente
-está comprando. A 5 veio logo atrás, e era pequena. **A próxima é a 6**: cobrar
-por revelação em vez de por descoberta (§4) — que resolve de uma vez o paywall
-de mentira e as duas tabelas de preço.
+está comprando. A 5 veio logo atrás, e era pequena. A 6 fechou o paywall e o
+preço. **A próxima é a 7**: aprendizado por intenção (§7) — que agora tem o
+volume de respostas de que precisava.
 
 ### O que a Etapa 4 ensinou
 

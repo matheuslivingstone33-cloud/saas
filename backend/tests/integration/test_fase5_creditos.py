@@ -60,11 +60,13 @@ def test_ledger_e_append_only_e_o_saldo_e_derivado(session, usuario) -> None:
     servico = CreditService(session)
     inicial = servico.ledger.saldo(usuario.id)
 
-    servico.debitar(usuario.id, "lead_qualificado")
+    servico.debitar(usuario.id, "contato_revelado")
     servico.debitar(usuario.id, "mensagem_enviada")
     depois = servico.ledger.saldo(usuario.id)
 
-    esperado = inicial - CUSTO_CREDITOS["lead_qualificado"] - CUSTO_CREDITOS["mensagem_enviada"]
+    esperado = (
+        inicial - CUSTO_CREDITOS["contato_revelado"] - CUSTO_CREDITOS["mensagem_enviada"]
+    )
     assert depois == esperado
 
     extrato = servico.ledger.extrato(usuario.id, por_pagina=50)
@@ -75,7 +77,7 @@ def test_ledger_e_append_only_e_o_saldo_e_derivado(session, usuario) -> None:
 def test_estorno_devolve_credito(session, usuario) -> None:
     servico = CreditService(session)
     antes = servico.ledger.saldo(usuario.id)
-    servico.debitar(usuario.id, "lead_qualificado")
+    servico.debitar(usuario.id, "contato_revelado")
     servico.estornar(usuario.id, 1, "entrega falhou")
     assert servico.ledger.saldo(usuario.id) == antes
 
@@ -93,12 +95,12 @@ def test_sem_saldo_o_consumo_e_bloqueado(session, usuario) -> None:
     _zerar_saldo(session, usuario)
     servico = CreditService(session)
 
-    estado = servico.pode_consumir(usuario.id, "lead_qualificado")
+    estado = servico.pode_consumir(usuario.id, "contato_revelado")
     assert estado.bloqueado is True
     assert "zerado" in estado.motivo_bloqueio
 
     with pytest.raises(SaldoInsuficiente):
-        servico.debitar(usuario.id, "lead_qualificado")
+        servico.debitar(usuario.id, "contato_revelado")
 
 
 def test_campanha_nao_roda_sem_saldo(session, usuario, portas_db) -> None:
@@ -137,7 +139,7 @@ def test_overage_libera_consumo_acima_do_teto(session, usuario) -> None:
     assert any("overage" in a for a in estado.alertas)
 
     _zerar_saldo(session, usuario)
-    servico.debitar(usuario.id, "lead_qualificado")
+    servico.debitar(usuario.id, "contato_revelado")
     lancamento = servico.ledger.extrato(usuario.id, por_pagina=1).itens[0]
     assert lancamento.tipo is TipoCredito.OVERAGE
     assert lancamento.saldo_apos < 0
@@ -152,7 +154,15 @@ def test_alerta_de_saldo_baixo(session, usuario) -> None:
 
 
 # --- Consumo real pelo pipeline ----------------------------------------------
-def test_pipeline_debita_por_lead_e_por_envio(session, usuario, portas_db) -> None:
+def test_pipeline_debita_por_contato_revelado_e_por_envio(
+    session, usuario, portas_db
+) -> None:
+    """Descobrir nao custa mais; revelar o contato custa.
+
+    Quem e descoberto e nunca abordado sai de graca — antes o cliente pagava
+    por lead descoberto, ou seja, pagava tambem quando o Cerebro errava a
+    mira.
+    """
     servico = CreditService(session)
     antes = servico.ledger.saldo(usuario.id)
     campanha = _campanha(session, usuario, nome="Debito real")
@@ -162,22 +172,31 @@ def test_pipeline_debita_por_lead_e_por_envio(session, usuario, portas_db) -> No
 
     esperado = (
         antes
-        - resultado.qualificados * CUSTO_CREDITOS["lead_qualificado"]
+        - resultado.mensagens_enviadas * CUSTO_CREDITOS["contato_revelado"]
         - resultado.mensagens_enviadas * CUSTO_CREDITOS["mensagem_enviada"]
     )
     assert depois <= esperado  # pode ter sinal de intencao somando
     assert resultado.saldo_inicial == antes
     assert resultado.interrompido_por_saldo is False
+    assert CUSTO_CREDITOS["lead_qualificado"] == 0, "descobrir nao cobra mais"
 
 
 def test_saldo_acaba_no_meio_e_a_leva_para(session, usuario, portas_db) -> None:
+    """A leva para na ABORDAGEM, nao na qualificacao.
+
+    Qualificar ficou de graca, entao os 5 leads sao descobertos e pontuados
+    normalmente. O saldo acaba quando as abordagens comecam a revelar
+    contato — e o que sobra na tela e uma lista completa com poucos contatos
+    abertos, que e exatamente o que se quer mostrar a quem nao pagou.
+    """
     _zerar_saldo(session, usuario)
     CreditService(session).creditar(usuario.id, 2, descricao="so dois creditos")
     campanha = _campanha(session, usuario, nome="Acaba no meio")
 
     resultado = PipelineStub(session, portas_db).executar(campanha, limite_leads=5)
     assert resultado.interrompido_por_saldo is True
-    assert resultado.qualificados <= 3
+    assert resultado.motivos_bloqueio.get("cota_de_contatos", 0) > 0
+    assert resultado.mensagens_enviadas < resultado.qualificados
 
 
 # --- Vitrine de tokens --------------------------------------------------------
@@ -219,7 +238,8 @@ def test_api_saldo_e_vitrine(client, usuario) -> None:
 
     vitrine = client.get("/v1/billing/vitrine").json()
     assert vitrine["planos"]
-    assert vitrine["custo_em_creditos"]["lead_qualificado"] == 1
+    assert vitrine["custo_em_creditos"]["contato_revelado"] == 1
+    assert vitrine["custo_em_creditos"]["lead_qualificado"] == 0
 
 
 def test_api_compra_e_confirmacao_creditam(client, usuario, session) -> None:

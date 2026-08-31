@@ -13,8 +13,9 @@
 | **Motor 4** | Conversa de duas pontas | ✅ concluída |
 | **Motor 5** | Cadência de toques + entregabilidade | ✅ concluída |
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
+| **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta máquina:** 272 testes verdes · `ruff` limpo · migrations
+**Verificado nesta máquina:** 290 testes verdes · `ruff` limpo · migrations
 `upgrade head` / `downgrade base` ok · frontend `npm run build` ok · fluxo
 completo exercitado pela interface no navegador.
 
@@ -166,6 +167,21 @@ completo exercitado pela interface no navegador.
 
 ---
 
+## Etapa 6 — Revelação de contato ✅
+
+- **O corte saiu da tela e foi para o servidor.** A lista inteira continua
+  visível (ramo, bairro, porte, score, insight); o **contato** fica atrás da
+  cota. Antes era um `slice(0, 3)` no cliente, com a API devolvendo tudo.
+- **Descobrir deixou de custar crédito; revelar passou a custar.** Cobrar por
+  lead descoberto punia o cliente quando o Cérebro errava a mira.
+- **Duas travas no grátis:** 3 por busca e 10 por mês. Planos pagos só têm o
+  teto do mês.
+- **Abordar revela**, na geração da mensagem — senão o rascunho em espera de
+  aprovação já entregaria o contato de graça.
+- Migration `0009` (`leads.revelado_em`) com backfill de quem já tem mensagem.
+
+---
+
 ## Decisões estruturais
 
 | Decisão | Por quê |
@@ -177,4 +193,4 @@ completo exercitado pela interface no navegador.
 | Fallback **SQLite** + fila **inline** | a suíte roda em qualquer máquina, sem Docker |
 | Dinheiro em **micro-dólares** inteiros | nunca float |
 | SDK oficial + `HttpClient.guard()` | usa o cliente suportado de cada provedor sem abrir mão do controle central |
-| Crédito = 1 lead; token = vitrine | o cliente entende crédito; o mercado compara token |
+| Crédito = 1 **contato revelado**; token = vitrine | o cliente entende crédito; o mercado compara token. Era "1 lead descoberto" até a Etapa 6 |

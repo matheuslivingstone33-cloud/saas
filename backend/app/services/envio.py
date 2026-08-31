@@ -50,6 +50,7 @@ from app.services.creditos import CreditService
 from app.services.leads import LeadService
 from app.services.observador import Observador, emitir
 from app.services.personalizacao import PersonalizationService
+from app.services.revelacao import ServicoDeRevelacao
 
 log = get_logger("envio")
 
@@ -109,6 +110,7 @@ class SendService:
         self.personalizacao = PersonalizationService(session, portas, self.settings)
         self.compliance = OptOutService(session, self.audit, self.settings)
         self.creditos = CreditService(session, self.audit)
+        self.revelacao = ServicoDeRevelacao(session, self.audit, self.creditos)
 
     # -- nivel de autonomia ---------------------------------------------------
     def nivel_de(self, campanha: Campaign) -> NivelAutonomia:
@@ -165,6 +167,11 @@ class SendService:
                                    usar_intencao=usar_intencao, chave=chave)
             # Primeira mensagem da conversa daquele lead.
             mensagem.ordem = 1
+            # Revela AQUI, e nao so no envio: no modo assistido a mensagem fica
+            # aguardando aprovacao e o usuario ja le o rascunho, que traz o nome
+            # da empresa no corpo e o e-mail no destinatario. Cobrar so no
+            # despacho deixaria o contato a vista de graca.
+            self._revelar_ao_abordar(lead)
             lote.geradas += 1
             lote.mensagens.append(mensagem)
 
@@ -227,6 +234,7 @@ class SendService:
             # Credito so e debitado quando a mensagem REALMENTE saiu.
             self._debitar_envio(mensagem)
             if lead is not None:
+                self._revelar_ao_abordar(lead)
                 if lead.status is StatusLead.QUALIFICADO:
                     self.leads.transicionar(
                         lead, StatusLead.ENFILEIRADO, motivo="mensagem aprovada"
@@ -317,6 +325,14 @@ class SendService:
         if self.settings.b2b_only and lead is not None and not _parece_pj(lead):
             return Bloqueio("nao_b2b", "MVP so prospecta pessoa juridica")
 
+        # Abordar REVELA o contato: a mensagem cita o nome da empresa no
+        # corpo e o e-mail no destinatario. Sem esta checagem, o paywall
+        # cairia com um clique em "iniciar abordagem".
+        if lead is not None:
+            impedimento = self.revelacao.pode_revelar(lead)
+            if impedimento is not None:
+                return Bloqueio("cota_de_contatos", impedimento)
+
         if user_id is not None:
             limites = self.limites(user_id, campanha.id if campanha else None)
             if limites["restante_usuario"] <= 0:
@@ -394,6 +410,26 @@ class SendService:
             ator=Ator.IA,
         )
         return mensagem
+
+    def _revelar_ao_abordar(self, lead: Lead) -> None:
+        """A mensagem saiu: o contato daquele lead esta revelado de fato.
+
+        Cobrar aqui e o que impede o paywall de ser contornado clicando em
+        "iniciar abordagem" em vez de "revelar". A cota ja foi checada em
+        `checar_bloqueios`; este `except` e defesa para o caso raro de o
+        saldo virar entre a checagem e o envio — a mensagem ja saiu, e
+        perder o registro seria pior do que ficar com a divida.
+        """
+        from app.core.errors import SaldoInsuficiente
+
+        try:
+            self.revelacao.revelar(
+                lead, motivo="abordagem enviada", ator=Ator.SISTEMA
+            )
+        except SaldoInsuficiente as exc:  # pragma: no cover - defesa
+            log.warning(
+                "revelacao_pos_envio_falhou", lead=str(lead.id), erro=str(exc)
+            )
 
     def _debitar_envio(self, mensagem: Message) -> None:
         from app.core.errors import SaldoInsuficiente
