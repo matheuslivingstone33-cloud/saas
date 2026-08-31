@@ -3,6 +3,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EXPO, NumeroAnimado } from "./movimento";
 import { Badge, Botao } from "./ui";
 import Portal from "./Portal";
+import { abrirFluxo } from "../lib/api";
+
+// Separadores do protocolo SSE: bloco termina em linha em branco, campos numa
+// linha cada. Constantes porque escapes soltos no meio do parser sao faceis de
+// ler errado.
+const LINHA = "\n";
+const BLOCO = "\n\n";
 
 /**
  * Execucao ao vivo.
@@ -36,7 +43,6 @@ type Props = {
   aoFechar: () => void;
 };
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 /** Como cada etapa se apresenta: icone, cor e frase. */
 const APARENCIA: Record<
@@ -90,67 +96,104 @@ export default function ExecucaoAoVivo({ campanhaId, limiteLeads = 5, aoTerminar
   const resumoRef = useRef<ResumoExecucao>({ criados: 0, duplicados: 0, candidatos: 0 });
 
   useEffect(() => {
-    // ATENCAO: o EventSource RECONECTA SOZINHO quando o servidor fecha o fluxo.
-    // Como abrir esta rota EXECUTA a campanha, cada reconexao era uma execucao
-    // nova — um clique gerou 256 execucoes e 1020 consultas ao Places antes de
-    // isto ser corrigido. Defesas, nesta ordem:
-    //   1. o servidor recusa execucao concorrente da mesma campanha (409);
-    //   2. o servidor manda `retry: 24h`, entao o navegador nao reabre sozinho;
-    //   3. aqui: `encerrado` fecha, e a flag garante que nada reabra depois.
-    const url = `${BASE}/v1/campaigns/${campanhaId}/run/stream?limite_leads=${limiteLeads}`;
-    const fonte = new EventSource(url);
+    // `fetch` em vez de `EventSource`, por duas razoes que se somam:
+    //
+    //   1. Desde a Etapa 8 toda rota exige `Authorization: Bearer`, e o
+    //      EventSource nao deixa mandar cabecalho nenhum. A saida comum e pendurar
+    //      o token na query string — de onde ele vaza para log de servidor,
+    //      historico do navegador e Referer. Credencial nao anda em URL.
+    //   2. O EventSource RECONECTAVA SOZINHO ao fim do fluxo, e como abrir esta
+    //      rota EXECUTA a campanha, cada reconexao era uma execucao paga: um
+    //      clique gerou 256 execucoes e 1020 consultas ao Places. Havia tres
+    //      defesas contra isso (409 no servidor, `retry: 24h`, flag no cliente).
+    //      Com `fetch` nao existe reconexao automatica — o problema some na raiz,
+    //      em vez de ser contido. As defesas do servidor continuam de pe.
+    const controle = new AbortController();
     let encerrado = false;
 
     const encerrar = () => {
       if (encerrado) return;
       encerrado = true;
-      fonte.close();
+      controle.abort();
       setRodando(false);
     };
 
-    const etapas = Object.keys(APARENCIA).concat("encerrado");
-    for (const etapa of etapas) {
-      fonte.addEventListener(etapa, (e) => {
-        if (encerrado) return;
-        const dados = JSON.parse((e as MessageEvent).data || "{}");
-        if (etapa === "encerrado") {
+    const tratar = (etapa: string, bruto: string) => {
+      if (encerrado) return;
+      const dados = JSON.parse(bruto || "{}");
+      if (etapa === "encerrado") {
+        encerrar();
+        aoTerminarRef.current(resumoRef.current);
+        return;
+      }
+      if (etapa === "erro") setErro(String(dados.detalhe ?? "falha na execução"));
+      if (etapa === "encontrado") resumoRef.current.criados += 1;
+      if (etapa === "duplicado") resumoRef.current.duplicados += 1;
+      if (etapa === "busca") resumoRef.current.candidatos += Number(dados.candidatos ?? 0);
+      // "aberto" e handshake de protocolo — nao diz nada ao usuario.
+      if (etapa !== "aberto") empurrar(etapa, dados);
+    };
+
+    (async () => {
+      try {
+        const resp = await abrirFluxo(
+          `/v1/campaigns/${campanhaId}/run/stream?limite_leads=${limiteLeads}`,
+          controle.signal,
+        );
+
+        // Diferente do EventSource, aqui o codigo HTTP ESTA disponivel — o 409
+        // de "campanha ja rodando" deixa de virar um "erro" mudo.
+        if (!resp.ok || !resp.body) {
+          let detalhe =
+            "Não foi possível iniciar agora. A campanha pode já estar rodando " +
+            "ou ter rodado há poucos segundos — aguarde um momento e tente de novo.";
+          try {
+            const corpo = await resp.json();
+            if (typeof corpo.detail === "string") detalhe = corpo.detail;
+          } catch {
+            /* resposta sem corpo JSON */
+          }
+          setErro(detalhe);
           encerrar();
           aoTerminarRef.current(resumoRef.current);
           return;
         }
-        if (etapa === "erro") setErro(String(dados.detalhe ?? "falha na execução"));
-        if (etapa === "encontrado") resumoRef.current.criados += 1;
-        if (etapa === "duplicado") resumoRef.current.duplicados += 1;
-        if (etapa === "busca") {
-          resumoRef.current.candidatos += Number(dados.candidatos ?? 0);
-        }
-        // "aberto" e handshake de protocolo — nao diz nada ao usuario.
-        if (etapa !== "aberto") empurrar(etapa, dados);
-      });
-    }
 
-    fonte.onerror = () => {
-      // Chega aqui quando o servidor fecha OU a conexao cai. Em ambos os casos
-      // fechamos: reabrir custaria outra execucao paga.
-      //
-      // O EventSource NAO expoe o codigo HTTP ao JavaScript. Entao, quando o
-      // servidor recusa com 409 (campanha ja rodando, ou o intervalo minimo
-      // entre execucoes), tudo o que chega aqui e "erro" — sem nenhum evento
-      // antes. Silencio nessa hora parece defeito; o usuario merece o motivo.
-      if (!encerrado) {
-        setEventos((atual) => {
-          if (atual.length === 0) {
-            setErro(
-              "Não foi possível iniciar agora. A campanha pode já estar rodando " +
-                "ou ter rodado há poucos segundos — aguarde um momento e tente de novo.",
-            );
+        // Parser de SSE: blocos separados por linha em branco, cada um com
+        // `event:` e `data:`. O buffer existe porque um bloco pode chegar
+        // partido entre dois pedacos da rede.
+        const leitor = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+        let buffer = "";
+        for (;;) {
+          const { done, value } = await leitor.read();
+          if (done) break;
+          buffer += value;
+
+          let corte: number;
+          while ((corte = buffer.indexOf(BLOCO)) !== -1) {
+            const bloco = buffer.slice(0, corte);
+            buffer = buffer.slice(corte + 2);
+
+            let etapa = "message";
+            const dados: string[] = [];
+            for (const linha of bloco.split(LINHA)) {
+              if (linha.startsWith("event:")) etapa = linha.slice(6).trim();
+              else if (linha.startsWith("data:")) dados.push(linha.slice(5).trim());
+            }
+            if (dados.length) tratar(etapa, dados.join(LINHA));
           }
-          return atual;
-        });
+        }
+      } catch (erroFluxo) {
+        // `abort` e o encerramento normal (desmontagem ou fim do fluxo), nao falha.
+        if (encerrado || (erroFluxo as Error)?.name === "AbortError") return;
+        setErro("A conexão com o servidor caiu durante a execução.");
+      }
+
+      if (!encerrado) {
         encerrar();
         aoTerminarRef.current(resumoRef.current);
       }
-    };
+    })();
 
     return encerrar;
     // Dependencias PROPOSITALMENTE reduzidas: o efeito precisa rodar uma unica

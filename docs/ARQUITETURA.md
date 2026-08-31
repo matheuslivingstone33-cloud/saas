@@ -155,7 +155,7 @@ recebe a mesma empresa duas vezes.
 
 | Item | Onde | Vira o quê |
 |---|---|---|
-| auth por header `X-User-Email` | `api/deps.py` | JWT, antes de qualquer exposição pública |
+| ~~auth por header `X-User-Email`~~ | `services/auth.py` | ✅ pago na Etapa 8: JWT com acesso de 30 min e renovação de 14 dias |
 | `/billing/confirmar` credita | `api/routes/billing.py` | webhook assinado do Stripe |
 | `/v1/margem/consolidado` aberto | `api/routes/system.py` | restringir a papel de admin |
 | Receita em memória | `adapters/mock/receita_local.py` | tabela indexada no Postgres com o dump completo |

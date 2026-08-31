@@ -3,9 +3,69 @@
  *
  * Fase 6: a interface consome SOMENTE mocks — o backend inteiro roda com
  * PROVIDER_MODE=mock, sem nenhuma chave. Nada aqui muda na Fase 7.
+ *
+ * Etapa 8: toda requisicao leva `Authorization: Bearer`. O token de acesso dura
+ * 30 minutos e e renovado automaticamente pelo token de renovacao — o usuario
+ * so ve a tela de login quando os DOIS vencem.
  */
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-const USUARIO_DEV = "demo@prospector.local";
+
+const CHAVE_ACESSO = "prospector:acesso";
+const CHAVE_RENOVACAO = "prospector:renovacao";
+
+export type Sessao = {
+  acesso: string;
+  renovacao: string;
+  tipo: string;
+  expira_em_segundos: number;
+  usuario: { id: string; email: string; nome: string };
+};
+
+export const sessao = {
+  acesso: () => localStorage.getItem(CHAVE_ACESSO),
+  renovacao: () => localStorage.getItem(CHAVE_RENOVACAO),
+  ativa: () => Boolean(localStorage.getItem(CHAVE_ACESSO)),
+  guardar(s: Sessao) {
+    localStorage.setItem(CHAVE_ACESSO, s.acesso);
+    localStorage.setItem(CHAVE_RENOVACAO, s.renovacao);
+  },
+  limpar() {
+    localStorage.removeItem(CHAVE_ACESSO);
+    localStorage.removeItem(CHAVE_RENOVACAO);
+  },
+};
+
+/** Avisa a aplicacao que a sessao caiu de vez, para ela mandar ao login. */
+export const AO_EXPIRAR = "prospector:sessao-expirada";
+
+// Uma renovacao por vez: sem isto, cinco requisicoes que esbarram no 401 juntas
+// disparam cinco renovacoes, e as quatro ultimas usam um token de renovacao que
+// a primeira ja trocou.
+let renovando: Promise<boolean> | null = null;
+
+async function renovarSessao(): Promise<boolean> {
+  const token = sessao.renovacao();
+  if (!token) return false;
+  if (renovando) return renovando;
+
+  renovando = (async () => {
+    try {
+      const resp = await fetch(`${BASE}/v1/auth/renovar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ renovacao: token }),
+      });
+      if (!resp.ok) return false;
+      sessao.guardar((await resp.json()) as Sessao);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      renovando = null;
+    }
+  })();
+  return renovando;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -17,16 +77,32 @@ export class ApiError extends Error {
   }
 }
 
-async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${caminho}`, {
+function enviar(caminho: string, init?: RequestInit): Promise<Response> {
+  const token = sessao.acesso();
+  return fetch(`${BASE}${caminho}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      // Autenticacao real (JWT) entra antes de qualquer exposicao publica.
-      "X-User-Email": USUARIO_DEV,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
+}
+
+async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
+  let resp = await enviar(caminho, init);
+
+  // 401 numa rota comum quer dizer acesso vencido. Renova UMA vez e repete;
+  // se a renovacao tambem falhou, a sessao acabou de verdade.
+  if (resp.status === 401 && !caminho.startsWith("/v1/auth/")) {
+    if (await renovarSessao()) {
+      resp = await enviar(caminho, init);
+    } else {
+      sessao.limpar();
+      window.dispatchEvent(new CustomEvent(AO_EXPIRAR));
+    }
+  }
+
   if (!resp.ok) {
     let detalhe = `${resp.status} ${resp.statusText}`;
     let tipo: string | undefined;
@@ -41,6 +117,39 @@ async function req<T>(caminho: string, init?: RequestInit): Promise<T> {
   }
   if (resp.status === 204) return undefined as T;
   return (await resp.json()) as T;
+}
+
+/**
+ * Abre um fluxo SSE autenticado.
+ *
+ * O `EventSource` do navegador nao aceita cabecalho, e pendurar o token na
+ * query string o deixaria em log de servidor e historico. Com `fetch` o Bearer
+ * viaja no lugar certo — e, de quebra, some a reconexao automatica do
+ * EventSource, que ja custou 256 execucoes de campanha por um clique so.
+ *
+ * Devolve a resposta CRUA: quem chama le o corpo em pedacos. Um 401 renova a
+ * sessao uma vez e repete, igual ao `req`.
+ */
+export async function abrirFluxo(caminho: string, signal?: AbortSignal): Promise<Response> {
+  const abrir = () =>
+    fetch(`${BASE}${caminho}`, {
+      signal,
+      headers: {
+        Accept: "text/event-stream",
+        ...(sessao.acesso() ? { Authorization: `Bearer ${sessao.acesso()}` } : {}),
+      },
+    });
+
+  let resp = await abrir();
+  if (resp.status === 401) {
+    if (await renovarSessao()) {
+      resp = await abrir();
+    } else {
+      sessao.limpar();
+      window.dispatchEvent(new CustomEvent(AO_EXPIRAR));
+    }
+  }
+  return resp;
 }
 
 const get = <T>(caminho: string) => req<T>(caminho);
@@ -371,6 +480,13 @@ export const api = {
   reabrir: (id: string) => post<Campanha>(`/v1/campaigns/${id}/reset`),
   limites: (id: string) => get<Limites>(`/v1/campaigns/${id}/limites`),
   disparar: (id: string) => post<Record<string, unknown>>(`/v1/campaigns/${id}/disparar`),
+
+  // auth (Etapa 8)
+  registrar: (dados: { email: string; nome: string; senha: string; empresa?: string }) =>
+    post<Sessao>("/v1/auth/registrar", dados),
+  entrar: (email: string, senha: string) =>
+    post<Sessao>("/v1/auth/entrar", { email, senha }),
+  eu: () => get<{ id: string; email: string; nome: string }>("/v1/auth/eu"),
 
   // cerebro
   expandir: (servico: string, regiao: string) =>

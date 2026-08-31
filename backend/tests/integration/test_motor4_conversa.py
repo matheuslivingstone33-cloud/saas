@@ -311,13 +311,10 @@ def test_simulacao_pela_api(client, usuario, session, portas_db, lead_abordado) 
     assert corpo["lead_quente"] is True
 
 
-def test_webhook_aceita_sem_vazar_se_o_lead_existe(client, usuario) -> None:
+def test_webhook_aceita_sem_vazar_se_o_lead_existe(webhook, usuario) -> None:
     """Endereco desconhecido tambem devolve 202: 404 diria ao remetente quais
     e-mails estao na base."""
-    r = client.post(
-        "/v1/inbound/email",
-        json={"remetente": "ninguem@exemplo.com", "corpo": "oi"},
-    )
+    r = webhook("/v1/inbound/email", {"remetente": "ninguem@exemplo.com", "corpo": "oi"})
     assert r.status_code == 202
     assert r.json()["casou_com_lead"] is False
 

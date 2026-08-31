@@ -149,6 +149,7 @@ class TipoEvento(StrEnum):
     CONVERSA_RESPONDIDA = "conversa_respondida"
     CONVERSA_ENCERRADA = "conversa_encerrada"
     BOUNCE_REGISTRADO = "bounce_registrado"
+    USUARIO_CRIADO = "usuario_criado"
 
 
 class TipoSolicitacao(StrEnum):

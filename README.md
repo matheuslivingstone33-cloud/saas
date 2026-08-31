@@ -52,6 +52,10 @@ migrations e seed sozinho.
 | API | http://localhost:8000 |
 | Documentação (Swagger) | http://localhost:8000/docs |
 
+**Para entrar:** `demo@prospector.local` / `prospector-demo` — o usuário que o
+seed cria. Desde a Etapa 8 existe login de verdade: sem token, toda rota de
+`/v1` responde 401. Você também pode criar uma conta pela própria tela.
+
 ## Rodar sem Docker
 
 ```bash
@@ -162,3 +166,16 @@ docs/            arquitetura, runbook da Fase 7, deploy, LGPD, declaração de I
 Nunca commite chave. `.env` está no `.gitignore`; `.env.example` tem **todas as
 chaves vazias** (há teste que falha se alguma vier preenchida). Nenhum segredo
 entra em imagem Docker — tudo é injetado em runtime.
+
+Três deles não são de provedor e são obrigatórios em produção:
+
+| Variável | Para quê | Se faltar |
+|---|---|---|
+| `JWT_SECRET` | assina a sessão de login | com `APP_ENV=producao`, a aplicação **recusa subir** |
+| `WEBHOOK_SECRET` | assina `/v1/inbound/*` | a rota **fecha** (não abre) |
+| `APP_SECRET` | assina o token de descadastro | o compose de produção recusa subir |
+
+Os defaults de desenvolvimento existem para o projeto rodar sem configurar
+nada — e por isso mesmo derrubam a subida em produção. Esquecer o `JWT_SECRET`
+não produziria sintoma nenhum: só deixaria qualquer pessoa que leia este
+repositório assinar um token válido para qualquer conta.

@@ -481,11 +481,10 @@ def test_api_executa_com_forcar_em_modo_mock(session, client, automatico) -> Non
     assert len(_saidas(session, lead)) == 2
 
 
-def test_webhook_de_retorno_aceita_endereco_desconhecido(client, usuario) -> None:
+def test_webhook_de_retorno_aceita_endereco_desconhecido(webhook, usuario) -> None:
     """202 mesmo sem casar: 404 diria quais enderecos estao na base."""
-    r = client.post(
-        "/v1/inbound/retorno",
-        json={"contato": "ninguem@exemplo.com", "tipo": "permanente"},
+    r = webhook(
+        "/v1/inbound/retorno", {"contato": "ninguem@exemplo.com", "tipo": "permanente"}
     )
 
     assert r.status_code == 202

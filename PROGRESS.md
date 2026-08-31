@@ -214,6 +214,36 @@ completo exercitado pela interface no navegador.
 
 ---
 
+## Etapa 8 — Autenticação de verdade ✅
+
+- **JWT no lugar de `X-User-Email`.** O header era a autenticação inteira, com
+  fallback no usuário de seed: `curl -H "X-User-Email: cliente@empresa.com"`
+  devolvia os leads daquele cliente. O fallback saiu junto — não saber quem
+  está perguntando agora responde 401, não "aqui estão os dados do demo".
+- **Dois tipos de token, e o tipo vai assinado dentro dele.** Acesso de 30 min,
+  renovação de 14 dias. Um refresh que servisse como acesso anularia a razão de
+  o acesso ser curto, e nome de campo não é garantia — a distinção precisa
+  estar dentro da assinatura.
+- **bcrypt para senha, PyJWT para token.** Nada de esquema próprio: assinatura
+  é onde se erra em silêncio (algoritmo `none`, comparação não constante), e
+  errar ali não quebra nada — só passa a funcionar para qualquer um.
+- **Webhooks assinados** (`/v1/inbound/*`) com HMAC-SHA256 sobre o corpo cru
+  mais timestamp, janela de 5 min e comparação em tempo constante. Sem segredo
+  configurado a rota **fecha**, não abre. Desde a Etapa 7 uma resposta forjada
+  não suja só a thread: move a mira do aprendizado daquele cliente.
+- **Isolamento de tenant testado por HTTP.** Havia filtro por `user_id` nos
+  repositórios e nenhum teste que tentasse ler dado alheio pela API.
+- **A aplicação recusa subir** em `APP_ENV=producao` com o `JWT_SECRET` de
+  desenvolvimento ou com menos de 32 caracteres.
+- **`EventSource` virou `fetch` com stream.** Ele não aceita cabeçalho, e a
+  saída comum — token na query string — o deixaria em log de servidor,
+  histórico e Referer. De quebra sumiu a reconexão automática que já custou
+  256 execuções de campanha num clique só.
+- Migration `0011` (`tipo_evento.usuario_criado` e unicidade de e-mail sem
+  distinguir maiúscula). **36 testes.**
+
+---
+
 ## Decisões estruturais
 
 | Decisão | Por quê |
@@ -227,3 +257,5 @@ completo exercitado pela interface no navegador.
 | SDK oficial + `HttpClient.guard()` | usa o cliente suportado de cada provedor sem abrir mão do controle central |
 | Crédito = 1 **contato revelado**; token = vitrine | o cliente entende crédito; o mercado compara token. Era "1 lead descoberto" até a Etapa 6 |
 | Aprendizado por ramo **multiplica** o peso do Cérebro | o Cérebro continua no comando e o fator só inclina; substituir deixaria o histórico apagar ramo bom |
+| Sessão em **JWT**, não em cookie de servidor | a API é consumida por um SPA e, adiante, pelo app; sem estado de sessão no servidor não há o que sincronizar entre réplicas |
+| SSE por **`fetch`**, não `EventSource` | é o único jeito de mandar `Authorization` sem pôr credencial na URL |

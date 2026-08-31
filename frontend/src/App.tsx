@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type NivelAutonomia, type Perfil } from "./lib/api";
+import { AO_EXPIRAR, api, sessao, type NivelAutonomia, type Perfil } from "./lib/api";
 import { Aviso, Badge, Botao, Carregando } from "./components/ui";
 import { EXPO, paginaVariantes, useVariantes } from "./components/movimento";
 import Abertura, { useAbertura } from "./components/Abertura";
 import { ProvedorTema, TrocaTema } from "./components/tema";
 import Paleta, { usePaleta, type Comando } from "./components/Paleta";
+import Entrada from "./pages/Entrada";
 import Landing from "./pages/Landing";
 import OnboardingChat from "./pages/OnboardingChat";
 import Busca from "./pages/Busca";
@@ -106,6 +107,10 @@ function Aplicacao() {
       return false;
     }
   });
+  // Desde a Etapa 8 passar da landing nao basta: e preciso ter sessao. Os dois
+  // estados sao distintos de proposito — "ver a pagina inicial" no menu da
+  // conta nao pode deslogar quem so quis reler a apresentacao.
+  const [temSessao, setTemSessao] = useState<boolean>(() => sessao.ativa());
   // A campanha em foco sobrevive ao recarregamento: sem isso, atualizar a
   // pagina na Descoberta jogaria o usuario de volta para a Busca.
   const [campanha, setCampanha] = useState<string | null>(() => {
@@ -126,15 +131,28 @@ function Aplicacao() {
   const paleta = usePaleta();
 
   const recarregar = useCallback(() => {
+    if (!sessao.ativa()) return;
     api.perfil().then(setPerfil).catch((e) => setErro(String(e)));
   }, []);
 
-  useEffect(recarregar, [recarregar, versao]);
+  useEffect(recarregar, [recarregar, versao, temSessao]);
 
   useEffect(() => {
     const aoMudar = () => setRota(rotaAtual());
     window.addEventListener("hashchange", aoMudar);
     return () => window.removeEventListener("hashchange", aoMudar);
+  }, []);
+
+  // A sessao pode cair no meio do uso: o token de renovacao venceu, ou a conta
+  // foi desativada. Sem isto a tela ficaria pedindo dados que o servidor recusa,
+  // mostrando um erro atras do outro sem dizer o que fazer.
+  useEffect(() => {
+    const aoExpirar = () => {
+      setTemSessao(false);
+      setPerfil(null);
+    };
+    window.addEventListener(AO_EXPIRAR, aoExpirar);
+    return () => window.removeEventListener(AO_EXPIRAR, aoExpirar);
   }, []);
 
   const irPara = useCallback((destino: Rota) => {
@@ -148,6 +166,19 @@ function Aplicacao() {
       localStorage.setItem(CHAVE_ENTROU, "1");
     } catch {
       /* sem localStorage: a landing reaparece no proximo carregamento */
+    }
+  }, []);
+
+  const sair = useCallback(() => {
+    sessao.limpar();
+    setTemSessao(false);
+    setPerfil(null);
+    setMenuConta(false);
+    setEntrou(false);
+    try {
+      localStorage.removeItem(CHAVE_ENTROU);
+    } catch {
+      /* nada a fazer */
     }
   }, []);
 
@@ -221,6 +252,17 @@ function Aplicacao() {
           {suporte && <PainelSuporte aoFechar={() => setSuporte(false)} />}
         </AnimatePresence>
       </>
+    );
+  }
+  if (!temSessao) {
+    return (
+      <Entrada
+        aoEntrar={() => {
+          setTemSessao(true);
+          setErro(null);
+        }}
+        aoVoltar={voltarParaLanding}
+      />
     );
   }
   if (erro && !perfil)
@@ -325,6 +367,7 @@ function Aplicacao() {
                 setForcarOnboarding(true);
               }}
               verLanding={voltarParaLanding}
+              sair={sair}
             />
           </div>
         </div>
@@ -406,6 +449,7 @@ function MenuConta({
   trocarAutonomia,
   refazerOnboarding,
   verLanding,
+  sair,
 }: {
   perfil: Perfil;
   aberto: boolean;
@@ -415,6 +459,7 @@ function MenuConta({
   trocarAutonomia: (n: NivelAutonomia) => void;
   refazerOnboarding: () => void;
   verLanding: () => void;
+  sair: () => void;
 }) {
   const caixa = useRef<HTMLDivElement>(null);
 
@@ -532,6 +577,13 @@ function MenuConta({
                 className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm text-texto-fraco transition-colors hover:bg-superficie-2 hover:text-texto"
               >
                 Ver a página inicial
+              </button>
+              <button
+                role="menuitem"
+                onClick={sair}
+                className="flex w-full items-center rounded-lg px-2.5 py-2 text-left text-sm text-texto-fraco transition-colors hover:bg-superficie-2 hover:text-texto"
+              >
+                Sair da conta
               </button>
             </nav>
 

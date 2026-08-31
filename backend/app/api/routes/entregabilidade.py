@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import config, db, usuario_atual
+from app.api.deps import config, db, usuario_atual, webhook_autenticado
 from app.core.config import Provider, Settings
 from app.core.logging import get_logger
 from app.models.user import User
@@ -52,8 +52,16 @@ class SimulacaoRetorno(BaseModel):
 
 
 @publico.post("/inbound/retorno", status_code=status.HTTP_202_ACCEPTED)
-def receber_retorno(payload: RetornoRecebido, session: Session = Depends(db)) -> dict:
-    """Webhook de bounce, reclamacao de spam e falha temporaria."""
+def receber_retorno(
+    payload: RetornoRecebido,
+    session: Session = Depends(db),
+    _assinatura: bytes = Depends(webhook_autenticado),
+) -> dict:
+    """Webhook de bounce, reclamacao de spam e falha temporaria.
+
+    Exige assinatura HMAC: um bounce forjado SUPRIME um contato e descarta o
+    lead — daria para apagar a base de um concorrente com um laco de `curl`.
+    """
     resultado = ServicoDeEntregabilidade(session).registrar(
         contato=payload.contato,
         tipo=payload.tipo,

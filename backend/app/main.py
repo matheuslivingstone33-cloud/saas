@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.api import estatico
 from app.api.routes import (
+    auth,
     billing,
     cadencia,
     campaigns,
@@ -39,6 +40,7 @@ from app.core.errors import (
 )
 from app.core.ids import request_id as gen_request_id
 from app.core.logging import configure_logging, get_logger
+from app.services.auth import verificar_segredo_de_producao
 
 settings = get_settings()
 configure_logging("DEBUG" if settings.debug else "INFO")
@@ -54,6 +56,10 @@ Consulte `GET /v1/providers` para ver o modo de cada porta.
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Falhar na subida e melhor que subir com segredo de desenvolvimento: sem
+    # esta linha, esquecer o JWT_SECRET no .env nao produziria sintoma nenhum —
+    # so deixaria qualquer leitor deste repositorio assinar um token valido.
+    verificar_segredo_de_producao(settings)
     log.info(
         "app_iniciada",
         ambiente=settings.app_env,
@@ -165,6 +171,8 @@ def health_raiz() -> dict:
 
 
 app.include_router(system.router, prefix=settings.api_prefix)
+# Sem sessao por definicao: e daqui que sai o primeiro token.
+app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(conta.router, prefix=settings.api_prefix)
 app.include_router(billing.router, prefix=settings.api_prefix)
 app.include_router(campaigns.router, prefix=settings.api_prefix)

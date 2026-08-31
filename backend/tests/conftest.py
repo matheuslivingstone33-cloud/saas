@@ -28,6 +28,10 @@ os.environ.update(
         "SEARCH_MODE": "",
         "BILLING_MODE": "",
         "APP_ENV": "test",
+        # Segredo do webhook: sem ele a rota /v1/inbound/* fica FECHADA, que e
+        # o comportamento correto em producao e inutil para testar o caminho
+        # feliz. Os testes que verificam a recusa sobrescrevem este valor.
+        "WEBHOOK_SECRET": "segredo-de-teste-do-webhook",
         # Nenhuma chave: qualquer teste que tentar modo real deve falhar alto.
         "ANTHROPIC_API_KEY": "",
         "GOOGLE_MAPS_API_KEY": "",
@@ -96,6 +100,9 @@ def portas_db(session: Session) -> ProviderRegistry:
     registry.fechar()
 
 
+SENHA_DEMO = "senha-de-teste-123"
+
+
 @pytest.fixture
 def usuario(session: Session):  # noqa: ANN201
     from app.db.seed import semear
@@ -107,7 +114,67 @@ def usuario(session: Session):  # noqa: ANN201
 
 
 @pytest.fixture
-def client(session: Session) -> TestClient:
+def client(session: Session, usuario) -> TestClient:  # noqa: ANN001
+    """Cliente JA autenticado, com Bearer de verdade.
+
+    Desde a Etapa 8 nao existe usuario implicito: sem token, toda rota de `/v1`
+    responde 401. A fixture faz o login pela rota real em vez de injetar o
+    usuario por override — assim a suite exercita o mesmo caminho do navegador,
+    e uma quebra na emissao do token aparece aqui em vez de so em producao.
+
+    Para testar SEM sessao, use a fixture `client_anonimo`.
+    """
+    from app.api.deps import db as dep_db
+    from app.main import app
+    from app.services.auth import emitir_par
+
+    def _override():  # noqa: ANN202
+        yield session
+
+    app.dependency_overrides[dep_db] = _override
+    with TestClient(app) as c:
+        c.headers["Authorization"] = f"Bearer {emitir_par(usuario.id).acesso}"
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def webhook(client_anonimo: TestClient):  # noqa: ANN201
+    """POST assinado para `/v1/inbound/*`, como o provedor faria.
+
+    Assina o corpo CRU e manda esse mesmo corpo: serializar duas vezes daria
+    bytes diferentes (`{"a":1}` vs `{"a": 1}`) e uma assinatura que nunca
+    confere — que e justamente o bug que este formato de teste evita.
+
+    Usa o cliente ANONIMO de proposito: o webhook nao tem sessao de usuario, e
+    quem prova identidade e o segredo compartilhado com o provedor.
+    """
+    import json
+    import time
+
+    from app.services.webhook import assinar
+
+    def _post(caminho: str, corpo: dict, *, segredo: str | None = None, timestamp: int | None = None):  # noqa: ANN202, E501
+        bruto = json.dumps(corpo).encode()
+        ts = timestamp if timestamp is not None else int(time.time())
+        return client_anonimo.post(
+            caminho,
+            content=bruto,
+            headers={
+                "Content-Type": "application/json",
+                "X-Assinatura-Timestamp": str(ts),
+                "X-Assinatura": assinar(
+                    bruto, timestamp=ts, segredo=segredo or os.environ["WEBHOOK_SECRET"]
+                ),
+            },
+        )
+
+    return _post
+
+
+@pytest.fixture
+def client_anonimo(session: Session) -> TestClient:
+    """Cliente sem token. Serve para verificar que a porta esta mesmo fechada."""
     from app.api.deps import db as dep_db
     from app.main import app
 

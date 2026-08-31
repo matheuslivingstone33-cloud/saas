@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.adapters.registry import ProviderRegistry
-from app.api.deps import config, db, registry, usuario_atual
+from app.api.deps import config, db, registry, usuario_atual, webhook_autenticado
 from app.core.config import Provider, Settings
 from app.core.logging import get_logger
 from app.models.enums import Canal
@@ -84,8 +84,13 @@ def _lead_por_email(session: Session, endereco: str) -> Lead | None:
 def receber_email(
     payload: RespostaRecebida,
     session: Session = Depends(db),
+    _assinatura: bytes = Depends(webhook_autenticado),
 ) -> dict:
-    """Webhook de resposta por e-mail."""
+    """Webhook de resposta por e-mail. Exige assinatura HMAC do provedor.
+
+    "Publico" aqui quer dizer sem sessao de usuario, nao sem autenticacao: quem
+    prova identidade e o segredo compartilhado com o provedor.
+    """
     lead = _lead_por_email(session, payload.remetente)
     if lead is None:
         # 202 mesmo sem achar: o provedor nao deve reenviar indefinidamente, e

@@ -174,7 +174,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 Depois de cada virada, olhe a margem antes de aumentar volume:
 
 ```bash
-curl -s -H "X-User-Email: SEU_EMAIL" localhost:8000/v1/margem/consolidado
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/margem/consolidado
 ```
 
 - `custo.balde_1_dados_usd` — Places, Receita, e-mail, WhatsApp

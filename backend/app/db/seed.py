@@ -39,10 +39,16 @@ from app.models.opt_out import OptOut
 from app.models.user import Subscription, User
 from app.repositories.misc import CreditLedgerRepository, UserRepository
 from app.services.audit import AuditService
+from app.services.auth import hash_senha
 
 log = get_logger("seed")
 
 EMAIL_DEMO = "demo@prospector.local"
+#: Senha do usuario de demonstracao. Existe porque, desde a Etapa 8, nao ha
+#: usuario implicito: sem senha o demo seria criado e nao conseguiria entrar em
+#: lugar nenhum. E previsivel de proposito — e um seed de desenvolvimento, e o
+#: compose de producao roda com `SEED_ON_START=false`.
+SENHA_DEMO = "prospector-demo"
 
 
 def carregar_cnaes() -> list[dict]:
@@ -93,6 +99,7 @@ def semear(session: Session, reset: bool = False) -> dict[str, int]:
             User(
                 email=EMAIL_DEMO,
                 nome="Usuario Demo",
+                senha_hash=hash_senha(SENHA_DEMO),
                 empresa="Refrigeracao Ceara Servicos",
                 cnpj="00000000000191",
                 ativo=True,
@@ -126,6 +133,13 @@ def semear(session: Session, reset: bool = False) -> dict[str, int]:
             user_id=usuario.id,
         )
         contadores["usuarios"] = 1
+    elif not usuario.senha_hash:
+        # Banco semeado antes da Etapa 8: o demo existe e nao tem senha. Sem
+        # isto ele continuaria sem conseguir entrar, e o sintoma seria um login
+        # que recusa a senha documentada sem dizer por que.
+        usuario.senha_hash = hash_senha(SENHA_DEMO)
+        session.flush()
+        log.info("senha_demo_definida")
 
     # --- base do Cerebro (Motor 2) -------------------------------------------
     existentes = {c for (c,) in session.execute(select(RamoCnae.codigo)).all()}

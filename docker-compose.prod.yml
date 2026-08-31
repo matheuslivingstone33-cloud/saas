@@ -63,6 +63,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       APP_SECRET: ${APP_SECRET:?defina APP_SECRET forte}
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET forte}
+      # Sem segredo, /v1/inbound/* FECHA (nao abre). Definir aqui e obrigatorio
+      # para o webhook do provedor de e-mail funcionar quando EMAIL_MODE=real.
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?defina WEBHOOK_SECRET forte}
       SEED_ON_START: "false"
 
       # --- Virada de provedores: um por vez -------------------------------

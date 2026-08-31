@@ -8,16 +8,20 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 7 concluída — aprendizado por intenção
+**Última atualização:** 2026-08-31 · Etapa 8 concluída — autenticação de verdade
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
-**Estado em 31/08/2026:** Etapas 0 a 7 fechadas. **303 testes verdes**,
+**Estado em 31/08/2026:** Etapas 0 a 8 fechadas. **340 testes verdes**,
 `ruff` e `tsc --noEmit` limpos, migrations sobem e descem nos dois dialetos.
 Tudo commitado **e publicado**: `main` == `origin/main`. Nenhuma chave de
 API — o sistema inteiro roda em mock.
+
+**O produto agora tem porta.** Desde a Etapa 8 existe cadastro, login e sessão
+por JWT; `X-User-Email` não autentica mais nada. Foi o último bloqueio antes de
+o site poder ficar público.
 
 Para retomar, três comandos (detalhe na seção 5):
 
@@ -33,36 +37,37 @@ cd backend && .venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 
 cd backend && .venv/Scripts/python.exe scripts/limpar_demo.py --aplicar && .venv/Scripts/python.exe scripts/demo_fase0.py
 ```
 
-O terceiro devolve o banco de demonstração a um estado limpo e povoado —
-útil antes de abrir a interface para conferir alguma coisa.
+Para entrar na interface local: **demo@prospector.local** / **prospector-demo**.
 
 > Se o banco de demo estiver numa migration antiga, ele quebra com
 > `no such table`. `cd backend && .venv/Scripts/python.exe -m alembic upgrade head`
 > resolve — a suíte usa banco próprio e não avisa que o de demo ficou para trás.
+> Rodar `python -m app.db.seed` depois define a senha do demo, se ele for
+> anterior à Etapa 8.
 
-### A próxima é a Etapa 8 — autenticação de verdade
+### A próxima é colocar no ar
 
-**A ideia.** Não existe login. O usuário vem do header `X-User-Email` com
-fallback no usuário de seed ([api/deps.py:33](backend/app/api/deps.py)). É a
-última divergência aberta da §9.1 e o **último momento possível** antes de
-qualquer pessoa de fora tocar no produto: um `curl` com o e-mail de outro
-tenant hoje devolve os leads daquele tenant.
+Não é uma etapa de código: o caminho está escrito em
+**[docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md)**, passo a passo,
+para VPS com Docker (serve igual em Hetzner). `docker-compose.prod.yml`,
+Dockerfiles e scripts de start já existiam e estão corretos; o que faltava era
+a autenticação, que a Etapa 8 entregou — e o runbook foi atualizado com as três
+variáveis novas de `.env` e a conferência de que a porta está mesmo fechada.
 
-**O que a etapa precisa cobrir**, em ordem de risco:
+O que o deploy precisa e **esta máquina não pode fazer**: criar a conta do
+provedor, provisionar o servidor e apontar o domínio. O runbook assume Hetzner
+ou DigitalOcean com 4 GB de RAM (com 2 GB o build do frontend morre) e Caddy
+para o HTTPS.
 
-1. **JWT** no lugar do header, com refresh e expiração. Não invente esquema
-   próprio de senha.
-2. **Webhook assinado.** `POST /v1/inbound/email` e `POST /v1/inbound/retorno`
-   aceitam qualquer requisição hoje. Sem assinatura, qualquer pessoa registra
-   uma "resposta" de qualquer lead — e desde a Etapa 7 isso **move a mira do
-   cliente**, não só a thread. Envenenar o aprendizado ficou barato.
-3. **Isolamento por tenant testado de fora.** Há filtro por `user_id` nos
-   repositórios, mas nenhum teste que tente ler dado alheio via HTTP.
+**Depois que estiver de pé**, a ordem sugerida:
 
-**A armadilha desta etapa:** autenticação atravessa TODA rota, e a suíte usa o
-usuário de seed em toda parte. Fazer o `client` de teste autenticar de verdade
-vai quebrar dezenas de testes de uma vez — vale trocar a fixture primeiro, num
-commit próprio, antes de mexer em qualquer rota.
+1. **Fase 7 — provedores reais**, um por vez, por
+   [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md). Sem isso nenhum e-mail sai
+   de verdade e a descoberta é sintética.
+2. **Recuperação de senha.** Quem esquecer a senha não tem volta hoje. Depende
+   de e-mail real, então vem depois do item 1.
+3. **WhatsApp como canal** (§9 de `docs/IDEIAS.md`) — a maior, e a que mais
+   depende do resto estável.
 
 ---
 
@@ -177,6 +182,7 @@ Fases 0 a 7 concluídas (detalhe em [PROGRESS.md](PROGRESS.md)). Em resumo:
 | **Conversa** (Motor 4) | receber, classificar intenção, responder ou se calar | ✅ |
 | **Cadência** (Motor 5) | 2º e 3º toque com ângulo próprio, e onde a cadência para | ✅ |
 | **Aprendizado** | pesos por componente **e** fator de mira por (tenant, CNAE), a partir da intenção | ✅ |
+| **Autenticação** | cadastro, login, sessão por JWT, webhook assinado, isolamento por tenant | ✅ |
 
 Também prontos: compliance LGPD completo (LIA, opt-out de 1 clique, direitos do
 titular, retenção, auditoria encadeada por hash), créditos e planos com teto e
@@ -184,7 +190,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**303 testes verdes · lint limpo.**
+**340 testes verdes · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -243,9 +249,66 @@ o argumento de cada uma está em [docs/IDEIAS.md](docs/IDEIAS.md) §11.
 | 5 | **Resposta manual dentro do produto** | ✅ feito |
 | 6 | **Paywall no servidor + cobrar por revelação** | ✅ feito |
 | 7 | **Aprendizado por intenção** — a mira que cada cliente afina | ✅ feito |
+| 8 | **Autenticação** — JWT, webhook assinado, isolamento de tenant | ✅ feito |
 
 As etapas seguintes, com o argumento de cada uma, estão em
 [docs/IDEIAS.md](docs/IDEIAS.md).
+
+### O que a Etapa 8 entregou
+
+Era a última divergência aberta da §9.1, e a única que impedia o produto de
+ficar público. O header `X-User-Email` era a autenticação inteira — e um header
+é escrito pelo cliente: ele não prova nada.
+
+- **JWT com dois tipos de token**, e o tipo vai **assinado dentro** do token.
+  Acesso de 30 minutos, renovação de 14 dias. Nome de campo não segura nada: um
+  refresh que servisse como acesso anularia a razão de o acesso ser curto.
+- **O fallback no usuário de seed saiu junto.** Antes, um erro de configuração
+  servia os dados do demo; agora responde 401, que é o certo quando não se sabe
+  quem está perguntando.
+- **bcrypt para senha, PyJWT para token.** Sem esquema próprio: assinatura é
+  onde se erra em silêncio — algoritmo `none` aceito, comparação não constante,
+  expiração ignorada — e nada disso quebra nada. Só passa a funcionar para
+  qualquer um. Há teste para cada um desses três.
+- **Webhooks assinados** com HMAC-SHA256 sobre o **corpo cru** mais timestamp,
+  janela de 5 minutos, comparação em tempo constante. Assinar o JSON
+  reserializado compararia uma coisa e processaria outra. **Sem segredo
+  configurado a rota fecha**, não abre.
+- **Isolamento de tenant testado por HTTP.** Havia filtro por `user_id` nos
+  repositórios e nenhum teste que tentasse ler dado alheio pela API — inclusive
+  o caso pior: *executar* a campanha do vizinho, que gastaria o crédito dele.
+- **A aplicação recusa subir** em produção com `JWT_SECRET` de desenvolvimento
+  ou com menos de 32 caracteres.
+- **Tela de entrada** com cadastro e login, renovação automática de sessão
+  (o usuário só vê o login quando os **dois** tokens vencem) e "Sair da conta".
+- **36 testes.**
+
+### O EventSource teve de sair — e isso resolveu um bug antigo
+
+`EventSource` não aceita cabeçalho nenhum, então a execução ao vivo quebraria
+com 401. A saída comum é pendurar o token na query string, de onde ele vaza
+para log de servidor, histórico do navegador e `Referer` — credencial não anda
+em URL. Trocado por `fetch` com leitura em pedaços e um parser de SSE de ~30
+linhas.
+
+O ganho inesperado: **`fetch` não reconecta sozinho.** A reconexão automática
+do `EventSource` era o que fazia cada fim de fluxo virar uma execução nova — um
+clique gerou 256 execuções e 1020 consultas ao Places. Havia três defesas
+contra isso; agora a causa sumiu, e as defesas do servidor continuam de pé.
+
+### Dois defeitos encontrados ao exercitar de verdade
+
+- **O usuário de seed não conseguia entrar.** `EmailStr` recusa
+  `demo@prospector.local` — `.local` é nome reservado (RFC 6762) — e o login
+  respondia 422. O produto inteiro ficava inacessível em desenvolvimento.
+  O login passou a aceitar `str`: a pergunta ali é "esta credencial existe?",
+  não "este endereço tem formato válido". No **cadastro** a validação ficou,
+  que é onde ela serve. De quebra, 422 no login contava ao visitante qual
+  formato o sistema aceita; 401 não conta nada.
+- **A suíte triplicou de tempo** (18s → 63s) porque o seed roda em quase todo
+  teste e passou a fazer bcrypt de custo 12. O custo caiu para 4 **apenas** com
+  `APP_ENV=test`, com teste fixando que em qualquer outro ambiente continua 12
+  — um custo baixo vazado para produção seria invisível até o dia do vazamento.
 
 ### O que a Etapa 7 entregou
 
@@ -583,6 +646,12 @@ Valem para qualquer etapa, sempre:
 - **O banco de demo não avisa que ficou para trás.** A suíte usa banco próprio,
   então testes verdes convivem com um `data/` numa migration antiga — que só
   quebra ao abrir a tela, com `no such table`. `alembic upgrade head` resolve.
+- **`EventSource` não manda cabeçalho.** Qualquer rota SSE que passe a exigir
+  autenticação quebra com 401, e a saída fácil (token na query string) põe
+  credencial em log e histórico. Use `fetch` com leitura em pedaços.
+- **`EmailStr` recusa TLDs reservados** (`.local`, `.test`, `.invalid`).
+  Validar formato de e-mail no **login** deixou o usuário de seed sem entrar —
+  e validar ali nem é o trabalho do login.
 - **A interface parece travada no preview quando o painel do navegador está
   oculto.** As animações do framer-motion dependem de `requestAnimationFrame`,
   que fica estrangulado em aba oculta: a transição de página trava por 20s e
@@ -603,6 +672,9 @@ backend/app/
   services/revelacao.py     o paywall: mascara de contato e cota de revelação
   services/scoring.py       score explicável, com pesos aprendidos
   services/aprendizado.py   os dois eixos: peso por componente e mira por ramo
+  services/auth.py          senha em bcrypt, sessao em JWT, trava de deploy
+  services/webhook.py       assinatura HMAC de /v1/inbound/*
+  api/routes/auth.py        cadastro, entrada e renovacao
   services/compliance.py    LIA, opt-out, direitos do titular, retenção
   services/observador.py    eventos da execução ao vivo
   domain/lead_state.py      máquina de estados do lead
@@ -613,6 +685,7 @@ backend/app/
 frontend/src/
   App.tsx                   navegação, tema, paleta
   pages/Landing.tsx         a primeira tela, antes de entrar
+  pages/Entrada.tsx         cadastro e login
   pages/OnboardingChat.tsx  o onboarding por conversa
   pages/Busca.tsx           "quem você quer atender hoje?"
   pages/Descoberta.tsx      o resultado, com o contato atrás da cota
@@ -624,8 +697,9 @@ frontend/src/
 ```
 
 Documentos: [README.md](README.md) · [PROGRESS.md](PROGRESS.md) ·
-[docs/IDEIAS.md](docs/IDEIAS.md) ·
-[docs/ARQUITETURA.md](docs/ARQUITETURA.md) · [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md)
+[docs/IDEIAS.md](docs/IDEIAS.md) · [docs/ARQUITETURA.md](docs/ARQUITETURA.md) ·
+[docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md) (subir no ar) ·
+[docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md) (ligar provedores reais)
 
 ---
 
@@ -643,13 +717,14 @@ decisão em [docs/IDEIAS.md](docs/IDEIAS.md).
 | 2 | ~~**Duas tabelas de preço**~~ — resolvida na Etapa 6: grátis = 10 contatos/mês, 3 por busca | `services/creditos.py` | ✅ |
 | 3 | ~~**"Assumir a conversa" sai do produto**~~ — resolvida na Etapa 5 | `services/conversa.py` | ✅ |
 | 4 | ~~**Não existia segundo toque**~~ — resolvida na Etapa 4 | `services/cadencia.py` | ✅ |
-| 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | **Etapa 8 — a próxima** |
+| 5 | ~~**`X-User-Email` ainda é a autenticação**~~ — resolvida na Etapa 8 | `services/auth.py` | ✅ |
 
 A número 4 era a mais cara das cinco, e a única que não aparecia em nenhuma
 tela: o produto parece completo até o dia em que ninguém responde.
 
-A número 5 ficou mais cara depois da Etapa 7: o webhook de resposta é aberto, e
-agora uma resposta forjada não mexe só na thread — **move a mira do cliente**.
+A número 5 ficou mais cara depois da Etapa 7 — uma resposta forjada passou a
+mover a mira do cliente, não só a thread — e foi fechada na Etapa 8, junto com
+a assinatura dos webhooks. **As cinco divergências estão resolvidas.**
 
 ### 9.2 Outras pendências
 
@@ -690,6 +765,14 @@ agora uma resposta forjada não mexe só na thread — **move a mira do cliente*
   fato ali é que o e-mail estava errado — não que o ramo seja ruim. Não move a
   mira por ramo (que só aprende de resposta humana, de propósito), mas polui o
   outro eixo. **Falta decidir** se a transição por bounce passa a `aprender=False`.
-- **Autenticação.** Não existe login: o usuário vem do header `X-User-Email` com
-  fallback no usuário de seed. É dev-only e precisa virar JWT antes de qualquer
-  exposição pública. É a **Etapa 8** e a última divergência aberta da §9.1.
+- **Não há recuperação de senha.** Quem esquecer não tem volta pela interface;
+  só um `UPDATE` no banco. Depende de e-mail real (Fase 7), então não dava para
+  fazer junto — mas é a primeira coisa que um usuário de verdade vai precisar.
+- **Não há revogação de token.** Sair apaga o token no navegador; um token
+  roubado vale até expirar (30 min o de acesso, 14 dias o de renovação). Uma
+  lista de revogação exige estado compartilhado (Redis) e só faz sentido quando
+  houver sessão real para revogar.
+- **Nada limita tentativas de login.** Não há atraso progressivo nem bloqueio
+  por IP. O bcrypt de custo 12 já torna força bruta cara (~250 ms por
+  tentativa), mas isso é mitigação, não defesa: falta decidir se entra
+  rate limit no proxy (mais simples) ou na aplicação.

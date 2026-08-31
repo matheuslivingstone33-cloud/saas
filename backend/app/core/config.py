@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     redis_url: str = ""  # vazio => fila inline (executa na hora, sem Redis)
     app_secret: str = "dev-app-secret-trocar-em-producao"
     jwt_secret: str = "dev-jwt-secret-trocar-em-producao"
+    #: HMAC dos webhooks de entrada. VAZIO fecha a rota — ver services/webhook.py.
+    webhook_secret: str = ""
 
     # --- Selecao de provedores ----------------------------------------------
     provider_mode: Mode = "mock"

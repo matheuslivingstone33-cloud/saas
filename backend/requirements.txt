@@ -13,3 +13,6 @@ httpx==0.28.1
 structlog==24.4.0
 python-json-logger==3.2.1
 email-validator==2.2.0
+# Autenticacao (Etapa 8). Runtime, nao opcional: sem elas a app nao sobe.
+PyJWT==2.10.1
+bcrypt==4.2.1

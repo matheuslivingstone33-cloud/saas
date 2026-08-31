@@ -34,7 +34,7 @@ diferentes — e decidir qual das duas vale é pré-requisito para o resto.
 | 2 | ~~**Duas tabelas de preço**~~ | resolvida: grátis = 10 contatos/mês, 3 por busca | ✅ Etapa 6 |
 | 3 | ~~**"Assumir a conversa" sai do produto**~~ | resolvida | ✅ Etapa 5 |
 | 4 | ~~**Não existe segundo toque**~~ | resolvida | ✅ Etapa 4 |
-| 5 | **`X-User-Email` ainda é a autenticação** | `backend/app/api/deps.py:33` | JWT antes de qualquer usuário real (§10) |
+| ~~5~~ | ~~**`X-User-Email` ainda é a autenticação**~~ | `services/auth.py` | ✅ **resolvida na Etapa 8** |
 
 A divergência 4 era a mais cara das cinco, e a única que não aparecia em tela
 nenhuma: o produto parecia completo até o dia em que ninguém respondia. Foi a
@@ -310,7 +310,7 @@ vendido**:
 | ~~5~~ | ~~**Resposta manual dentro do produto**~~ | ✅ **entregue em 31/08/2026** |
 | ~~6~~ | ~~**Paywall no servidor + alinhar planos**~~ | ✅ **entregue em 31/08/2026** |
 | ~~7~~ | ~~**Aprendizado por intenção**~~ | ✅ **entregue em 31/08/2026** |
-| **8** | **JWT + admin + webhook assinado** | último momento possível antes de qualquer pessoa de fora |
+| ~~8~~ | ~~**JWT + admin + webhook assinado**~~ | ✅ **entregue em 31/08/2026** |
 | **9** | **WhatsApp como canal** | a maior, e a que mais depende do resto estável |
 
 **Etapa 4 primeiro** porque o produto sabia encontrar e sabia conversar, mas não
