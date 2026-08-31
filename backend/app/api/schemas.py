@@ -8,7 +8,14 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import Canal, NivelAutonomia, StatusCampanha, StatusLead, StatusMensagem
+from app.models.enums import (
+    Canal,
+    Direcao,
+    NivelAutonomia,
+    StatusCampanha,
+    StatusLead,
+    StatusMensagem,
+)
 
 T = TypeVar("T")
 
@@ -87,8 +94,13 @@ class MensagemOut(_ORM):
     campaign_id: uuid.UUID | None
     lead_id: uuid.UUID | None
     canal: Canal
+    # Sem `direcao`, a interface nao sabe de que lado da conversa desenhar a
+    # mensagem — e a thread de duas pontas vira um monologo.
+    direcao: Direcao
+    ordem: int
     status: StatusMensagem
     destinatario: str | None
+    remetente: str | None
     assunto: str | None
     corpo: str
     declaracao_ia: str | None

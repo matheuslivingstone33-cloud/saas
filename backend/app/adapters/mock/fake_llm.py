@@ -147,11 +147,51 @@ class FakeLLM:
                 f"Porte {ctx.get('porte', 'nao informado')}. "
                 "Perfil compativel com o servico ofertado."
             )
+        if req.tarefa == "classificar_resposta":
+            return self._classificar(ctx.get("texto", ""))
+        if req.tarefa == "resposta_conversa":
+            return self._resposta_de_conversa(ctx)
         if req.tarefa == "expansao_servico":
             familia = _familia(ctx.get("servico", ""))
             return ", ".join(EXPANSOES[familia]["termos"])
         ultima = req.mensagens[-1].content if req.mensagens else ""
         return f"[mock] {ultima[:280]}"
+
+    def _classificar(self, texto: str) -> str:
+        """Classificacao mock: o sinal lexical do Motor 4 ja pegou o que era
+        inequivoco, entao aqui sobra o ambiguo. Devolvemos `duvida`, que e a
+        intencao mais segura: gera resposta util sem presumir interesse que o
+        lead nao declarou."""
+        return "duvida" if texto.strip() else "indefinida"
+
+    def _resposta_de_conversa(self, ctx: dict) -> str:
+        """Resposta deterministica por intencao.
+
+        Nunca cita preco: preco depende de escopo, e um numero inventado aqui
+        viraria promessa que o prestador teria de honrar.
+        """
+        nome = ctx.get("nome", "equipe")
+        servico = ctx.get("servico", "o serviço")
+        municipio = ctx.get("municipio", "sua regiao")
+        intencao = ctx.get("intencao", "duvida")
+
+        if intencao == "interesse":
+            return (
+                f"Que bom, {nome}! Para {servico.lower()} o caminho mais rapido e uma "
+                "visita tecnica curta para medir o escopo — sem compromisso e sem custo. "
+                "Tenho agenda esta semana: prefere de manha ou a tarde?"
+            )
+        if intencao == "objecao":
+            return (
+                f"Entendo, {nome}. Nesse caso proponho comecar pequeno: uma avaliacao "
+                "do que existe hoje, com prioridades por ordem de risco. Assim voces "
+                "decidem o que fazer agora e o que pode esperar. Faz sentido?"
+            )
+        return (
+            f"Claro, {nome}. Atendemos {servico.lower()} em {municipio}, e o escopo "
+            "muda bastante conforme o equipamento e a rotina de uso. Me diz o que "
+            "voces tem instalado hoje que eu detalho o atendimento."
+        )
 
     def _email(self, ctx: dict) -> str:
         nome = ctx.get("nome", "equipe")

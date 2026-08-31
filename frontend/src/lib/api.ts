@@ -161,8 +161,13 @@ export type Mensagem = {
   campaign_id: string | null;
   lead_id: string | null;
   canal: string;
+  direcao: "saida" | "entrada";
+  /** Posicao dentro da conversa daquele lead. Relogio nao serve: pergunta e
+   *  replica do mesmo turno nascem com carimbo identico. */
+  ordem: number;
   status: string;
   destinatario: string | null;
+  remetente: string | null;
   assunto: string | null;
   corpo: string;
   declaracao_ia: string | null;
@@ -206,6 +211,27 @@ export type Expansao = {
   ramos: { codigo: string; descricao: string; peso: number; distancia: number }[];
   excluidos_como_concorrente: string[];
   justificativa: string;
+};
+
+export type Intencao =
+  | "interesse"
+  | "duvida"
+  | "objecao"
+  | "recusa"
+  | "pedido_opt_out"
+  | "pedido_humano"
+  | "ausencia"
+  | "indefinida";
+
+export type ResultadoConversa = {
+  lead_id: string;
+  intencao: Intencao;
+  respondeu: boolean;
+  encerrou: boolean;
+  motivo: string;
+  resposta_id: string | null;
+  aguardando_aprovacao: boolean;
+  lead_quente: boolean;
 };
 
 export type ResultadoExecucao = {
@@ -284,6 +310,10 @@ export const api = {
         `${status ? `&status=${status}` : ""}`,
     ),
   aprovar: (id: string) => post<Mensagem>(`/v1/messages/${id}/aprovar`),
+
+  // motor 4 — conversa
+  simularResposta: (leadId: string, corpo: string) =>
+    post<ResultadoConversa>(`/v1/leads/${leadId}/simular-resposta`, { corpo }),
   rejeitar: (id: string) => post<Mensagem>(`/v1/messages/${id}/rejeitar`),
 
   // creditos

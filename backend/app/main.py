@@ -20,6 +20,7 @@ from app.api.routes import (
     cerebro,
     compliance,
     conta,
+    conversas,
     leads,
     messages,
     stream,
@@ -172,6 +173,9 @@ app.include_router(compliance.publico)
 app.include_router(leads.router, prefix=settings.api_prefix)
 app.include_router(messages.router, prefix=settings.api_prefix)
 app.include_router(stream.router, prefix=settings.api_prefix)
+app.include_router(conversas.router, prefix=settings.api_prefix)
+# Webhook do provedor: sem prefixo de usuario, quem chama e o provedor.
+app.include_router(conversas.publico, prefix=settings.api_prefix)
 
 # Por ULTIMO: o coringa de SPA so pode ver o que nenhuma rota de API pegou.
 estatico.montar(app)

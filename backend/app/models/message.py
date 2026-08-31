@@ -19,6 +19,7 @@ class Message(Base, UUIDPk, Timestamps):
         Index("ix_messages_user_status", "user_id", "status"),
         Index("ix_messages_campaign_status", "campaign_id", "status"),
         Index("ix_messages_lead", "lead_id"),
+        Index("ix_messages_thread", "lead_id", "ordem"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -31,6 +32,15 @@ class Message(Base, UUIDPk, Timestamps):
         Uuid, ForeignKey("leads.id", ondelete="SET NULL"), index=True
     )
 
+    # Ordem DENTRO da conversa daquele lead.
+    #
+    # Relogio nao serve como chave de ordem aqui: a pergunta do lead e a
+    # replica da IA nascem no mesmo turno, e `datetime.now()` no Windows tem
+    # granularidade de ~15ms — as duas saiam com o mesmo carimbo e a thread
+    # aparecia invertida, com a resposta antes da pergunta. Mesma solucao que
+    # `audit_logs.seq` usa.
+    ordem: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     canal: Mapped[Canal] = mapped_column(pg_enum(Canal, "canal"), nullable=False)
     direcao: Mapped[Direcao] = mapped_column(
         pg_enum(Direcao, "direcao"), default=Direcao.SAIDA, nullable=False
@@ -40,6 +50,10 @@ class Message(Base, UUIDPk, Timestamps):
     )
 
     destinatario: Mapped[str | None] = mapped_column(String(320))
+    # Em mensagem de ENTRADA, `destinatario` somos nos e `remetente` e o lead.
+    # Guardar o endereco real importa para auditoria e para casar a resposta
+    # com o lead certo quando o contato responde de outro e-mail.
+    remetente: Mapped[str | None] = mapped_column(String(320), index=True)
     assunto: Mapped[str | None] = mapped_column(String(300))
     corpo: Mapped[str] = mapped_column(LongText, nullable=False)
     declaracao_ia: Mapped[str | None] = mapped_column(String(300))

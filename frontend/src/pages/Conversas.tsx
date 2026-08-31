@@ -5,20 +5,16 @@ import { EXPO } from "../components/movimento";
 import { Aviso, Badge, Botao, Carregando, Vazio } from "../components/ui";
 import Revisao from "../components/Revisao";
 import ExplicacaoLead from "../components/ExplicacaoLead";
+import SimularResposta from "../components/SimularResposta";
 
 /**
  * Conversas — onde a abordagem vira negocio.
  *
- * ESTADO ATUAL (importante): o sistema hoje e de MAO UNICA. Ele gera a
- * mensagem, envia e registra o status. Nao existe recebimento de resposta,
- * nem IA respondendo. Os estados `respondido` e `convertido` existem na
- * maquina de estados do lead e nunca acontecem — nada os preenche.
+ * Com o Motor 4, a thread e de DUAS PONTAS: o que saiu e o que o lead
+ * respondeu, na ordem. O estado da conversa sai do que realmente aconteceu.
  *
- * Esta tela mostra o que ha de verdade e diz, sem rodeio, o que falta. Fingir
- * uma conversa de duas pontas que nao existe seria mentir para o usuario no
- * lugar onde ele mais precisa confiar.
- *
- * O Motor 4 (receber, encadear, responder, negociar) e a proxima etapa.
+ * Quando o lead esquenta, a tela sugere o proximo passo — mas quem decide
+ * fechar e a pessoa, nao o agente.
  */
 
 type Conversa = {
@@ -60,6 +56,7 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
   const [revisando, setRevisando] = useState(false);
   const [detalhe, setDetalhe] = useState<Lead | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [simulando, setSimulando] = useState<Lead | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -90,8 +87,12 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
       .map(([leadId, msgs]): Conversa | null => {
         const lead = leads.find((l) => l.id === leadId);
         if (!lead) return null;
+        // Ordem da CONVERSA, nao do relogio: pergunta e replica do mesmo turno
+        // nascem com carimbo identico e a thread saia invertida.
         const ordenadas = [...msgs].sort(
-          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          (a, b) =>
+            a.ordem - b.ordem ||
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
         );
         return {
           lead,
@@ -238,13 +239,11 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
                 </AnimatePresence>
               </div>
 
-              {/* Enquanto o Motor 4 nao existe, dizemos a verdade. */}
               <footer className="border-t border-borda bg-superficie-2 px-5 py-3">
-                <p className="text-xs text-texto-fraco">
-                  <span className="font-medium text-texto-medio">Só de ida, por enquanto.</span>{" "}
-                  As respostas dos leads ainda não chegam aqui — receber, encadear e deixar
-                  a IA negociar é a próxima etapa do produto.
-                </p>
+                <RodapeDaConversa
+                  conversa={atual}
+                  aoSimular={() => setSimulando(atual.lead)}
+                />
               </footer>
             </>
           )}
@@ -254,6 +253,13 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
       {detalhe && <ExplicacaoLead lead={detalhe} aoFechar={() => setDetalhe(null)} />}
 
       <AnimatePresence>
+        {simulando && (
+          <SimularResposta
+            lead={simulando}
+            aoFechar={() => setSimulando(null)}
+            aoResponder={() => void carregar()}
+          />
+        )}
         {revisando && (
           <Revisao
             mensagens={mensagens}
@@ -263,6 +269,59 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+/**
+ * O rodape responde "e agora?" — e a resposta muda conforme a conversa.
+ *
+ * Sao quatro situacoes distintas, e trata-las como duas produzia texto errado:
+ * depois que o lead respondia, o rodape continuava dizendo "aguardando o lead
+ * responder".
+ */
+function RodapeDaConversa({
+  conversa,
+  aoSimular,
+}: {
+  conversa: Conversa;
+  aoSimular: () => void;
+}) {
+  const temResposta = conversa.mensagens.some((m) => m.direcao === "entrada");
+  const pendente = conversa.mensagens.some((m) => m.status === "aguardando_aprovacao");
+  const abordado = foiAbordado(conversa.mensagens);
+
+  if (conversa.estado === "em_negociacao") {
+    return <FaixaLeadQuente lead={conversa.lead} />;
+  }
+
+  if (temResposta && pendente) {
+    return (
+      <p className="text-xs text-texto-fraco">
+        <span className="font-medium text-texto-medio">O lead respondeu.</span> O agente já
+        redigiu a réplica acima — ela sai quando você aprovar.
+      </p>
+    );
+  }
+
+  if (!abordado) {
+    return (
+      <p className="text-xs text-texto-fraco">
+        Aprove a primeira mensagem para ela sair. O lead só pode responder ao que de fato
+        foi enviado.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <p className="text-xs text-texto-fraco">
+        Aguardando o lead responder. Quando responder, o agente classifica a intenção e
+        decide — inclusive quando é melhor não responder.
+      </p>
+      <Botao variante="secundario" tamanho="sm" className="ml-auto" onClick={aoSimular}>
+        simular resposta
+      </Botao>
     </div>
   );
 }
@@ -277,6 +336,29 @@ function Balao({
   ocupado: boolean;
 }) {
   const pendente = mensagem.status === "aguardando_aprovacao";
+  const doLead = mensagem.direcao === "entrada";
+
+  // A mensagem do lead vem da ESQUERDA, a nossa da direita. Sem essa
+  // separacao visual a thread de duas pontas volta a parecer um monologo.
+  if (doLead) {
+    return (
+      <motion.article
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.28, ease: EXPO }}
+        className="mr-auto max-w-[85%]"
+      >
+        <div className="mb-1 text-[10px] font-medium uppercase tracking-rotulo text-texto-fraco">
+          {mensagem.remetente ?? "o lead"}
+        </div>
+        <div className="rounded-2xl rounded-tl-sm border border-borda bg-superficie-2 px-4 py-3">
+          <p className="whitespace-pre-line text-sm leading-relaxed text-texto">
+            {mensagem.corpo}
+          </p>
+        </div>
+      </motion.article>
+    );
+  }
 
   return (
     <motion.article
@@ -322,24 +404,81 @@ function Balao({
 }
 
 /**
- * Deriva o estado da conversa do que EXISTE hoje.
+ * Faixa de lead quente.
  *
- * `em_negociacao` depende de o lead ter respondido — o que so vai acontecer
- * quando o Motor 4 existir. Deixamos o caso mapeado para a tela ja funcionar
- * no dia em que a primeira resposta chegar.
+ * O protótipo trazia aqui um botão que assinava o plano E agendava a reunião
+ * de uma vez. Separei as duas coisas: cobrar e marcar reunião são decisões
+ * diferentes, e juntá-las num clique só usa a empolgação do momento para
+ * vender. A pessoa fecha o negócio; o plano ela decide quando quiser.
+ */
+function FaixaLeadQuente({ lead }: { lead: Lead }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: EXPO }}
+      className="flex flex-wrap items-center gap-3"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-positivo-fraco">
+        <svg viewBox="0 0 24 24" className="h-4 w-4 text-positivo" fill="none" aria-hidden>
+          <path
+            d="M12 3c.6 3 2.4 4 3.6 5.4A6.9 6.9 0 0 1 17.5 13a5.5 5.5 0 1 1-11 0c0-1.6.7-3 1.7-4 .3 1 1 1.7 1.8 2 0-1.7.5-4.6 2-8z"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-texto">O lead está aquecido.</p>
+        <p className="text-xs text-texto-fraco">
+          {lead.razao_social ?? lead.nome_fantasia} respondeu demonstrando interesse — é
+          hora de você entrar na conversa.
+        </p>
+      </div>
+      <Botao
+        onClick={() => {
+          if (lead.email) window.location.href = `mailto:${lead.email}`;
+        }}
+        disabled={!lead.email}
+      >
+        assumir a conversa
+      </Botao>
+    </motion.div>
+  );
+}
+
+/**
+ * Deriva o estado da conversa do que REALMENTE aconteceu na thread.
+ *
+ * A ordem e por urgencia para quem esta olhando: o que exige acao vem antes do
+ * que so descreve a relacao. Um lead em negociacao com mensagem parada
+ * esperando aprovacao aparece como "aguardando sua aprovacao", porque e isso
+ * que destrava a conversa.
  */
 function estadoDa(lead: Lead, mensagens: Mensagem[]): EstadoConversa {
   if (lead.status === "convertido" || lead.status === "opt_out" || lead.status === "descartado") {
     return "encerrada";
   }
-  if (lead.status === "respondido") return "em_negociacao";
   if (mensagens.some((m) => m.status === "aguardando_aprovacao")) {
     return "aguardando_sua_aprovacao";
+  }
+  // Resposta do lead na thread — nao dependemos so do status do lead, que pode
+  // nao ter avancado se a primeira mensagem nunca chegou a ser enviada.
+  if (lead.status === "respondido" || mensagens.some((m) => m.direcao === "entrada")) {
+    return "em_negociacao";
   }
   const enviadas = mensagens.filter((m) => m.status === "enviada" || m.status === "entregue");
   if (enviadas.length > 1) return "aguardando_resposta";
   if (enviadas.length === 1) return "primeiro_contato_enviado";
   return "encerrada";
+}
+
+/** O lead so pode responder ao que de fato saiu. */
+function foiAbordado(mensagens: Mensagem[]): boolean {
+  return mensagens.some(
+    (m) => m.direcao === "saida" && (m.status === "enviada" || m.status === "entregue"),
+  );
 }
 
 function iniciaisDe(nome: string): string {

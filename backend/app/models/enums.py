@@ -141,6 +141,9 @@ class TipoEvento(StrEnum):
     LIA_GERADO = "lia_gerado"
     SOLICITACAO_TITULAR = "solicitacao_titular"
     DADO_ANONIMIZADO = "dado_anonimizado"
+    RESPOSTA_RECEBIDA = "resposta_recebida"
+    CONVERSA_RESPONDIDA = "conversa_respondida"
+    CONVERSA_ENCERRADA = "conversa_encerrada"
 
 
 class TipoSolicitacao(StrEnum):

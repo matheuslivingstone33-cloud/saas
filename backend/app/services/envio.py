@@ -163,6 +163,8 @@ class SendService:
 
             mensagem = self._gerar(campanha, lead, expansao, remetente, status_inicial,
                                    usar_intencao=usar_intencao, chave=chave)
+            # Primeira mensagem da conversa daquele lead.
+            mensagem.ordem = 1
             lote.geradas += 1
             lote.mensagens.append(mensagem)
 

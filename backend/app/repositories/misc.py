@@ -68,7 +68,9 @@ class MessageRepository(Repository[Message]):
             stmt = stmt.where(Message.campaign_id == campaign_id)
         if status:
             stmt = stmt.where(Message.status == status)
-        stmt = stmt.order_by(Message.created_at.desc())
+        # Dentro de uma conversa a ordem e a da thread; entre conversas, a mais
+        # recente primeiro.
+        stmt = stmt.order_by(Message.created_at.desc(), Message.ordem.desc())
         return self.paginar(stmt, pagina, por_pagina)
 
     def pendentes_de_aprovacao(self, user_id: uuid.UUID, limite: int = 100) -> list[Message]:

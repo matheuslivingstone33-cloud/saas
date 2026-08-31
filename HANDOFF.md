@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 2 concluída
+**Última atualização:** 2026-08-31 · Etapa 3 concluída — as três etapas fechadas
 
 ---
 
@@ -108,7 +108,7 @@ Fases 0 a 7 concluídas (detalhe em [PROGRESS.md](PROGRESS.md)). Em resumo:
 | **Cérebro** (Motor 2) | serviço livre → ramos que CONSOMEM (CNAE), com peso e exclusão de concorrente | ✅ |
 | **Descoberta** (Motor 1) | QueryBuilder → Places → Receita Federal → dedup | ✅ |
 | **Abordagem** (Motor 3) | personalização + envio com limites, opt-out e autonomia | ✅ |
-| **Conversa** (Motor 4) | receber resposta, negociar | ❌ **não existe** |
+| **Conversa** (Motor 4) | receber, classificar intenção, responder ou se calar | ✅ |
 
 Também prontos: compliance LGPD completo (LIA, opt-out de 1 clique, direitos do
 titular, retenção, auditoria encadeada por hash), créditos e planos com teto e
@@ -118,13 +118,25 @@ por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
 **188 testes verdes · lint limpo.**
 
-### 3.2 A lacuna que importa
+### 3.2 O Motor 4, e a decisão que ele carrega
 
-O sistema hoje é **de mão única**: gera a mensagem, envia, registra o status. Não
-existe recebimento de resposta, thread de conversa, nem IA respondendo.
+O sistema deixou de ser de mão única. Quando uma resposta chega, o motor
+registra, **classifica a intenção** e decide — e a decisão mais importante é
+**quando não responder**:
 
-Os estados `respondido` e `convertido` **existem na máquina de estados do lead e
-nunca acontecem** — nada os preenche. É esse buraco que o Motor 4 fecha.
+| Intenção | O que acontece |
+|---|---|
+| `pedido_opt_out` | registra a supressão e para. Para sempre. |
+| `recusa` | respeita o não, descarta o lead, não insiste |
+| `pedido_humano` | devolve para a pessoa, **mesmo em piloto automático** |
+| `ausencia` | resposta de férias não é resposta; nada a fazer |
+| `interesse` | responde e marca lead quente |
+| `duvida` / `objecao` | responde, sem inventar preço |
+
+A classificação é **lexical primeiro**, LLM só no ambíguo. Isso tira o caso
+crítico das mãos do modelo: "me tire da lista" não pode depender de
+interpretação. E "não quero receber, mas quanto custa?" é opt-out — em caso de
+dúvida o direito do titular ganha do negócio.
 
 ---
 
@@ -138,7 +150,32 @@ ordem da jornada do usuário.
 | 0 | **Este handoff** | ✅ feito |
 | 1 | **Navegação nova** — Busca / Descoberta / Conversas | ✅ feito |
 | 2 | **Landing page + onboarding por chat** | ✅ feito |
-| 3 | **Conversas / Motor 4** — o motor de conversa | ⏳ próximo |
+| 3 | **Conversas / Motor 4** — o motor de conversa | ✅ feito |
+
+### O que a Etapa 3 entregou
+
+- **`services/conversa.py`** — o Motor 4 (ver 3.2).
+- **`POST /v1/inbound/email`** — webhook do provedor. Devolve 202 mesmo sem
+  achar o lead: 404 diria a quem perguntasse quais e-mails estão na base.
+- **`POST /v1/leads/{id}/simular-resposta`** — só em modo mock, e a rota se
+  recusa a funcionar com `EMAIL_MODE=real`. Sem ela o Motor 4 só seria testável
+  depois de ligar provedor pago.
+- **Thread de duas pontas** na interface, com o balão do lead à esquerda, faixa
+  de lead quente e simulador com um exemplo por caminho do motor — inclusive os
+  três que fazem o agente se calar.
+- **28 testes** do Motor 4, a maioria verificando **quando ele se cala**.
+
+### Dois bugs reais encontrados na Etapa 3
+
+- **Ordem da thread saía invertida.** A ordem vinha de `created_at`, e relógio
+  não serve como chave aqui: `datetime.now()` no Windows tem granularidade de
+  ~15 ms, então a pergunta do lead e a réplica da IA — nascidas no mesmo turno —
+  saíam com carimbo **idêntico**, e a resposta aparecia antes da pergunta.
+  Corrigido com `messages.ordem` (migration 0006), mesma solução de
+  `audit_logs.seq`. O backfill desempata por `direcao`, senão reproduziria o bug
+  nos dados antigos.
+- **Rodapé mentia depois da resposta.** Dizia "aguardando o lead responder"
+  quando o lead já tinha respondido. Eram quatro situações tratadas como duas.
 
 ### O que a Etapa 1 entregou
 
@@ -306,6 +343,11 @@ Documentos: [README.md](README.md) · [PROGRESS.md](PROGRESS.md) ·
 
 ## 9. Pendências conhecidas
 
+- **Ofício adjacente na expansão.** Para "manutenção de ar-condicionado", o
+  Cérebro trouxe "Instalação e manutenção elétrica" (peso 11) como alvo.
+  Eletricista não consome esse serviço — é ofício vizinho, quase concorrente.
+  O peso é baixo e não polui o topo, mas **falta decidir**: adjacente entra como
+  alvo ou é descartado junto com o concorrente? Precisa de julgamento de domínio.
 - **`pages/Campanhas.tsx` ficou órfão.** A tela antiga foi substituída por
   Busca + Descoberta + Conversas e não é mais importada. Ainda está no
   repositório caso algo dela precise ser resgatado; apagar quando a Etapa 3
