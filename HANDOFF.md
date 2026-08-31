@@ -284,6 +284,11 @@ protótipo cedo. O Motor 4 é o mais pesado e vem por último, com o resto está
 - **Uma etapa por vez**, com teste a cada coisa feita.
 - **Este arquivo é atualizado ao fim de cada etapa** — é o que permite continuar
   numa conversa nova sem perder contexto.
+- **Etapa fechada = commit *e* push, juntos** (combinado em 31/08/2026). O push
+  virou o passo esquecido: as Etapas 1, 2 e 3 ficaram só nesta máquina e só
+  foram para o GitHub junto com a 4. Commit sem push não é backup de nada — se
+  o disco morre, morrem quatro etapas junto. Quem fechar uma etapa pergunta no
+  fim e envia.
 - Nada de chave de API: tudo continua rodando em mock.
 
 ---
