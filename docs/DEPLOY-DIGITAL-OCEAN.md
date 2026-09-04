@@ -40,8 +40,38 @@ curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER && 
 
 ## 3. Código e ambiente
 
+O repositório é **privado**, então o servidor precisa de credencial para
+cloná-lo. Use uma **deploy key**: um par de chaves que serve para *este*
+repositório e só para leitura. É melhor que um token pessoal, que valeria para
+todos os seus repositórios e ficaria no histórico do shell.
+
+No servidor, gere a chave (sem passphrase, senão o `git pull` do deploy
+travaria pedindo senha):
+
 ```bash
-git clone SEU_REPO prospector && cd prospector && cp .env.example .env
+ssh-keygen -t ed25519 -f ~/.ssh/deploy_prospector -N "" -C "deploy prospector" && cat ~/.ssh/deploy_prospector.pub
+```
+
+Copie a saída e cole em **GitHub → o repositório → Settings → Deploy keys →
+Add deploy key**. Deixe "Allow write access" **desmarcado**: o servidor só lê.
+
+Ensine o SSH a usar essa chave para o GitHub:
+
+```bash
+printf 'Host github.com\n  IdentityFile ~/.ssh/deploy_prospector\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+```
+
+Confirme (a resposta esperada diz seu usuário e "does not provide shell
+access" — isso é sucesso, não erro):
+
+```bash
+ssh -T git@github.com
+```
+
+Agora clone:
+
+```bash
+git clone git@github.com:matheuslivingstone33-cloud/saas.git prospector && cd prospector && cp .env.example .env
 ```
 
 Edite o `.env`. Em produção, estas variáveis são **obrigatórias** (o compose de
