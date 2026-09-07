@@ -45,19 +45,45 @@ Para entrar na interface local: **demo@prospector.local** / **prospector-demo**.
 > Rodar `python -m app.db.seed` depois define a senha do demo, se ele for
 > anterior à Etapa 8.
 
-### A próxima é colocar no ar
+### O deploy está EM ANDAMENTO — leia antes de continuar
 
-Não é uma etapa de código: o caminho está escrito em
-**[docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md)**, passo a passo,
-para VPS com Docker (serve igual em Hetzner). `docker-compose.prod.yml`,
-Dockerfiles e scripts de start já existiam e estão corretos; o que faltava era
-a autenticação, que a Etapa 8 entregou — e o runbook foi atualizado com as três
-variáveis novas de `.env` e a conferência de que a porta está mesmo fechada.
+**Servidor provisionado em 07/09/2026.** O caminho é
+[docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md), e os passos 1 e 2
+já foram executados.
 
-O que o deploy precisa e **esta máquina não pode fazer**: criar a conta do
-provedor, provisionar o servidor e apontar o domínio. O runbook assume Hetzner
-ou DigitalOcean com 4 GB de RAM (com 2 GB o build do frontend morre) e Caddy
-para o HTTPS.
+| Item | Valor |
+|---|---|
+| Provedor | Hetzner Cloud, projeto `prospector` |
+| Servidor | `ubuntu-4gb-ash-1` — CPX21, 3 vCPU / 4 GB / 80 GB |
+| Região | **Ashburn, VA** (~120 ms para o Brasil; Helsinki dava ~220 ms) |
+| IP | `178.156.246.249` |
+| Sistema | Ubuntu 24.04.4 LTS |
+| Custo | US$ 37,49/mês — a Hetzner cobra bem mais nos EUA que na Europa |
+
+**Feito (passos 1 e 2):**
+
+- usuário `prospector` com `sudo`, acesso **por chave SSH**;
+- `PasswordAuthentication no` e `PermitRootLogin prohibit-password` em
+  `/etc/ssh/sshd_config.d/99-prospector.conf` — login por senha não existe mais;
+- `ufw` ativo, só OpenSSH, 80 e 443;
+- Docker + Compose instalados, com `prospector` no grupo `docker`;
+- atualizações de segurança aplicadas.
+
+**Falta, na ordem:**
+
+1. **O domínio.** É o bloqueio de verdade — nada além disso depende de decisão
+   externa. Dois registros `A` para `178.156.246.249`: `app.<dominio>` e
+   `api.<dominio>`. Ver o aviso sobre `URL_PUBLICA` logo abaixo.
+2. Passo 3 do runbook — deploy key, clone, `.env` com os segredos.
+3. Passos 4 a 9 — subir o compose, Caddy/TLS, backup, primeira conta.
+
+> ⚠️ **O domínio não é detalhe cosmético.** `URL_PUBLICA` entra no link de
+> descadastro de **cada e-mail enviado**. Trocar depois quebra os links já
+> enviados, e descadastro quebrado é problema de LGPD, não de infraestrutura.
+> Acerte o domínio antes do primeiro envio real (Fase 7).
+>
+> **E ele não é da GML/GMX** — o Prospector AI é produto à parte. Não inferir
+> domínio a partir do e-mail de quem opera a conta.
 
 **Depois que estiver de pé**, a ordem sugerida:
 

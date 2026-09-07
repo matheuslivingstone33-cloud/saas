@@ -32,11 +32,77 @@ ufw allow OpenSSH && ufw allow 80 && ufw allow 443 && ufw --force enable
 
 Depois entre como `prospector` (não use root para o dia a dia).
 
+A imagem do provedor costuma vir com dezenas de atualizações de segurança
+pendentes. Aplique antes de o servidor ficar público:
+
+```bash
+sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get upgrade -y
+```
+
+### Fechar o login por senha
+
+O servidor nasce com a porta 22 aberta para a internet, e bots varrem faixas de
+IP inteiras testando `123456`, `admin`, `senha`. Com um usuário no grupo `sudo`,
+isso não é risco teórico.
+
+**Antes de desligar a senha, confirme que a chave funciona** — de outra aba, a
+partir da sua máquina:
+
+```bash
+ssh -o BatchMode=yes prospector@SEU_IP "echo ACESSO_OK"
+```
+
+`BatchMode` proíbe qualquer prompt: se imprimir `ACESSO_OK`, a chave está de
+pé sozinha. Só então:
+
+```bash
+sudo tee /etc/ssh/sshd_config.d/99-prospector.conf > /dev/null <<'EOF'
+PasswordAuthentication no
+PermitRootLogin prohibit-password
+EOF
+sudo sshd -t && sudo systemctl reload ssh && echo "CONFIG OK"
+```
+
+O `sshd -t` valida a sintaxe **antes** do reload: com erro, ele para e não
+derruba o serviço. E se ainda assim algo der errado, o console pelo navegador
+do provedor entra por teclado virtual, independente do SSH.
+
 ## 2. Docker
 
 ```bash
-curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER && newgrp docker
+curl -fsSL https://get.docker.com | sudo sh
 ```
+
+Dê ao usuário do dia a dia o direito de usar o Docker sem `sudo`. Repare que o
+nome vai **explícito**, não como `$USER`:
+
+```bash
+sudo usermod -aG docker prospector
+```
+
+> **Por que não `$USER`:** se você estiver numa sessão `root` — e é fácil estar,
+> porque o passo 1 começa como root —, `$USER` vale `root` e o comando adiciona
+> o usuário errado, sem erro nenhum. O sintoma aparece bem depois, como
+> `permission denied` no `docker.sock`, e não parece ter relação com isto.
+
+Grupo só é carregado no login. **Saia e entre de novo** — não basta `newgrp`, e
+muito menos continuar na sessão atual:
+
+```bash
+exit
+```
+
+Reconecte e confirme (a lista tem que incluir `docker`, e o `docker ps` tem que
+responder sem `sudo`):
+
+```bash
+id -nG && docker ps
+```
+
+> **Cuidado com sessões SSH aninhadas.** Se você deu `ssh` de dentro do
+> servidor, o `exit` te devolve à sessão de fora em vez de encerrar — e você
+> segue trabalhando com o grupo antigo achando que abriu sessão nova. Na dúvida,
+> feche tudo e reconecte a partir da sua máquina.
 
 ## 3. Código e ambiente
 
