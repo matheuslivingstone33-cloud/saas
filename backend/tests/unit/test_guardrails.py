@@ -78,3 +78,55 @@ def test_adaptadores_reais_estao_inertes_sem_chave(settings) -> None:
         GooglePlacesAdapter(HttpClient("places", modo="real"), None, settings)
     with pytest.raises(ProviderNotConfigured):
         AnthropicAdapter(HttpClient("llm", modo="real"), None, settings)
+
+
+# --- CORS: a lista de origens nao pode ser de desenvolvimento ---------------
+def test_cors_em_producao_nao_libera_a_porta_do_vite(monkeypatch) -> None:
+    """A lista era fixa em `localhost:5173` e quebrava em producao.
+
+    O sintoma nao dizia nada: o cadastro morria com `TypeError: Failed to
+    fetch` na tela, sem mencionar CORS. E nenhum teste pegava, porque o
+    TestClient nao aplica politica de origem — so navegador aplica.
+    """
+    from app.core import config as cfg
+
+    monkeypatch.setenv("APP_ENV", "producao")
+    monkeypatch.setenv("URL_PUBLICA", "https://app.exemplo.com.br")
+    monkeypatch.setenv("CORS_ORIGINS", "")
+    cfg.get_settings.cache_clear()
+    try:
+        origens = cfg.get_settings().origens_cors()
+        assert origens == ["https://app.exemplo.com.br"]
+        assert not any("5173" in o for o in origens), "porta do Vite em producao"
+        assert not any("localhost" in o for o in origens)
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_cors_explicito_ganha_do_padrao(monkeypatch) -> None:
+    """`CORS_ORIGINS` cobre o que nao da para adivinhar — tunel SSH, por exemplo."""
+    from app.core import config as cfg
+
+    monkeypatch.setenv("APP_ENV", "producao")
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:8080, https://app.exemplo.com.br")
+    cfg.get_settings.cache_clear()
+    try:
+        assert cfg.get_settings().origens_cors() == [
+            "http://localhost:8080",
+            "https://app.exemplo.com.br",
+        ]
+    finally:
+        cfg.get_settings.cache_clear()
+
+
+def test_cors_em_dev_libera_o_vite(monkeypatch) -> None:
+    """O padrao de desenvolvimento continua funcionando sem configurar nada."""
+    from app.core import config as cfg
+
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("CORS_ORIGINS", "")
+    cfg.get_settings.cache_clear()
+    try:
+        assert "http://localhost:5173" in cfg.get_settings().origens_cors()
+    finally:
+        cfg.get_settings.cache_clear()

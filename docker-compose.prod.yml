@@ -93,6 +93,9 @@ services:
       # --- Operacao --------------------------------------------------------
       LLM_MODEL: ${LLM_MODEL:-claude-opus-5}
       URL_PUBLICA: ${URL_PUBLICA:?defina a URL publica (link de descadastro)}
+      # Vazio = o padrao (em producao, a propria URL_PUBLICA). Preencha quando
+      # o frontend vier de uma origem que o backend nao tem como adivinhar.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       ENCARREGADO_EMAIL: ${ENCARREGADO_EMAIL:?defina o e-mail do encarregado (LGPD)}
       USD_BRL: ${USD_BRL:-5.40}
       RECEITA_DATASET_PATH: /app/data/receita/cnpj_full.csv

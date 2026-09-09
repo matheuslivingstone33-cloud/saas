@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     retencao_mensagens_dias: int = 365
     url_publica: str = "https://app.prospector.local"
     encarregado_email: str = "privacidade@prospector.local"
+    #: Origens que podem chamar a API pelo navegador, separadas por virgula.
+    #: Vazio = o padrao de `origens_cors()`. Ver o metodo para o porque.
+    cors_origins: str = ""
     whatsapp_template_enabled: bool = False
     seed_on_start: bool = True
 
@@ -158,6 +161,25 @@ class Settings(BaseSettings):
 
     def is_all_mock(self) -> bool:
         return all(m == "mock" for m in self.modes().values())
+
+    def origens_cors(self) -> list[str]:
+        """Quem pode chamar esta API pelo navegador.
+
+        A lista era fixa em `localhost:5173` — a porta do Vite. Funcionava em
+        desenvolvimento e quebrava em producao, onde o frontend e servido por
+        nginx em outra porta: o cadastro morria com `TypeError: Failed to
+        fetch`, que nao diz nada sobre CORS a quem esta olhando a tela.
+
+        `CORS_ORIGINS` explicito ganha de tudo — e o unico jeito de cobrir
+        cenarios que nao dao para adivinhar, como acesso por tunel SSH. Sem
+        ele, o padrao segue o ambiente: em dev, o Vite; em producao, a origem
+        publica do proprio frontend.
+        """
+        if self.cors_origins.strip():
+            return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        if self.app_env in {"dev", "test"}:
+            return ["http://localhost:5173", "http://127.0.0.1:5173"]
+        return [self.url_publica.rstrip("/")] if self.url_publica else []
 
     @property
     def is_sqlite(self) -> bool:
