@@ -250,16 +250,42 @@ funcionar em HTTPS público — é ele que sustenta o legítimo interesse.
 
 ## 7. Backup do banco
 
-`/etc/cron.daily/prospector-backup`:
+> **O diretório `backups/` nasce pertencendo ao root.** O compose o monta como
+> volume e o Docker o cria antes de qualquer coisa, então o script falha com
+> `Permission denied` até você rodar:
+> `sudo chown -R prospector:prospector ~/prospector/backups`
+
+O script vive em `~/backup-prospector.sh` e roda pelo cron do usuário
+`prospector` (que está no grupo `docker`):
 
 ```bash
-#!/bin/sh
-cd /home/prospector/prospector
-docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U "$POSTGRES_USER" prospector | gzip > "backups/prospector-$(date +%F).sql.gz"
-find backups -name 'prospector-*.sql.gz' -mtime +14 -delete
+crontab -l | grep backup || (crontab -l 2>/dev/null; echo "0 6 * * * /home/prospector/backup-prospector.sh >> /home/prospector/backup.log 2>&1") | crontab -
 ```
 
-**Teste o restore.** Backup que nunca foi restaurado não é backup.
+Três detalhes do script que existem por um motivo:
+
+- **o cron nasce com ambiente quase vazio** — sem `PATH` útil e sem as
+  variáveis do `.env`. O script resolve tudo por conta própria, lendo o usuário
+  do banco do próprio `.env` em vez de duplicar configuração;
+- **escreve num `.parcial` e só então renomeia** — um dump interrompido no meio
+  não pode ocupar o lugar de um backup bom, com nome de backup bom;
+- **recusa dump menor que 1 KB** — mesmo um banco recém-criado passa disso por
+  causa do schema, então arquivo minúsculo é falha silenciosa, não banco vazio.
+
+### Teste a restauração — uma vez, de verdade
+
+Backup que nunca foi restaurado não é backup. Restaure num banco descartável,
+sem tocar em produção:
+
+```bash
+cd ~/prospector && ARQ=$(ls -t backups/*.sql.gz | head -1) && docker compose -f docker-compose.prod.yml exec -T postgres psql -U prospector -d postgres -c "create database teste_restore" && gunzip -c "$ARQ" | docker compose -f docker-compose.prod.yml exec -T postgres psql -U prospector -d teste_restore
+```
+
+Confira o que voltou e apague o banco de teste:
+
+```bash
+cd ~/prospector && docker compose -f docker-compose.prod.yml exec -T postgres psql -U prospector -d teste_restore -c "select (select count(*) from users) as contas, (select count(*) from pg_tables where schemaname = current_schema()) as tabelas" && docker compose -f docker-compose.prod.yml exec -T postgres psql -U prospector -d postgres -c "drop database teste_restore"
+```
 
 ## 8. Tarefas agendadas
 
@@ -281,6 +307,12 @@ Coloque no cron diário, ou agende via RQ Scheduler no worker.
 | Margem consolidada | `curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/margem/consolidado` |
 | Integridade da auditoria | `curl -s localhost:8000/v1/audit/integridade` |
 | Deploy de nova versão | `git pull && docker compose -f docker-compose.prod.yml up -d --build` |
+| Rebuild de um serviço só | `docker compose -f docker-compose.prod.yml up -d --build backend` |
+
+> **O `--build` não é opcional.** `git pull` atualiza os arquivos no disco, mas
+> o código roda de dentro da **imagem**. Sem `--build`, o container sobe novinho
+> com o código velho: reinicia sem erro, parece atualizado, e o sintoma aparece
+> depois como um `AttributeError` sobre algo que você acabou de escrever.
 
 O `$TOKEN` sai do login:
 

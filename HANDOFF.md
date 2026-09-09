@@ -45,47 +45,90 @@ Para entrar na interface local: **demo@prospector.local** / **prospector-demo**.
 > Rodar `python -m app.db.seed` depois define a senha do demo, se ele for
 > anterior à Etapa 8.
 
-### O deploy está EM ANDAMENTO — leia antes de continuar
+### O sistema ESTÁ NO AR (acesso por túnel) — 09/09/2026
 
-**Servidor provisionado em 07/09/2026.** O caminho é
-[docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md), e os passos 1 e 2
-já foram executados.
+Runbook: [docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md).
+Passos 1, 2, 3, 5 e 7 executados. Falta o 6 (HTTPS), que depende do domínio.
 
 | Item | Valor |
 |---|---|
 | Provedor | Hetzner Cloud, projeto `prospector` |
 | Servidor | `ubuntu-4gb-ash-1` — CPX21, 3 vCPU / 4 GB / 80 GB |
-| Região | **Ashburn, VA** (~120 ms para o Brasil; Helsinki dava ~220 ms) |
+| Região | **Ashburn, VA** (~120 ms para o Brasil) |
 | IP | `178.156.246.249` |
 | Sistema | Ubuntu 24.04.4 LTS |
-| Custo | US$ 37,49/mês — a Hetzner cobra bem mais nos EUA que na Europa |
+| Custo | US$ 37,49/mês |
+| Repositório | `~/prospector`, clonado por deploy key read-only |
 
-**Feito (passos 1 e 2):**
+**Rodando em produção:** cinco serviços `healthy` (postgres com pgvector, redis,
+backend, worker, frontend), migrations em `0011 (head)`, 14 tabelas,
+`APP_ENV=producao`. Já existe **1 conta real**, criada pela tela — o seed não
+roda em produção, de propósito.
 
-- usuário `prospector` com `sudo`, acesso **por chave SSH**;
-- `PasswordAuthentication no` e `PermitRootLogin prohibit-password` em
-  `/etc/ssh/sshd_config.d/99-prospector.conf` — login por senha não existe mais;
-- `ufw` ativo, só OpenSSH, 80 e 443;
-- Docker + Compose instalados, com `prospector` no grupo `docker`;
-- atualizações de segurança aplicadas.
+**Como acessar** (as portas escutam só em `127.0.0.1`; nada exposto à internet):
 
-**Falta, na ordem:**
+```bash
+ssh -L 8080:localhost:8080 -L 8000:localhost:8000 prospector@178.156.246.249
+```
 
-1. **O domínio.** É o bloqueio de verdade — nada além disso depende de decisão
-   externa. Dois registros `A` para `178.156.246.249`: `app.<dominio>` e
-   `api.<dominio>`. Ver o aviso sobre `URL_PUBLICA` logo abaixo.
-2. Passo 3 do runbook — deploy key, clone, `.env` com os segredos.
-3. Passos 4 a 9 — subir o compose, Caddy/TLS, backup, primeira conta.
+Depois abrir `http://localhost:8080`.
 
-> ⚠️ **O domínio não é detalhe cosmético.** `URL_PUBLICA` entra no link de
-> descadastro de **cada e-mail enviado**. Trocar depois quebra os links já
-> enviados, e descadastro quebrado é problema de LGPD, não de infraestrutura.
-> Acerte o domínio antes do primeiro envio real (Fase 7).
->
-> **E ele não é da GML/GMX** — o Prospector AI é produto à parte. Não inferir
-> domínio a partir do e-mail de quem opera a conta.
+**Backup:** `~/backup-prospector.sh`, diário às 06:00 UTC pelo cron do
+`prospector`, retenção de 14 dias, log em `~/backup.log`. **A restauração foi
+testada** num banco descartável e voltou íntegra — backup nunca restaurado não
+é backup.
 
-**Depois que estiver de pé**, a ordem sugerida:
+**Provisório no `.env` do servidor**, a trocar quando o domínio existir:
+
+```
+URL_PUBLICA=http://178.156.246.249
+URL_API_PUBLICA=http://localhost:8000    (aponta para o túnel)
+CORS_ORIGINS=http://localhost:8080       (idem)
+ENCARREGADO_EMAIL=privacidade@exemplo.com.br
+```
+
+> O `ENCARREGADO_EMAIL` aparece na política de privacidade pública. Precisa ser
+> um endereço real antes de qualquer pessoa de fora usar o sistema — não só
+> antes do primeiro e-mail.
+
+### Os quatro bugs que só apareceram rodando
+
+O compose de produção estava "pronto e correto" desde a Fase 7 e **nunca tinha
+sido executado**: esta máquina não tem Docker. Ao subir de verdade, quatro
+defeitos apareceram em sequência — nenhum detectável por teste.
+
+1. **`a8faa93` — frontend em loop de reinício.** `USER nginx` sem preparar os
+   diretórios: na imagem oficial o cache e o PID nascem do root. O build
+   passava; a falha era no primeiro comando do processo.
+2. **`0bd5cb3` — worker sempre `unhealthy`.** Reaproveita a imagem do backend e
+   herdou o healthcheck `curl localhost:8000/health` — mas worker não serve
+   HTTP, consome fila. Serviço que vive vermelho ensina a ignorar o vermelho.
+3. **`95bae3d` — frontend `unhealthy` servindo normalmente.** O nginx escutava
+   só IPv4 e o healthcheck resolvia `localhost` para `::1`. O entrypoint do
+   nginx corrigiria sozinho, mas precisa escrever num arquivo que o container
+   sem privilégio não pode alterar — e falhava em silêncio.
+4. **`409c685` — CORS travava o cadastro.** `allow_origins` fixo em
+   `localhost:5173`, a porta do Vite. Na tela o sintoma era `TypeError: Failed
+   to fetch`, que não menciona CORS. Agora é configurável por `CORS_ORIGINS`,
+   com três testes fixando a lista — política de origem quem aplica é o
+   navegador, então o teste verifica a LISTA, não a requisição.
+
+**Armadilha de operação, fácil de repetir:** `docker compose up -d <servico>`
+**sem `--build`** depois de um `git pull` sobe container novo com código velho —
+os arquivos no disco atualizam, a imagem não. O container reinicia normalmente
+e nada parece errado.
+
+### Falta
+
+1. **O domínio** — é o único bloqueio. Dois registros `A` para
+   `178.156.246.249`: `app.<dominio>` e `api.<dominio>`.
+2. Passo 6 do runbook (Caddy + HTTPS) e trocar as quatro variáveis provisórias.
+3. Trocar a senha do `sudo` no servidor (`passwd`) — ainda é fraca. Não é vetor
+   externo, já que ninguém entra por senha, mas vira root se algo entrar.
+4. Agendar o expurgo por retenção da LGPD (passo 8 do runbook), que ainda não
+   roda em lugar nenhum.
+
+**Depois que estiver de pé**, a ordem sugerida:**Depois que estiver de pé**, a ordem sugerida:
 
 1. **Fase 7 — provedores reais**, um por vez, por
    [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md). Sem isso nenhum e-mail sai
