@@ -121,6 +121,20 @@ services:
     <<: *backend
     ports: []
     command: ["/app/scripts/start-worker.sh"]
+    # O healthcheck da IMAGEM faz `curl localhost:8000/health`, porque a imagem
+    # e a mesma do backend. O worker nao serve HTTP — ele consome a fila — entao
+    # herdar aquele teste o deixa `unhealthy` para sempre, mesmo funcionando.
+    #
+    # Isso nao e so cosmetico: um servico que vive vermelho ensina a ignorar o
+    # vermelho, e no dia em que o worker morrer de verdade ninguem vai reparar.
+    # Aqui o teste pergunta o que importa: existe worker VIVO registrado na fila?
+    # O RQ mantem heartbeat no Redis, entao um processo travado tambem cai.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import sys; from app.workers.queue import conexao; from rq import Worker; c = conexao(); sys.exit(0 if c and Worker.all(connection=c) else 1)\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     depends_on:
       postgres:
         condition: service_healthy
