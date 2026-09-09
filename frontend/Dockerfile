@@ -53,7 +53,9 @@ RUN mkdir -p /var/cache/nginx/client_temp /var/cache/nginx/proxy_temp \
  && chown nginx:nginx /var/run/nginx.pid
 
 EXPOSE 8080
+# `127.0.0.1` e nao `localhost`: o resolvedor tenta [::1] primeiro, e um teste
+# de saude nao deve depender de qual familia de IP o DNS resolve antes.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
-  CMD wget -q --spider http://localhost:8080/ || exit 1
+  CMD wget -q --spider http://127.0.0.1:8080/ || exit 1
 USER nginx
 CMD ["nginx", "-g", "daemon off;"]
