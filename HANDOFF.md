@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-08-31 · Etapa 8 concluída — autenticação de verdade
+**Última atualização:** 2026-09-11 · deploy validado e desfeito; fila autônoma criada
 
 ---
 
@@ -45,90 +45,98 @@ Para entrar na interface local: **demo@prospector.local** / **prospector-demo**.
 > Rodar `python -m app.db.seed` depois define a senha do demo, se ele for
 > anterior à Etapa 8.
 
-### O sistema ESTÁ NO AR (acesso por túnel) — 09/09/2026
+### O deploy foi VALIDADO e desfeito — 11/09/2026
 
-Runbook: [docs/DEPLOY-DIGITAL-OCEAN.md](docs/DEPLOY-DIGITAL-OCEAN.md).
-Passos 1, 2, 3, 5 e 7 executados. Falta o 6 (HTTPS), que depende do domínio.
+O sistema **esteve** no ar entre 09 e 11/09 num Hetzner CPX21 em Ashburn, e o
+servidor foi **apagado de propósito**: não havia uso, e US$ 37,49/mês parados
+não se justificam. Não há infraestrutura rodando hoje.
 
-| Item | Valor |
-|---|---|
-| Provedor | Hetzner Cloud, projeto `prospector` |
-| Servidor | `ubuntu-4gb-ash-1` — CPX21, 3 vCPU / 4 GB / 80 GB |
-| Região | **Ashburn, VA** (~120 ms para o Brasil) |
-| IP | `178.156.246.249` |
-| Sistema | Ubuntu 24.04.4 LTS |
-| Custo | US$ 37,49/mês |
-| Repositório | `~/prospector`, clonado por deploy key read-only |
+Isso **não** foi desperdício. O deploy provou que o caminho funciona de ponta a
+ponta e revelou quatro bugs que estavam escondidos havia semanas — todos
+corrigidos e no repositório. Refazer o deploy é seguir o runbook, que agora
+está correto porque foi executado de verdade.
 
-**Rodando em produção:** cinco serviços `healthy` (postgres com pgvector, redis,
-backend, worker, frontend), migrations em `0011 (head)`, 14 tabelas,
-`APP_ENV=producao`. Já existe **1 conta real**, criada pela tela — o seed não
-roda em produção, de propósito.
+**O que ficou provado em produção:** cinco serviços healthy (postgres com
+pgvector, redis, backend, worker, frontend), migrations em `0011 (head)`,
+`APP_ENV=producao`, e uma conta criada pela tela — exercitando cadastro,
+assinatura, crédito inicial e a trilha de auditoria encadeada por hash.
 
-**Como acessar** (as portas escutam só em `127.0.0.1`; nada exposto à internet):
-
-```bash
-ssh -L 8080:localhost:8080 -L 8000:localhost:8000 prospector@178.156.246.249
-```
-
-Depois abrir `http://localhost:8080`.
-
-**Backup:** `~/backup-prospector.sh`, diário às 06:00 UTC pelo cron do
-`prospector`, retenção de 14 dias, log em `~/backup.log`. **A restauração foi
-testada** num banco descartável e voltou íntegra — backup nunca restaurado não
-é backup.
-
-**Provisório no `.env` do servidor**, a trocar quando o domínio existir:
-
-```
-URL_PUBLICA=http://178.156.246.249
-URL_API_PUBLICA=http://localhost:8000    (aponta para o túnel)
-CORS_ORIGINS=http://localhost:8080       (idem)
-ENCARREGADO_EMAIL=privacidade@exemplo.com.br
-```
-
-> O `ENCARREGADO_EMAIL` aparece na política de privacidade pública. Precisa ser
-> um endereço real antes de qualquer pessoa de fora usar o sistema — não só
-> antes do primeiro e-mail.
+**O que se perdeu ao apagar:** a conta de teste e o banco. O backup vivia no
+disco do próprio servidor, então foi junto — exatamente o risco que já estava
+anotado quando o configuramos. Sem valor real perdido agora; seria diferente
+com dois meses de dados.
 
 ### Os quatro bugs que só apareceram rodando
 
 O compose de produção estava "pronto e correto" desde a Fase 7 e **nunca tinha
-sido executado**: esta máquina não tem Docker. Ao subir de verdade, quatro
-defeitos apareceram em sequência — nenhum detectável por teste.
+sido executado**: esta máquina não tem Docker. Nenhum era detectável por teste.
 
 1. **`a8faa93` — frontend em loop de reinício.** `USER nginx` sem preparar os
-   diretórios: na imagem oficial o cache e o PID nascem do root. O build
-   passava; a falha era no primeiro comando do processo.
+   diretórios: na imagem oficial o cache e o PID nascem do root.
 2. **`0bd5cb3` — worker sempre `unhealthy`.** Reaproveita a imagem do backend e
-   herdou o healthcheck `curl localhost:8000/health` — mas worker não serve
-   HTTP, consome fila. Serviço que vive vermelho ensina a ignorar o vermelho.
-3. **`95bae3d` — frontend `unhealthy` servindo normalmente.** O nginx escutava
-   só IPv4 e o healthcheck resolvia `localhost` para `::1`. O entrypoint do
-   nginx corrigiria sozinho, mas precisa escrever num arquivo que o container
-   sem privilégio não pode alterar — e falhava em silêncio.
-4. **`409c685` — CORS travava o cadastro.** `allow_origins` fixo em
-   `localhost:5173`, a porta do Vite. Na tela o sintoma era `TypeError: Failed
-   to fetch`, que não menciona CORS. Agora é configurável por `CORS_ORIGINS`,
-   com três testes fixando a lista — política de origem quem aplica é o
-   navegador, então o teste verifica a LISTA, não a requisição.
+   herdou o healthcheck HTTP — mas worker não serve HTTP, consome fila.
+   Serviço que vive vermelho ensina a ignorar o vermelho.
+3. **`95bae3d` — frontend `unhealthy` servindo normalmente.** nginx escutava só
+   IPv4 e o healthcheck resolvia `localhost` para `::1`.
+4. **`409c685` — CORS travava o cadastro.** `allow_origins` fixo na porta do
+   Vite. Na tela o sintoma era `TypeError: Failed to fetch`, que não menciona
+   CORS.
 
-**Armadilha de operação, fácil de repetir:** `docker compose up -d <servico>`
-**sem `--build`** depois de um `git pull` sobe container novo com código velho —
-os arquivos no disco atualizam, a imagem não. O container reinicia normalmente
-e nada parece errado.
+**Armadilha de operação:** `docker compose up -d <servico>` **sem `--build`**
+depois de um `git pull` sobe container novo com código velho. Reinicia sem erro
+e parece atualizado.
 
-### Falta
+---
 
-1. **O domínio** — é o único bloqueio. Dois registros `A` para
-   `178.156.246.249`: `app.<dominio>` e `api.<dominio>`.
-2. Passo 6 do runbook (Caddy + HTTPS) e trocar as quatro variáveis provisórias.
-3. Trocar a senha do `sudo` no servidor (`passwd`) — ainda é fraca. Não é vetor
-   externo, já que ninguém entra por senha, mas vira root se algo entrar.
-4. Agendar o expurgo por retenção da LGPD (passo 8 do runbook), que ainda não
-   roda em lugar nenhum.
+## 0.1 FILA AUTÔNOMA — a rotina lê daqui
 
-**Depois que estiver de pé**, a ordem sugerida:**Depois que estiver de pé**, a ordem sugerida:
+> Esta seção existe para ser lida por um agente rodando em `/loop`. Ele pega o
+> **primeiro item não concluído**, entrega inteiro, e marca aqui.
+
+**Regras que valem para toda execução da rotina:**
+
+1. **Um item por execução.** Nunca dois. Emendar tarefas produz commit que
+   ninguém consegue revisar.
+2. **Não decidir o que é decisão de produto.** Preço, escopo, o que vai na
+   landing, qual ramo entra na mira. Se o item exigir isso, marque como
+   bloqueado, escreva por quê, e pare. A seção 0.2 lista o que é dessa espécie.
+3. **Suíte verde e lint limpo antes do commit.** `pytest`, `ruff`, e
+   `tsc --noEmit` quando houver mudança no frontend. Vermelho não vira commit:
+   conserte ou reverta.
+4. **Abrir a interface quando a mudança for visível em tela.** Este projeto já
+   pagou duas vezes por cobertura verde em cima de código morto — a cadência
+   que nunca rodava, e os quatro bugs acima.
+5. **Nunca tocar em:** `.env`, segredos, migrations que apagam dado, os seis
+   guardrails da seção 6, e nada de deploy.
+6. **Fechar = commit E push**, e atualizar este handoff dizendo o que foi feito
+   e o que se aprendeu.
+
+| # | Item | Escopo | Estado |
+|---|---|---|---|
+| 1 | **`docs/ARQUITETURA.md` desatualizado** — diz "12 tabelas" (são 13, falta `ramo_weights`) e o fluxo ainda traz "débito de 1 crédito por lead qualificado", que a Etapa 6 substituiu por cobrança na revelação do contato | documentação | ⬜ aberto |
+| 2 | **`frontend/src/pages/Campanhas.tsx` órfão** — substituído por Busca + Descoberta + Conversas, não é importado desde a Etapa 1. Apagar e confirmar que `tsc` e o build seguem limpos | 1 arquivo | ⬜ aberto |
+| 3 | **Recuperação de senha** — não existe; quem esquece só volta com `UPDATE` no banco. Token de uso único com hash no banco (nunca o token), expiração curta, resposta idêntica exista ou não a conta. **Não passa pelo `SendService`**: é transacional, e opt-out protege quem é prospectado, não o dono da conta | serviço + 2 rotas + migration + tela | ⬜ aberto |
+| 4 | **Rate limit no login** — nada limita tentativas. O bcrypt de custo 12 encarece (~250 ms), mas é mitigação, não defesa | middleware ou dependência | ⬜ aberto |
+| 5 | **Expurgo por retenção da LGPD não roda** — `executar_retencao()` existe e nada o chama. Virar tarefa periódica do worker | worker/RQ | ⬜ aberto |
+| 6 | **Revogação de token** — sair apaga o token no cliente; roubado, vale até expirar. Lista de revogação em Redis, que já está no compose | serviço + deps | ⬜ aberto |
+
+## 0.2 PRECISA DE VOCÊ — a rotina NÃO decide isto
+
+Itens que dependem de julgamento de produto, de negócio, ou de acesso que o
+agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
+
+| Item | Por que é seu |
+|---|---|
+| **O domínio do Prospector AI** | compra e DNS. Bloqueia o deploy e o HTTPS |
+| **Refazer o deploy** | custa dinheiro por mês; a decisão de quando é sua |
+| **Ofício adjacente entra ou sai da mira** | julgamento de domínio: eletricista é vizinho ou concorrente? |
+| **"3 com automação gratuita"** | decisão de preço — vira eixo de cota ou some? |
+| **`limpar_demo.py` e supressão por bounce** | apagar opt-out é decisão com peso de LGPD |
+| **Recálculo do aprendizado: manual ou automático** | "manual" é resposta legítima; ninguém escolheu |
+| **Bounce deve ensinar pelo desfecho?** | hoje polui o eixo de componentes. Trocar muda como o produto aprende |
+| **Fase 7 — ligar provedores reais** | exige chaves e cartão |
+
+**Depois que o deploy voltar**, a ordem sugerida:
 
 1. **Fase 7 — provedores reais**, um por vez, por
    [docs/RUNBOOK-FASE7.md](docs/RUNBOOK-FASE7.md). Sem isso nenhum e-mail sai
@@ -796,6 +804,11 @@ mover a mira do cliente, não só a thread — e foi fechada na Etapa 8, junto c
 a assinatura dos webhooks. **As cinco divergências estão resolvidas.**
 
 ### 9.2 Outras pendências
+
+> **Esta seção é o detalhe, não a fila.** O que fazer e em que ordem está em
+> **0.1 (fila autônoma)** e **0.2 (precisa de você)**. Aqui fica o argumento de
+> cada item, que é o que não cabe numa tabela. Se as duas discordarem, 0.1 e
+> 0.2 mandam.
 
 - **Ofício adjacente na expansão.** Para "manutenção de ar-condicionado", o
   Cérebro trouxe "Instalação e manutenção elétrica" (peso 11) como alvo.
