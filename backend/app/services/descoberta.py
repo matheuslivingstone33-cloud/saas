@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.mock._text import normalizar, tokenizar
 from app.adapters.registry import ProviderRegistry
+from app.core.errors import CircuitOpen, RateLimited, UpstreamError
 from app.core.logging import get_logger
 from app.models.campaign import Campaign
 from app.models.lead import Lead
@@ -44,6 +45,21 @@ log = get_logger("descoberta")
 #: suficiente de esgotamento. Mais alto que isso nao chega a cortar planos
 #: pequenos; mais baixo desiste cedo demais em regiao densa.
 CONSULTAS_IMPRODUTIVAS_MAX = 5
+
+#: Falhas de transporte SEGUIDAS antes de abortar a rodada.
+#:
+#: Hoje, com o Places em mock, `buscar` nunca levanta excecao. Com a API real
+#: virao rate limit, 5xx e timeout — e cada `buscar` ja passa pelo HttpClient,
+#: que sozinho faz retry e abre o circuito. Uma excecao que chega ate AQUI e,
+#: portanto, uma consulta que ja esgotou as tentativas.
+#:
+#: Uma falha isolada no meio de um plano de dezenas de consultas nao pode
+#: descartar tudo o que ja foi descoberto (e o custo ja gasto): pulamos a
+#: consulta e seguimos. Mas tres SEGUIDAS sao evidencia de provedor fora do ar
+#: ou circuito aberto — continuar so queima quota e tempo num plano que nao vai
+#: completar. Tres, e nao uma, para nao desistir por um 503 isolado; tres, e
+#: nao dez, porque cada falha ja embute os retries do HttpClient.
+BUSCAS_COM_ERRO_MAX = 3
 
 #: Sinais de que o resultado NAO e uma empresa (MVP e 100% B2B).
 SINAIS_NAO_B2B = frozenset(
@@ -70,6 +86,13 @@ class ResultadoDescoberta:
     recusados_b2b: int = 0
     esgotou_regiao: bool = False
     sem_enriquecimento: int = 0
+    #: Consultas que o provedor recusou (rate limit, 5xx, circuito). Contadas a
+    #: parte de `consultas`, que so soma as que retornaram.
+    consultas_com_erro: int = 0
+    #: A rodada parou por falhas seguidas do provedor, nao por esgotamento nem
+    #: por meta atingida. Distingue "nao ha mais empresas" de "nao consegui
+    #: perguntar" — um zero honesto de um zero por indisponibilidade.
+    interrompido_por_erro: bool = False
     leads: list[Lead] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -80,6 +103,8 @@ class ResultadoDescoberta:
             "duplicados": self.duplicados,
             "recusados_b2b": self.recusados_b2b,
             "sem_enriquecimento": self.sem_enriquecimento,
+            "consultas_com_erro": self.consultas_com_erro,
+            "interrompido_por_erro": self.interrompido_por_erro,
         }
 
 
@@ -126,6 +151,7 @@ class DiscoveryService:
         resultado = ResultadoDescoberta()
 
         improdutivas = 0
+        erros_seguidos = 0
 
         for consulta in plano.consultas:
             if resultado.criados >= meta_leads:
@@ -148,7 +174,49 @@ class DiscoveryService:
                 break
 
             antes = resultado.criados
-            resposta = self.portas.places.buscar(consulta)
+            try:
+                resposta = self.portas.places.buscar(consulta)
+            except (RateLimited, UpstreamError, CircuitOpen) as exc:
+                # Falha de transporte que ja passou pelo retry/circuito do
+                # HttpClient. Pular a consulta preserva o que ja foi descoberto
+                # e o custo ja gasto; deixar a excecao subir descartaria a
+                # rodada inteira. Um erro NAO e regiao esgotada, entao nao mexe
+                # em `improdutivas`.
+                resultado.consultas_com_erro += 1
+                erros_seguidos += 1
+                emitir(
+                    observador,
+                    "erro_busca",
+                    termo=consulta.termo,
+                    regiao=consulta.regiao,
+                    motivo=type(exc).__name__,
+                )
+                log.warning(
+                    "descoberta_consulta_falhou",
+                    campanha=str(campanha.id),
+                    termo=consulta.termo,
+                    erro=type(exc).__name__,
+                    seguidas=erros_seguidos,
+                )
+                if erros_seguidos >= BUSCAS_COM_ERRO_MAX:
+                    # Provedor indisponivel: o resto do plano so repetiria a
+                    # falha. Paramos com um sinal honesto de rodada degradada.
+                    resultado.interrompido_por_erro = True
+                    emitir(
+                        observador,
+                        "interrompido",
+                        consultas_com_erro=resultado.consultas_com_erro,
+                        motivo=type(exc).__name__,
+                    )
+                    log.warning(
+                        "descoberta_interrompida_por_erros",
+                        campanha=str(campanha.id),
+                        consultas_com_erro=resultado.consultas_com_erro,
+                    )
+                    break
+                continue
+
+            erros_seguidos = 0
             resultado.consultas += 1
             resultado.candidatos += len(resposta.itens)
             emitir(
