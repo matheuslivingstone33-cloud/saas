@@ -561,6 +561,12 @@ class PrivacyService:
 # =============================================================================
 # Retencao
 # =============================================================================
+#: Corpo que substitui a mensagem expurgada. E tambem a marca de "ja expurgada":
+#: como `messages.corpo` e NOT NULL, comparar com esta constante e o jeito seguro
+#: de nao reprocessar a mesma linha em toda rodada.
+CORPO_EXPURGADO = "[expurgado por politica de retencao]"
+
+
 @dataclass(slots=True)
 class ResultadoRetencao:
     leads_anonimizados: int = 0
@@ -626,16 +632,44 @@ class RetencaoService:
             resultado.leads_anonimizados += 1
 
         # Corpo de mensagens antigas some; os metadados ficam para a auditoria.
+        # Mensagem ja expurgada nao entra de novo: sem esse filtro cada rodada
+        # reprocessava e recontava as mesmas linhas. O expurgo de lead ja pula
+        # as anonimizadas (via `email IS NOT NULL`); o de mensagem nao pulava
+        # nada, entao o numero relatado crescia a cada execucao.
         antigas = (
-            self.session.execute(select(Message).where(Message.created_at < corte_msgs))
+            self.session.execute(
+                select(Message).where(
+                    Message.created_at < corte_msgs,
+                    Message.corpo != CORPO_EXPURGADO,
+                )
+            )
             .scalars()
             .all()
         )
         for mensagem in antigas:
             if not dry_run:
-                mensagem.corpo = "[expurgado por politica de retencao]"
+                mensagem.corpo = CORPO_EXPURGADO
                 mensagem.destinatario = _mascarar(mensagem.destinatario)
             resultado.mensagens_expurgadas += 1
+
+        # A remocao do dado pessoal da mensagem tambem entra na trilha. A
+        # Politica de Privacidade promete que "cada remocao e registrada na
+        # auditoria" — mas ate aqui so o expurgo de lead gerava evento, e o de
+        # mensagem sumia sem deixar rastro. Um evento de resumo por rodada (e
+        # nao um por mensagem) mantem a cadeia enxuta sem furar a promessa: a
+        # propria linha de `messages` sobrevive com os metadados e continua
+        # sendo o registro individual de que aquela mensagem existiu.
+        if not dry_run and resultado.mensagens_expurgadas:
+            self.audit.registrar(
+                evento=TipoEvento.RETENCAO_EXPURGO,
+                entidade_tipo="mensagens",
+                dados={
+                    "motivo": "prazo_de_retencao",
+                    "corte": corte_msgs.isoformat(),
+                    "quantidade": resultado.mensagens_expurgadas,
+                },
+                ator=Ator.SISTEMA,
+            )
 
         if not dry_run:
             self.session.flush()

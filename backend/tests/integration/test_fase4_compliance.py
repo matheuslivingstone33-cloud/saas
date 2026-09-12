@@ -310,6 +310,61 @@ def test_retencao_gera_auditoria(session, usuario, portas_db, settings) -> None:
     assert eventos
 
 
+def test_retencao_de_mensagem_audita_e_nao_reconta(session, usuario, portas_db, settings) -> None:
+    """O expurgo do corpo entra na trilha e nao reprocessa o que ja saiu.
+
+    A Politica de Privacidade promete que "cada remocao e registrada na
+    auditoria"; ate aqui so o expurgo de lead gerava evento. E, sem pular a
+    mensagem ja expurgada, cada nova rodada recontava a mesma linha.
+    """
+    from app.models.audit_log import AuditLog
+    from app.services.compliance import CORPO_EXPURGADO
+
+    campanha = _rodar(session, usuario, portas_db, nome="Expurgo msg")
+    mensagem = session.execute(
+        select(Message).where(Message.campaign_id == campanha.id)
+    ).scalars().first()
+    assert mensagem is not None
+    mensagem.corpo = "corpo original com dado pessoal"
+    mensagem.destinatario = "contato@exemplo.com.br"
+    mensagem.created_at = now() - timedelta(days=settings.retencao_mensagens_dias + 5)
+    session.flush()
+
+    def eventos_de_mensagem():
+        return (
+            session.execute(
+                select(AuditLog).where(
+                    AuditLog.evento == TipoEvento.RETENCAO_EXPURGO,
+                    AuditLog.entidade_tipo == "mensagens",
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    # dry_run conta, mas nao apaga nem audita.
+    seco = RetencaoService(session).executar(dry_run=True)
+    assert seco.mensagens_expurgadas >= 1
+    session.refresh(mensagem)
+    assert mensagem.corpo == "corpo original com dado pessoal"
+    assert eventos_de_mensagem() == []
+
+    # Rodada real: expurga o corpo, mascara o destinatario e registra na trilha.
+    real = RetencaoService(session).executar(dry_run=False)
+    assert real.mensagens_expurgadas >= 1
+    session.refresh(mensagem)
+    assert mensagem.corpo == CORPO_EXPURGADO
+    assert mensagem.destinatario == "co***@exemplo.com.br"
+    eventos = eventos_de_mensagem()
+    assert len(eventos) == 1
+    assert eventos[-1].dados["quantidade"] == real.mensagens_expurgadas
+
+    # Segunda rodada NAO reprocessa a mensagem ja expurgada, nem audita de novo.
+    de_novo = RetencaoService(session).executar(dry_run=False)
+    assert de_novo.mensagens_expurgadas == 0
+    assert len(eventos_de_mensagem()) == 1
+
+
 # --- Documentos publicos ------------------------------------------------------
 @pytest.mark.parametrize(
     ("rota", "trecho"),
