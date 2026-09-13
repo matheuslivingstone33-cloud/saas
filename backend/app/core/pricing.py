@@ -76,8 +76,8 @@ _DADOS: list[Preco] = [
 _IA: list[Preco] = [
     Preco("llm.claude-opus-5.input", Balde.IA, "token", _por_milhao(5.00), "Opus 5"),
     Preco("llm.claude-opus-5.output", Balde.IA, "token", _por_milhao(25.00), "Opus 5"),
-    Preco("llm.claude-sonnet-5.input", Balde.IA, "token", _por_milhao(3.00), "Sonnet 5"),
-    Preco("llm.claude-sonnet-5.output", Balde.IA, "token", _por_milhao(15.00), "Sonnet 5"),
+    Preco("llm.claude-sonnet-5.input", Balde.IA, "token", _por_milhao(2.00), "Sonnet 5"),
+    Preco("llm.claude-sonnet-5.output", Balde.IA, "token", _por_milhao(10.00), "Sonnet 5"),
     Preco("llm.claude-haiku-4-5.input", Balde.IA, "token", _por_milhao(1.00), "Haiku 4.5"),
     Preco("llm.claude-haiku-4-5.output", Balde.IA, "token", _por_milhao(5.00), "Haiku 4.5"),
     Preco("llm.embedding.input", Balde.IA, "token", _por_milhao(0.02),

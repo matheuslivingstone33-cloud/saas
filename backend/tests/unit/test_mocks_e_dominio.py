@@ -7,7 +7,7 @@ import json
 import pytest
 
 from app.core.errors import TransicaoInvalida
-from app.core.pricing import PRECOS, Balde, balde_de
+from app.core.pricing import PRECOS, Balde, balde_de, preco
 from app.domain import campaign_state, lead_state, subscription_state
 from app.models.enums import (
     NivelAutonomia,
@@ -71,11 +71,28 @@ def test_fake_email_grava_em_outbox_e_nao_envia(portas, settings) -> None:
 
 # --- Custo -------------------------------------------------------------------
 def test_baldes_nunca_se_misturam() -> None:
-    for chave, preco in PRECOS.items():
+    for chave, p in PRECOS.items():
         if chave.startswith(("places.", "email.", "whatsapp.", "enrichment.")):
-            assert preco.balde is Balde.DADOS, chave
+            assert p.balde is Balde.DADOS, chave
         if chave.startswith(("llm.", "search.")):
-            assert preco.balde is Balde.IA, chave
+            assert p.balde is Balde.IA, chave
+
+
+def test_preco_llm_confere_com_a_tabela_oficial_anthropic() -> None:
+    # Precos oficiais Anthropic por 1M de tokens (input/output). Como o catalogo
+    # guarda micros por token e $1/1M = 1 micro/token, o valor esperado em micros
+    # e o proprio USD/1M. Se a Anthropic mudar de tabela, este teste falha de
+    # proposito: custo estimado errado vira margem de ficcao na virada da Fase 7.
+    esperado = {
+        "llm.claude-opus-5.input": 5,
+        "llm.claude-opus-5.output": 25,
+        "llm.claude-sonnet-5.input": 2,
+        "llm.claude-sonnet-5.output": 10,
+        "llm.claude-haiku-4-5.input": 1,
+        "llm.claude-haiku-4-5.output": 5,
+    }
+    for chave, micros in esperado.items():
+        assert preco(chave).micros_por_unidade == micros, chave
 
 
 def test_places_e_dados_llm_e_ia(portas, sink) -> None:
