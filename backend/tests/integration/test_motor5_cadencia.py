@@ -9,11 +9,13 @@ junto o e-mail com que ele fatura.
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
 
+from app.adapters.real.ses_email import classificar_retorno_ses
 from app.core.config import get_settings
 from app.core.ids import now
 from app.models.campaign import Campaign
@@ -441,6 +443,62 @@ def test_taxa_de_retorno_alta_pausa_a_campanha(session, usuario, portas_db) -> N
 
     assert pausada is True, "3 retornos em 30 envios = 10%, muito acima do teto de 2%"
     assert campanha.status is StatusCampanha.PAUSADA
+
+
+def _sns_ses(notification_type: str, contato: str, **corpo) -> dict:
+    """O envelope que o SNS entregaria — o evento do SES serializado em Message."""
+    chave = "bounce" if notification_type == "Bounce" else "complaint"
+    lista = "bouncedRecipients" if notification_type == "Bounce" else "complainedRecipients"
+    evento = {
+        "notificationType": notification_type,
+        chave: {lista: [{"emailAddress": contato}], **corpo},
+        "mail": {"messageId": "sns-msg-1"},
+    }
+    return {"Type": "Notification", "Message": json.dumps(evento)}
+
+
+def test_reclamacao_ses_via_sns_suprime_e_encerra_o_lead(session, automatico) -> None:
+    """A ponta a ponta que faltava: notificacao crua do SES -> supressao real.
+
+    O parser do adaptador traduz o SNS e a entregabilidade registra. E o
+    caminho que a rota assinada percorre em producao — sem ele, ligar
+    EMAIL_MODE=real deixaria a reclamacao de spam sem chegar em `opt_outs`.
+    """
+    _, lead, _ = automatico
+    envelope = _sns_ses("Complaint", lead.email, complaintFeedbackType="abuse")
+
+    servico = ServicoDeEntregabilidade(session)
+    resultados = [
+        servico.registrar(
+            contato=r.contato,
+            tipo=r.tipo,
+            provider_message_id=r.provider_message_id,
+            diagnostico=r.diagnostico,
+        )
+        for r in classificar_retorno_ses(envelope)
+    ]
+
+    assert len(resultados) == 1 and resultados[0].suprimido is True
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead.email)
+    ).scalar_one()
+    assert supressao.origem is OrigemOptOut.RECLAMACAO_SPAM
+    assert lead.status is StatusLead.OPT_OUT, "quem reclamou manifestou vontade"
+
+
+def test_bounce_permanente_ses_via_sns_descarta_o_lead(session, automatico) -> None:
+    _, lead, _ = automatico
+    envelope = _sns_ses("Bounce", lead.email, bounceType="Permanent")
+
+    servico = ServicoDeEntregabilidade(session)
+    for r in classificar_retorno_ses(envelope):
+        servico.registrar(contato=r.contato, tipo=r.tipo, diagnostico=r.diagnostico)
+
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead.email)
+    ).scalar_one()
+    assert supressao.origem is OrigemOptOut.BOUNCE_PERMANENTE
+    assert lead.status is StatusLead.DESCARTADO
 
 
 def test_amostra_pequena_nao_pausa_campanha(session, automatico) -> None:

@@ -17,7 +17,9 @@ geracao da mensagem.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from app.core.config import Settings, get_settings
 from app.core.errors import ProviderNotConfigured
@@ -25,6 +27,9 @@ from app.core.http_client import HttpClient
 from app.core.logging import get_logger
 from app.ports.dto import EmailMessage, SendResult
 from app.services.cost import CostRecorder, CostSpec
+
+if TYPE_CHECKING:
+    from app.services.entregabilidade import TipoRetorno
 
 log = get_logger("ses")
 
@@ -137,3 +142,160 @@ def _codigo_do_erro(exc: Exception) -> str:
     if isinstance(resposta, dict):
         return str((resposta.get("Error") or {}).get("Code") or exc.__class__.__name__)
     return exc.__class__.__name__
+
+
+# =============================================================================
+# Retorno assincrono do SES (bounce e reclamacao via SNS)
+# =============================================================================
+# O envio sincrono e metade da historia: o SES aceita a mensagem (200 + um
+# MessageId) e so DEPOIS descobre que o endereco nao existe ou que a pessoa
+# marcou como spam. Esse retorno chega por uma notificacao SNS, e e ele que
+# alimenta a supressao. Sem traduzir esse formato, ligar EMAIL_MODE=real deixa
+# a reclamacao de spam sem caminho ate `opt_outs`: a taxa de reclamacao sobe
+# sem freio, o SES suspende a conta, e o dominio do cliente morre junto.
+#
+# A rota `/v1/inbound/retorno` (assinada por HMAC) fala o formato normalizado
+# do `ServicoDeEntregabilidade.registrar`. Estas funcoes fazem a ponte: pegam a
+# notificacao crua do SES e devolvem exatamente os campos daquele `registrar`.
+# O que continua sendo trabalho da rota, de proposito: verificar a assinatura
+# do SNS e fazer o GET no SubscribeURL do handshake.
+
+
+@dataclass(slots=True)
+class RetornoSES:
+    """Um retorno do SES ja traduzido para o vocabulario da entregabilidade.
+
+    Os campos batem 1:1 com os kwargs de `ServicoDeEntregabilidade.registrar`,
+    de proposito: quem consome so precisa percorrer a lista e repassar.
+    """
+
+    contato: str
+    tipo: TipoRetorno
+    provider_message_id: str | None = None
+    diagnostico: str | None = None
+
+
+def classificar_retorno_ses(payload: Any) -> list[RetornoSES]:
+    """Traduz uma notificacao do SES para a lista de retornos normalizados.
+
+    Aceita o envelope cru do SNS (com o evento serializado em `Message`), o
+    evento do SES ja desembrulhado, ou o formato de event publishing (que usa
+    `eventType` no lugar de `notificationType`). Uma unica notificacao pode
+    citar VARIOS destinatarios (bounce de lote), por isso devolve lista.
+
+    Nunca levanta excecao: um webhook que estoura vira 500, e o SNS reenvia em
+    laco. Formato que nao reconhece — Delivery, Send, Open, confirmacao de
+    inscricao — devolve `[]`, porque nao ha nada a suprimir.
+    """
+    from app.services.entregabilidade import TipoRetorno
+
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("Type") in {"SubscriptionConfirmation", "UnsubscribeConfirmation"}:
+        # Handshake do SNS: quem confirma e a rota (GET no SubscribeURL).
+        return []
+
+    evento = _evento_sns(payload)
+    tipo_evento = (evento.get("notificationType") or evento.get("eventType") or "").strip()
+    message_id = (evento.get("mail") or {}).get("messageId")
+
+    if tipo_evento == "Bounce":
+        bounce = evento.get("bounce") or {}
+        tipo = _tipo_de_bounce(bounce.get("bounceType"))
+        contexto = _texto(bounce.get("bounceType"), bounce.get("bounceSubType"))
+        retornos: list[RetornoSES] = []
+        for recipiente in bounce.get("bouncedRecipients") or []:
+            endereco = _endereco((recipiente or {}).get("emailAddress"))
+            if endereco is None:
+                continue
+            retornos.append(
+                RetornoSES(
+                    contato=endereco,
+                    tipo=tipo,
+                    provider_message_id=message_id,
+                    diagnostico=(recipiente or {}).get("diagnosticCode") or contexto,
+                )
+            )
+        return retornos
+
+    if tipo_evento == "Complaint":
+        complaint = evento.get("complaint") or {}
+        diagnostico = complaint.get("complaintFeedbackType") or "reclamacao de spam"
+        retornos = []
+        for recipiente in complaint.get("complainedRecipients") or []:
+            endereco = _endereco((recipiente or {}).get("emailAddress"))
+            if endereco is None:
+                continue
+            retornos.append(
+                RetornoSES(
+                    contato=endereco,
+                    tipo=TipoRetorno.RECLAMACAO,
+                    provider_message_id=message_id,
+                    diagnostico=diagnostico,
+                )
+            )
+        return retornos
+
+    return []
+
+
+def url_de_confirmacao_sns(payload: Any) -> str | None:
+    """SubscribeURL do handshake, quando a notificacao for uma confirmacao.
+
+    A rota tem que fazer um GET nessa URL, senao o SNS nunca comeca a entregar
+    bounce/complaint — e a supressao por retorno nunca liga.
+    """
+    if isinstance(payload, dict) and payload.get("Type") in {
+        "SubscriptionConfirmation",
+        "UnsubscribeConfirmation",
+    }:
+        return payload.get("SubscribeURL")
+    return None
+
+
+def _evento_sns(payload: dict) -> dict:
+    """Desembrulha o evento do SES de dentro do envelope do SNS.
+
+    O SNS entrega o evento como uma STRING JSON no campo `Message`. Se o evento
+    ja veio desembrulhado (tem `notificationType`/`eventType`), passa direto.
+    """
+    if "notificationType" in payload or "eventType" in payload:
+        return payload
+    bruto = payload.get("Message")
+    if isinstance(bruto, str):
+        try:
+            bruto = json.loads(bruto)
+        except (ValueError, TypeError):
+            return {}
+    return bruto if isinstance(bruto, dict) else {}
+
+
+def _tipo_de_bounce(bounce_type: str | None) -> TipoRetorno:
+    """Permanent suprime; Transient e Undetermined nao.
+
+    Undetermined cai no lado conservador: suprimir um endereco possivelmente bom
+    perde um lead, mas nao machuca ninguem — e a decisao e reversivel. O que nao
+    volta e a reputacao do dominio, e essa quem queima e a reclamacao, tratada
+    a parte.
+    """
+    from app.services.entregabilidade import TipoRetorno
+
+    if (bounce_type or "").strip().lower() == "permanent":
+        return TipoRetorno.PERMANENTE
+    return TipoRetorno.TRANSITORIO
+
+
+def _endereco(bruto: str | None) -> str | None:
+    """Extrai o endereco puro. O SES quase sempre manda so o e-mail, mas as
+    vezes vem como `Nome <e-mail>` — guardar a supressao sob a forma com nome
+    faria a proxima checagem de opt-out nao casar com o e-mail do lead."""
+    if not bruto:
+        return None
+    texto = bruto.strip()
+    if "<" in texto and ">" in texto:
+        texto = texto[texto.rfind("<") + 1 : texto.rfind(">")]
+    return texto.strip() or None
+
+
+def _texto(*partes: str | None) -> str:
+    return "/".join(p for p in partes if p)

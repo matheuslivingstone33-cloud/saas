@@ -10,6 +10,7 @@ Sem isso, a Fase 7 vira "preencher a chave e torcer".
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
@@ -20,13 +21,19 @@ from app.adapters.real.anthropic_llm import AnthropicAdapter
 from app.adapters.real.anthropic_search import AnthropicWebSearchAdapter
 from app.adapters.real.bsp_whatsapp import BSPAdapter
 from app.adapters.real.google_places import GooglePlacesAdapter
-from app.adapters.real.ses_email import SESAdapter
+from app.adapters.real.ses_email import (
+    RetornoSES,
+    SESAdapter,
+    classificar_retorno_ses,
+    url_de_confirmacao_sns,
+)
 from app.adapters.real.stripe_billing import StripeAdapter
 from app.core.config import Settings
 from app.core.errors import BloqueadoPorCompliance, ProviderNotConfigured
 from app.core.http_client import HttpClient
 from app.ports.dto import EmailMessage, LLMMessage, LLMRequest, PlacesQuery, WhatsAppMessage
 from app.services.cost import CostRecorder, MemoryCostSink
+from app.services.entregabilidade import TipoRetorno
 
 
 def _settings(**extra: Any) -> Settings:
@@ -488,6 +495,135 @@ def test_ses_sem_variavel_falha_alto() -> None:
     with pytest.raises(ProviderNotConfigured) as exc:
         SESAdapter(None, None, _settings(ses_from_email=""))
     assert "SES_FROM_EMAIL" in str(exc.value)
+
+
+# =============================================================================
+# SES — retorno assincrono (bounce e reclamacao via SNS)
+# =============================================================================
+# O envio da 200 e o endereco so bounce-ia DEPOIS, por notificacao SNS. Sem
+# traduzir esse formato, a reclamacao de spam nunca chega em `opt_outs` — e e a
+# reclamacao que queima a reputacao do dominio. Estes testes provam a traducao
+# ANTES de a primeira notificacao real existir.
+
+
+def _envelope_sns(evento: dict) -> dict:
+    """Como o SNS entrega: o evento do SES vira uma STRING JSON em `Message`."""
+    return {
+        "Type": "Notification",
+        "MessageId": "sns-1",
+        "TopicArn": "arn:aws:sns:us-east-1:1:retornos",
+        "Message": json.dumps(evento),
+    }
+
+
+def _bounce(bounce_type: str, *enderecos: str, sub: str = "General") -> dict:
+    return {
+        "notificationType": "Bounce",
+        "bounce": {
+            "bounceType": bounce_type,
+            "bounceSubType": sub,
+            "bouncedRecipients": [
+                {"emailAddress": e, "diagnosticCode": f"smtp; 550 {e} inexistente"}
+                for e in enderecos
+            ],
+        },
+        "mail": {"messageId": "010001-msg", "source": "contato@meudominio.com.br"},
+    }
+
+
+def _reclamacao(*enderecos: str, feedback: str = "abuse") -> dict:
+    return {
+        "notificationType": "Complaint",
+        "complaint": {
+            "complainedRecipients": [{"emailAddress": e} for e in enderecos],
+            "complaintFeedbackType": feedback,
+        },
+        "mail": {"messageId": "010002-msg"},
+    }
+
+
+def test_sns_bounce_permanente_vira_retorno_permanente() -> None:
+    retornos = classificar_retorno_ses(_envelope_sns(_bounce("Permanent", "morto@lead.com.br")))
+    assert len(retornos) == 1
+    r = retornos[0]
+    assert isinstance(r, RetornoSES)
+    assert r.tipo is TipoRetorno.PERMANENTE
+    assert r.contato == "morto@lead.com.br"
+    assert r.provider_message_id == "010001-msg"
+    assert "inexistente" in r.diagnostico
+
+
+def test_sns_bounce_transitorio_nao_suprime() -> None:
+    """Caixa cheia hoje nao e endereco morto: o downstream nao pode suprimir."""
+    retornos = classificar_retorno_ses(_envelope_sns(_bounce("Transient", "cheia@lead.com.br")))
+    assert retornos[0].tipo is TipoRetorno.TRANSITORIO
+
+
+def test_sns_bounce_undetermined_tratado_como_transitorio() -> None:
+    """Na duvida sobre a entrega, nao se queima um endereco possivelmente bom."""
+    retornos = classificar_retorno_ses(_envelope_sns(_bounce("Undetermined", "talvez@lead.com.br")))
+    assert retornos[0].tipo is TipoRetorno.TRANSITORIO
+
+
+def test_sns_bounce_de_lote_devolve_um_retorno_por_destinatario() -> None:
+    evento = _bounce("Permanent", "a@lead.com.br", "b@lead.com.br", "c@lead.com.br")
+    retornos = classificar_retorno_ses(_envelope_sns(evento))
+    assert [r.contato for r in retornos] == ["a@lead.com.br", "b@lead.com.br", "c@lead.com.br"]
+    assert all(r.tipo is TipoRetorno.PERMANENTE for r in retornos)
+
+
+def test_sns_reclamacao_vira_reclamacao_com_feedback() -> None:
+    retornos = classificar_retorno_ses(_envelope_sns(_reclamacao("chateado@lead.com.br")))
+    assert len(retornos) == 1
+    assert retornos[0].tipo is TipoRetorno.RECLAMACAO
+    assert retornos[0].diagnostico == "abuse"
+
+
+def test_sns_extrai_endereco_de_nome_com_email() -> None:
+    """`Nome <e-mail>` guardado inteiro nao casaria com o e-mail do lead."""
+    evento = _bounce("Permanent", "Fulano de Tal <fulano@lead.com.br>")
+    assert classificar_retorno_ses(_envelope_sns(evento))[0].contato == "fulano@lead.com.br"
+
+
+def test_sns_aceita_evento_ja_desembrulhado() -> None:
+    """Alem do envelope, aceita o evento cru — util para reprocessar de log."""
+    retornos = classificar_retorno_ses(_bounce("Permanent", "morto@lead.com.br"))
+    assert retornos[0].contato == "morto@lead.com.br"
+
+
+def test_sns_aceita_formato_de_event_publishing() -> None:
+    """Event publishing usa `eventType` no lugar de `notificationType`."""
+    evento = {
+        "eventType": "Complaint",
+        "complaint": {"complainedRecipients": [{"emailAddress": "x@lead.com.br"}]},
+        "mail": {"messageId": "ev-1"},
+    }
+    retornos = classificar_retorno_ses(evento)
+    assert retornos[0].tipo is TipoRetorno.RECLAMACAO
+
+
+def test_sns_delivery_nao_gera_retorno() -> None:
+    evento = {"notificationType": "Delivery", "delivery": {}, "mail": {"messageId": "d-1"}}
+    assert classificar_retorno_ses(_envelope_sns(evento)) == []
+
+
+def test_sns_confirmacao_de_inscricao_e_ignorada_mas_expoe_url() -> None:
+    confirmacao = {
+        "Type": "SubscriptionConfirmation",
+        "Message": "You have chosen to subscribe...",
+        "SubscribeURL": "https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&Token=x",
+    }
+    assert classificar_retorno_ses(confirmacao) == []
+    assert url_de_confirmacao_sns(confirmacao).startswith("https://sns.")
+    assert url_de_confirmacao_sns(_envelope_sns(_bounce("Permanent", "a@b.com"))) is None
+
+
+def test_sns_payload_malformado_nunca_quebra() -> None:
+    """Um webhook que estoura vira 500, e o SNS reenvia em laco."""
+    assert classificar_retorno_ses(None) == []
+    assert classificar_retorno_ses({}) == []
+    assert classificar_retorno_ses({"Type": "Notification", "Message": "nao e json {"}) == []
+    assert classificar_retorno_ses(_bounce("Permanent")) == []  # sem destinatarios
 
 
 # =============================================================================
