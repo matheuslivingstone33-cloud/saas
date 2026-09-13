@@ -327,6 +327,80 @@ def test_retencao_mascara_o_remetente_da_resposta_do_lead(session, usuario, sett
     assert resposta.corpo == "[expurgado por politica de retencao]"
 
 
+def test_retencao_expurga_solicitacao_concluida_vencida(
+    session, usuario, portas_db, settings
+) -> None:
+    """Solicitacao de direito concluida ha muito tempo perde o dado pessoal e
+    mantem so os metadados do atendimento, para prestacao de contas."""
+    from app.models.audit_log import AuditLog
+    from app.services.compliance import SOLICITACAO_EXPURGADA
+
+    campanha = _rodar(session, usuario, portas_db, nome="Expurgo solicitacao")
+    lead = session.execute(
+        select(Lead).where(Lead.campaign_id == campanha.id, Lead.email.is_not(None))
+    ).scalars().first()
+
+    servico = PrivacyService(session, settings=settings)
+    pedido = servico.abrir(
+        contato=lead.email,
+        tipo=TipoSolicitacao.ACESSO,
+        user_id=usuario.id,
+        observacao="quero ver meus dados",
+    )
+    servico.atender(pedido)
+    assert pedido.resultado.get("leads"), "acesso guarda o relatorio com dado pessoal"
+    contato_original = pedido.contato_normalizado
+
+    # concluida ha mais tempo que o prazo de retencao do payload
+    pedido.concluida_em = now() - timedelta(days=settings.retencao_mensagens_dias + 5)
+    session.flush()
+
+    seco = RetencaoService(session, settings=settings).executar(dry_run=True)
+    assert seco.solicitacoes_expurgadas >= 1
+    session.refresh(pedido)
+    assert pedido.resultado.get("leads"), "dry_run nao pode apagar nada"
+
+    real = RetencaoService(session, settings=settings).executar(dry_run=False)
+    assert real.solicitacoes_expurgadas >= 1
+    session.refresh(pedido)
+    assert pedido.resultado == SOLICITACAO_EXPURGADA
+    assert pedido.observacao is None
+    assert contato_original not in pedido.contato_normalizado
+    # metadados do atendimento sobrevivem ao expurgo
+    assert pedido.tipo is TipoSolicitacao.ACESSO
+    assert pedido.prazo_resposta is not None and pedido.concluida_em is not None
+
+    eventos = session.execute(
+        select(AuditLog).where(
+            AuditLog.evento == TipoEvento.RETENCAO_EXPURGO,
+            AuditLog.entidade_tipo == "privacy_request",
+        )
+    ).scalars().all()
+    assert eventos
+
+    # idempotente: rodar de novo nao reexpurga a mesma solicitacao
+    de_novo = RetencaoService(session, settings=settings).executar(dry_run=False)
+    assert de_novo.solicitacoes_expurgadas == 0
+
+
+def test_retencao_preserva_solicitacao_em_aberto(session, usuario, portas_db, settings) -> None:
+    """Solicitacao ainda nao concluida nunca e expurgada, por mais antiga que seja."""
+    servico = PrivacyService(session, settings=settings)
+    pedido = servico.abrir(
+        contato="titular@exemplo.com.br",
+        tipo=TipoSolicitacao.CORRECAO,  # correcao fica EM_ANALISE, sem concluir
+        user_id=usuario.id,
+    )
+    servico.atender(pedido)
+    pedido.created_at = now() - timedelta(days=settings.retencao_mensagens_dias + 30)
+    session.flush()
+
+    resultado = RetencaoService(session, settings=settings).executar(dry_run=False)
+    assert resultado.solicitacoes_expurgadas == 0
+    session.refresh(pedido)
+    assert pedido.contato_normalizado == "titular@exemplo.com.br"
+
+
 def test_retencao_gera_auditoria(session, usuario, portas_db, settings) -> None:
     from app.models.audit_log import AuditLog
 

@@ -47,6 +47,11 @@ log = get_logger("compliance")
 #: Prazo legal de resposta ao titular (LGPD art. 19, II).
 PRAZO_RESPOSTA_DIAS = 15
 
+#: Marca deixada no lugar do payload de uma solicitacao ja expurgada por
+#: retencao. Serve tambem de sentinela de idempotencia: uma solicitacao com
+#: este resultado nao e reprocessada em execucoes seguintes do expurgo.
+SOLICITACAO_EXPURGADA = {"expurgado_por_retencao": True}
+
 
 # =============================================================================
 # Opt-out — descadastro de 1 clique
@@ -571,6 +576,7 @@ CORPO_EXPURGADO = "[expurgado por politica de retencao]"
 class ResultadoRetencao:
     leads_anonimizados: int = 0
     mensagens_expurgadas: int = 0
+    solicitacoes_expurgadas: int = 0
     corte_leads: str = ""
     corte_mensagens: str = ""
 
@@ -578,6 +584,7 @@ class ResultadoRetencao:
         return {
             "leads_anonimizados": self.leads_anonimizados,
             "mensagens_expurgadas": self.mensagens_expurgadas,
+            "solicitacoes_expurgadas": self.solicitacoes_expurgadas,
             "corte_leads": self.corte_leads,
             "corte_mensagens": self.corte_mensagens,
         }
@@ -678,6 +685,43 @@ class RetencaoService:
                 },
                 ator=Ator.SISTEMA,
             )
+
+        # Solicitacoes de direitos ja concluidas carregam dado pessoal do titular:
+        # o e-mail no `contato` e o relatorio de acesso inteiro em `resultado`
+        # (leads, CNPJ, proveniencia). Passado o prazo, esse dado sai e ficam so
+        # os metadados do atendimento — mesmo tratamento do corpo das mensagens,
+        # pela mesma razao: prestar contas nao exige reter o dado do titular para
+        # sempre. O evento SOLICITACAO_TITULAR na auditoria ja preserva a trilha.
+        # O relogio conta da conclusao, nao da abertura: uma solicitacao ainda
+        # em aberto nunca e expurgada aqui.
+        concluidas = (
+            self.session.execute(
+                select(PrivacyRequest).where(
+                    PrivacyRequest.concluida_em.is_not(None),
+                    PrivacyRequest.concluida_em < corte_msgs,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for pedido in concluidas:
+            if pedido.resultado == SOLICITACAO_EXPURGADA:
+                continue  # ja expurgada — idempotente entre execucoes
+            if not dry_run:
+                mascarado = _mascarar(pedido.contato_normalizado) or "[expurgado]"
+                pedido.resultado = dict(SOLICITACAO_EXPURGADA)
+                pedido.contato = mascarado
+                pedido.contato_normalizado = mascarado
+                pedido.observacao = None
+                self.audit.registrar(
+                    evento=TipoEvento.RETENCAO_EXPURGO,
+                    entidade_tipo="privacy_request",
+                    entidade_id=pedido.id,
+                    dados={"motivo": "prazo_de_retencao", "corte": corte_msgs.isoformat()},
+                    ator=Ator.SISTEMA,
+                    user_id=pedido.user_id,
+                )
+            resultado.solicitacoes_expurgadas += 1
 
         if not dry_run:
             self.session.flush()

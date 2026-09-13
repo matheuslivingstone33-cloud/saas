@@ -100,10 +100,14 @@ para revenda.
 | Lead sem nenhuma interação | 180 dias, depois anonimizado |
 | Corpo das mensagens enviadas | 365 dias, depois expurgado |
 | Metadados de envio (para auditoria) | mantidos |
+| Solicitação de direitos (art. 18) | dado pessoal expurgado 365 dias após a conclusão; os metadados do atendimento (tipo, data, prazo) ficam para prestação de contas |
 | Registro de descadastro | **permanente** — é ele que impede o recontato |
 | Trilha de auditoria | mantida, imutável |
 
-O expurgo roda automaticamente e cada remoção é registrada na auditoria.
+O expurgo roda automaticamente e cada remoção é registrada na auditoria. Ao
+expurgar uma solicitação de direitos, apagamos o e-mail do titular e o conteúdo
+da resposta que geramos; guardamos apenas o registro de que a solicitação
+existiu e foi atendida no prazo, como a lei exige que possamos comprovar.
 
 ## 8. Seus direitos
 
