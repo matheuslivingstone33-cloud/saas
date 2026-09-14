@@ -4,7 +4,15 @@ DOIS BALDES QUE NUNCA SE MISTURAM:
   * Balde 1 = DADOS  -> Google Places, enriquecimento, e-mail, WhatsApp
   * Balde 2 = IA     -> LLM (tokens) e web search da Anthropic
 
-Valores em MICRO-DOLARES (1 USD = 1_000_000 micros) para evitar float em dinheiro.
+Valores em MICRO-DOLARES (1 USD = 1_000_000 micros). O VALOR GRAVADO no
+`cost_event` e sempre inteiro (nao ha float em dinheiro no banco), mas a TAXA
+por unidade fica em float e so vira inteiro no fim, em `estimar_micros`.
+
+Isso e proposital: precos por token cabem em fracao de micro. Embeddings a
+US$0,02 por 1M tokens valem 0,02 micro por token — se a taxa fosse arredondada
+por unidade viraria ZERO, e todo custo de embedding sumiria do painel de margem
+por mais tokens que se gastasse. Arredondar so no total preserva o centavo.
+
 Os numeros abaixo sao ESTIMATIVAS de tabela publica e DEVEM ser revalidados na
 Fase 7, quando os provedores reais forem ligados (o smoke test de cada provedor
 compara o custo estimado com o custo faturado).
@@ -28,18 +36,21 @@ class Preco:
     chave: str
     balde: Balde
     unidade: str
-    micros_por_unidade: int
+    #: Taxa por unidade em micro-dolares. Fica em float de proposito: precos por
+    #: token cabem em fracao de micro (ver o cabecalho). O arredondamento para
+    #: inteiro acontece so em `estimar_micros`, sobre o total.
+    micros_por_unidade: float
     fonte: str
 
 
-def _por_milhao(usd_por_milhao: float) -> int:
-    """USD por 1M tokens -> micros por token."""
-    return round(usd_por_milhao * MICROS_POR_USD / 1_000_000)
+def _por_milhao(usd_por_milhao: float) -> float:
+    """USD por 1M tokens -> micros por token (sem arredondar: pode ser < 1)."""
+    return usd_por_milhao * MICROS_POR_USD / 1_000_000
 
 
-def _por_mil(usd_por_mil: float) -> int:
-    """USD por 1k chamadas -> micros por chamada."""
-    return round(usd_por_mil * MICROS_POR_USD / 1_000)
+def _por_mil(usd_por_mil: float) -> float:
+    """USD por 1k chamadas -> micros por chamada (sem arredondar)."""
+    return usd_por_mil * MICROS_POR_USD / 1_000
 
 
 # --- BALDE 1: DADOS ----------------------------------------------------------
