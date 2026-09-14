@@ -292,6 +292,41 @@ def test_retencao_preserva_lead_convertido(session, usuario, portas_db, settings
     assert lead.email is not None, "cliente convertido nao entra no expurgo automatico"
 
 
+def test_retencao_mascara_o_remetente_da_resposta_do_lead(session, usuario, settings) -> None:
+    """Em mensagem de ENTRADA o titular esta no `remetente`, nao no `destinatario`.
+
+    O expurgo mascarava so o `destinatario` — que na entrada somos nos — e o
+    e-mail real de quem respondeu sobrevivia ao prazo de retencao. Regressao:
+    o `remetente` tambem precisa sumir.
+    """
+    from app.models.enums import Canal, Direcao, StatusMensagem
+
+    resposta = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.ENTRADA,
+        status=StatusMensagem.RESPONDIDA,
+        remetente="contato-real@empresa.com.br",
+        destinatario="prospector@nosso-dominio.com.br",
+        corpo="Tenho interesse, pode me ligar.",
+    )
+    session.add(resposta)
+    session.flush()
+    resposta.created_at = now() - timedelta(days=settings.retencao_mensagens_dias + 5)
+    session.flush()
+
+    seco = RetencaoService(session, settings=settings).executar(dry_run=True)
+    assert seco.mensagens_expurgadas >= 1
+    session.refresh(resposta)
+    assert resposta.remetente == "contato-real@empresa.com.br", "dry_run nao pode apagar nada"
+
+    RetencaoService(session, settings=settings).executar(dry_run=False)
+    session.refresh(resposta)
+    assert "contato-real@empresa.com.br" not in (resposta.remetente or "")
+    assert resposta.remetente == "co***@empresa.com.br"
+    assert resposta.corpo == "[expurgado por politica de retencao]"
+
+
 def test_retencao_gera_auditoria(session, usuario, portas_db, settings) -> None:
     from app.models.audit_log import AuditLog
 

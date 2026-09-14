@@ -649,7 +649,15 @@ class RetencaoService:
         for mensagem in antigas:
             if not dry_run:
                 mensagem.corpo = CORPO_EXPURGADO
+                # Numa resposta do lead (direcao=ENTRADA) quem responde esta em
+                # `remetente`, nao em `destinatario` — e o `remetente` que carrega
+                # o e-mail real do titular (ver models/message.py). Mascarar so o
+                # `destinatario` deixava esse dado pessoal sobreviver ao prazo de
+                # retencao em toda mensagem de entrada. Mascaramos os dois: apos o
+                # expurgo nenhum endereco precisa ficar na linha da mensagem — a
+                # auditoria vive nos metadados e no audit_log encadeado por hash.
                 mensagem.destinatario = _mascarar(mensagem.destinatario)
+                mensagem.remetente = _mascarar(mensagem.remetente)
             resultado.mensagens_expurgadas += 1
 
         # A remocao do dado pessoal da mensagem tambem entra na trilha. A
