@@ -25,7 +25,12 @@ from app.models.lead import Lead
 from app.models.message import Message
 from app.models.opt_out import OptOut
 from app.repositories.misc import UserRepository
-from app.services.conversa import Intencao, ServicoDeConversa, classificar_por_sinal
+from app.services.conversa import (
+    Intencao,
+    ServicoDeConversa,
+    classificar_por_sinal,
+    remover_historico_citado,
+)
 
 
 @pytest.fixture
@@ -106,6 +111,83 @@ def test_opt_out_ganha_de_interesse_na_mesma_frase() -> None:
 def test_texto_ambiguo_nao_e_classificado_por_sinal() -> None:
     """Quando nao ha sinal claro, o lexical devolve None e o LLM decide."""
     assert classificar_por_sinal("bom dia, tudo bem?") is None
+
+
+# --- Separacao da resposta nova ----------------------------------------------
+def test_remover_historico_citado_nao_mexe_em_mensagem_limpa() -> None:
+    """Sem fronteira de citacao, o texto volta inteiro. O corte nunca inventa."""
+    corpo = "Tenho interesse, qual o valor?"
+    assert remover_historico_citado(corpo) == corpo
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        # Gmail: atribuicao + linhas citadas com ">"
+        "Vamos marcar!\n\nEm 9/9, Fulano escreveu:\n> mensagem antiga\n> nao tenho interesse",
+        # Outlook: regua de sublinhados antes do cabecalho De:/Para:
+        "Vamos marcar!\n\n________________________________\nDe: Fulano\nnao tenho interesse",
+        # Cliente com "-----Mensagem original-----"
+        "Vamos marcar!\n-----Mensagem original-----\nnao tenho interesse",
+    ],
+)
+def test_remover_historico_citado_corta_o_que_veio_antes(corpo: str) -> None:
+    novo = remover_historico_citado(corpo).lower()
+    assert "vamos marcar" in novo
+    assert "interesse" not in novo, "o historico citado nao pode sobrar na resposta nova"
+
+
+# --- Texto real: a citacao nao pode contaminar a intencao --------------------
+def test_recusa_citada_nao_descarta_lead_que_disse_sim() -> None:
+    """Um "nao tenho interesse" citado de uma troca antiga nao pode virar recusa.
+
+    E-mail de verdade nao chega limpo: a resposta nova vem colada em cima do
+    historico citado. Antes, o classificador varria o corpo INTEIRO e o
+    "nao tenho interesse" que estava la embaixo, numa mensagem antiga, ganhava
+    de um "tenho interesse" que a pessoa acabou de escrever no topo — e o lead
+    quente era descartado. A intencao de negocio sai da RESPOSTA NOVA.
+    """
+    corpo = (
+        "Perfeito, tenho interesse sim! Podemos conversar esta semana.\n\n"
+        "Em ter., 9 de set. de 2026 as 10:15, Prospector AI escreveu:\n"
+        "> Ola, equipe. Sobre manutencao de ar-condicionado...\n"
+        "> No mes passado voces responderam: nao tenho interesse, obrigado.\n"
+    )
+    assert classificar_por_sinal(corpo) is Intencao.INTERESSE
+
+
+def test_opt_out_apos_citacao_nao_se_perde() -> None:
+    """Opt-out e a excecao: vale sobre o texto INTEIRO, venha onde vier.
+
+    "Opt-out duvidoso e opt-out" — o direito do titular ganha do negocio.
+    Reduzir o escopo do opt-out para so a resposta nova arriscaria perder um
+    pedido de saida escrito abaixo da citacao, e esse risco nao se corre.
+    """
+    corpo = (
+        "Obrigado pelo retorno.\n\n"
+        "> Em 9/9, Prospector AI escreveu:\n"
+        "> Podemos agendar uma conversa?\n\n"
+        "Alias, nao quero receber mais e-mails de voces."
+    )
+    assert classificar_por_sinal(corpo) is Intencao.PEDIDO_OPT_OUT
+
+
+def test_recusa_citada_nao_encerra_a_conversa_pelo_motor(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """O mesmo caso, ponta a ponta: a resposta com citacao NAO descarta o lead."""
+    motor = ServicoDeConversa(session, portas_db)
+    r = motor.receber(
+        lead=lead_abordado,
+        corpo=(
+            "Otimo, tenho interesse! Vamos marcar.\n\n"
+            "Em 9/9, Prospector AI escreveu:\n"
+            "> Segue a proposta. Voce havia dito: nao tenho interesse.\n"
+        ),
+    )
+    assert r.intencao is Intencao.INTERESSE
+    assert not r.encerrou
+    assert lead_abordado.status is StatusLead.RESPONDIDO
 
 
 # --- Guardrails: quando o motor se cala --------------------------------------

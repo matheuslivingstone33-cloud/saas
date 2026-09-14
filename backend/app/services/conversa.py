@@ -189,6 +189,64 @@ _SINAIS: list[tuple[Intencao, tuple[str, ...]]] = [
 ]
 
 
+#: Intencoes cujo sinal e procurado no texto INTEIRO, e nao so na resposta nova.
+#:
+#: So o opt-out entra aqui, e de proposito: "opt-out duvidoso e opt-out". Um
+#: pedido de saida escrito embaixo de uma citacao nao pode se perder — o direito
+#: do titular ganha do negocio, entao para ELE a varredura e a mais ampla
+#: possivel. Todos os outros sinais (recusa, interesse, objecao...) olham so a
+#: resposta nova: um "nao tenho interesse" copiado de uma troca antiga nao pode
+#: descartar um lead que acabou de dizer sim.
+_SOBRE_TEXTO_INTEIRO = frozenset({Intencao.PEDIDO_OPT_OUT})
+
+#: Uma linha comeca uma citacao (`>`), a assinatura de quem foi citado
+#: ("... escreveu:" / "... wrote:"), ou um separador de mensagem original.
+#: Deste ponto para baixo e historico, nao resposta nova.
+_RE_LINHA_CITADA = re.compile(r"^\s*>")
+_RE_SEPARADOR = re.compile(
+    r"^\s*-{2,}\s*"
+    r"(mensagem original|original message|forwarded message|mensagem encaminhada)"
+    r"\b.*$",
+    re.IGNORECASE,
+)
+_RE_REGUA = re.compile(r"^\s*_{5,}\s*$")  # a regua de sublinhados do Outlook
+_FIM_ATRIBUICAO = ("escreveu:", "wrote:")
+
+
+def _e_fronteira_de_citacao(linha: str) -> bool:
+    baixo = linha.strip().lower()
+    if _RE_LINHA_CITADA.match(linha):
+        return True
+    if baixo.endswith(_FIM_ATRIBUICAO):
+        return True
+    if _RE_SEPARADOR.match(linha) or _RE_REGUA.match(linha):
+        return True
+    return False
+
+
+def remover_historico_citado(texto: str) -> str:
+    """Devolve so a RESPOSTA NOVA, cortando o historico citado que vem colado.
+
+    E-mail de verdade nao chega limpo como o mock: a resposta vem em cima de
+    tudo o que ja foi trocado — a mensagem anterior citada com `>`, a linha
+    "Em <data>, Fulano escreveu:", o "-----Mensagem original-----". Classificar
+    a intencao de negocio sobre esse bolo faz um "nao tenho interesse" antigo
+    descartar um "sim" recem-escrito.
+
+    O corte e CONSERVADOR: so acontece numa fronteira inequivoca, e tudo o que
+    esta ACIMA dela e preservado. Sem fronteira, o texto volta inteiro. Assim o
+    metodo nunca engole a resposta nova — no maximo deixa historico passar, que
+    e o lado seguro de errar.
+    """
+    if not texto:
+        return texto
+    linhas = texto.splitlines()
+    for i, linha in enumerate(linhas):
+        if _e_fronteira_de_citacao(linha):
+            return "\n".join(linhas[:i]).strip()
+    return texto
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -199,12 +257,18 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
     A ORDEM importa: opt-out e pedido de humano vem antes de tudo. Uma mensagem
     como "nao quero receber mais, mas qual o valor?" tem que ser tratada como
     opt-out — em caso de duvida, o direito do titular ganha do negocio.
+
+    O ESCOPO tambem importa. Opt-out e procurado no texto inteiro (ver
+    `_SOBRE_TEXTO_INTEIRO`); os demais sinais, so na resposta nova, para que o
+    historico citado nao vote na intencao de negocio.
     """
-    t = _normalizar(texto)
-    if not t:
+    inteiro = _normalizar(texto)
+    if not inteiro:
         return None
+    novo = _normalizar(remover_historico_citado(texto))
     for intencao, marcas in _SINAIS:
-        if any(marca in t for marca in marcas):
+        alvo = inteiro if intencao in _SOBRE_TEXTO_INTEIRO else novo
+        if alvo and any(marca in alvo for marca in marcas):
             return intencao
     return None
 
@@ -618,6 +682,11 @@ class ServicoDeConversa:
         if direto is not None:
             return direto
 
+        # Sem sinal claro, o modelo decide — mas sobre a RESPOSTA NOVA, nao
+        # sobre o historico citado colado embaixo. O opt-out ja foi procurado no
+        # texto inteiro em `classificar_por_sinal` acima, entao estreitar o
+        # escopo aqui nao arrisca perder um pedido de saida.
+        novo = remover_historico_citado(texto) or texto
         resposta = self.portas.llm.completar(
             LLMRequest(
                 system=(
@@ -625,9 +694,9 @@ class ServicoDeConversa:
                     "palavra entre: interesse, duvida, objecao, recusa, "
                     "pedido_opt_out, pedido_humano, ausencia."
                 ),
-                mensagens=[LLMMessage(role="user", content=texto[:2000])],
+                mensagens=[LLMMessage(role="user", content=novo[:2000])],
                 tarefa="classificar_resposta",
-                contexto={"texto": texto[:2000]},
+                contexto={"texto": novo[:2000]},
             )
         )
         bruto = _normalizar(resposta.texto).split()
