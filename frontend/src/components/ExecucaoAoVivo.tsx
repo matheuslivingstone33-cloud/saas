@@ -53,6 +53,10 @@ const APARENCIA: Record<
   inicio: { rotulo: "iniciando", tom: "neutro" },
   cerebro: { rotulo: "cérebro", tom: "marca" },
   busca: { rotulo: "buscando", tom: "acento" },
+  // A API real recusa consultas de vez em quando (limite, instabilidade). A
+  // busca segue sem a consulta; so para depois de tres recusas seguidas.
+  erro_busca: { rotulo: "consulta recusada", tom: "atencao" },
+  interrompido: { rotulo: "busca interrompida", tom: "perigo" },
   encontrado: { rotulo: "empresa", tom: "positivo" },
   duplicado: { rotulo: "duplicada", tom: "neutro" },
   recusado: { rotulo: "recusada", tom: "neutro" },
