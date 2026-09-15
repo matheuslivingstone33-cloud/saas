@@ -155,31 +155,49 @@ class CostRecorder:
         lead_id: uuid.UUID | None = None,
         request_id: str | None = None,
         latencia_ms: int | None = None,
-    ) -> tuple[CostEvent, CostEvent]:
-        """LLM gera DOIS eventos (entrada e saida) — sempre no balde 2."""
-        entrada = self.registrar(
-            CostSpec(
-                provedor=provedor,
-                operacao=f"{operacao}.input",
-                chave_preco=chave_llm(modelo, "input"),
-                tokens_entrada=tokens_entrada,
-                lead_id=lead_id,
-                metadados={"modelo": modelo},
-            ),
-            modo=modo,
-            request_id=request_id,
-            latencia_ms=latencia_ms,
-        )
-        saida = self.registrar(
-            CostSpec(
-                provedor=provedor,
-                operacao=f"{operacao}.output",
-                chave_preco=chave_llm(modelo, "output"),
-                tokens_saida=tokens_saida,
-                lead_id=lead_id,
-                metadados={"modelo": modelo},
-            ),
-            modo=modo,
-            request_id=request_id,
-        )
-        return entrada, saida
+    ) -> list[CostEvent]:
+        """Evento de ENTRADA e, quando ha tokens de saida, tambem o de SAIDA
+        — sempre no balde 2.
+
+        Uma completude sempre gera texto (saida > 0), entao continua com dois
+        eventos. Mas operacao so-de-entrada — embedding nao produz texto — chama
+        com `tokens_saida=0` e NAO tem custo de saida a registrar. Sem esse
+        guarda, o evento de saida caia no ramo de `quantidade` default (1.0) e,
+        para `embedding`, ainda no fallback `llm.mock.output` (a chave
+        `llm.embedding.output` nao existe) — cobrando ~25 micros de "saida"
+        fantasma por chamada. Isso so acontece no mock (o adaptador real ja
+        registra embedding como evento unico de entrada) e, como embedding roda
+        em todo servico do Cerebro e em todo lead do scoring, inflava em silencio
+        o balde 2 do painel de margem. Agora o mock casa com o real.
+        """
+        eventos = [
+            self.registrar(
+                CostSpec(
+                    provedor=provedor,
+                    operacao=f"{operacao}.input",
+                    chave_preco=chave_llm(modelo, "input"),
+                    tokens_entrada=tokens_entrada,
+                    lead_id=lead_id,
+                    metadados={"modelo": modelo},
+                ),
+                modo=modo,
+                request_id=request_id,
+                latencia_ms=latencia_ms,
+            )
+        ]
+        if tokens_saida > 0:
+            eventos.append(
+                self.registrar(
+                    CostSpec(
+                        provedor=provedor,
+                        operacao=f"{operacao}.output",
+                        chave_preco=chave_llm(modelo, "output"),
+                        tokens_saida=tokens_saida,
+                        lead_id=lead_id,
+                        metadados={"modelo": modelo},
+                    ),
+                    modo=modo,
+                    request_id=request_id,
+                )
+            )
+        return eventos
