@@ -247,6 +247,19 @@ def remover_historico_citado(texto: str) -> str:
     return texto
 
 
+#: Linhas com o NOSSO link de descadastro. Toda resposta real traz a mensagem
+#: anterior citada, e o opt-out e procurado no texto INTEIRO. No dia em que o link
+#: for para o corpo do e-mail, a linha dele ("Para sair da lista, descadastre-se:
+#: https://.../descadastro/...") voltaria citada em toda resposta — e todo "tenho
+#: interesse" viraria pedido de saida. Opt-out e terminal: o lead seria perdido
+#: para sempre por ter respondido que queria comprar.
+#:
+#: A linha inteira sai (rotulo junto), por isso o rodape deve manter rotulo e link
+#: na mesma linha. As palavras do titular continuam valendo: "quero me
+#: descadastrar" escrito por ele e opt-out.
+_RE_LINHA_DO_NOSSO_LINK = re.compile(r"^.*/descadastro/.*$", re.IGNORECASE | re.MULTILINE)
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -262,7 +275,7 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
     `_SOBRE_TEXTO_INTEIRO`); os demais sinais, so na resposta nova, para que o
     historico citado nao vote na intencao de negocio.
     """
-    inteiro = _normalizar(texto)
+    inteiro = _normalizar(_RE_LINHA_DO_NOSSO_LINK.sub("", texto or ""))
     if not inteiro:
         return None
     novo = _normalizar(remover_historico_citado(texto))

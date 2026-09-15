@@ -440,3 +440,39 @@ def test_thread_fica_na_ordem_certa(session, usuario, portas_db, lead_abordado) 
     assert ordens == sorted(ordens) and len(set(ordens)) == len(ordens), (
         "cada mensagem precisa de um numero proprio e crescente na conversa"
     )
+
+
+# --- A nossa propria mensagem citada na resposta ------------------------------
+def test_nossa_declaracao_citada_nao_vira_pedido_de_humano() -> None:
+    """A declaracao termina com "Responda a este e-mail para falar com uma pessoa".
+
+    Toda resposta real traz a nossa mensagem citada embaixo. Lida inteira, ela fazia
+    todo cliente parecer pedir atendimento humano, e a IA nunca respondia ninguem.
+    """
+    resposta = (
+        "Tenho interesse, qual o valor?\n\n"
+        "Em 10/09/2026, Prospector escreveu:\n"
+        "> Ola, equipe.\n"
+        "> ---\n"
+        "> Esta mensagem foi redigida por um agente de inteligencia artificial a servico\n"
+        "> de Refrigeracao Ceara. Responda a este e-mail para falar com uma pessoa."
+    )
+    assert classificar_por_sinal(resposta) is Intencao.INTERESSE
+
+
+def test_nosso_link_de_descadastro_citado_nao_vira_opt_out() -> None:
+    """Opt-out e procurado no texto inteiro; a linha do NOSSO link nao conta."""
+    resposta = (
+        "Tenho interesse, qual o valor?\n\n"
+        "Em 10/09/2026, Prospector escreveu:\n"
+        "> Esta mensagem foi redigida por um agente de inteligencia artificial.\n"
+        "> Para sair da lista, descadastre-se: https://app.exemplo.com.br/descadastro/abc123"
+    )
+    assert classificar_por_sinal(resposta) is Intencao.INTERESSE
+
+
+def test_titular_que_pede_para_sair_continua_sendo_opt_out() -> None:
+    """O filtro tira a linha do nosso link, nunca as palavras de quem escreveu."""
+    assert classificar_por_sinal("Quero me descadastrar, por favor.") is Intencao.PEDIDO_OPT_OUT
+    embaixo_da_citacao = "> Podemos agendar uma visita?\nMe tire da lista."
+    assert classificar_por_sinal(embaixo_da_citacao) is Intencao.PEDIDO_OPT_OUT
