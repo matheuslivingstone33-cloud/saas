@@ -8,7 +8,7 @@ from app.models.campaign import Campaign
 from app.models.enums import StatusCampanha
 from app.ports.dto import PlaceResult
 from app.services.cerebro import Expansao, ExpansorDeServico, RamoRelevante
-from app.services.descoberta import DiscoveryService, eh_empresa
+from app.services.descoberta import DiscoveryService, _uf_do_endereco, eh_empresa
 from app.services.query_builder import QueryBuilder
 
 SERVICO = "instalacao e manutencao de ar condicionado para empresas"
@@ -107,6 +107,36 @@ def test_query_builder_usa_termos_fixados_no_filtro() -> None:
 def test_filtro_b2b(nome: str, esperado: bool) -> None:
     place = PlaceResult(place_id="x", nome=nome, endereco_formatado="Rua Y, 10 - Fortaleza, CE")
     assert eh_empresa(place) is esperado
+
+
+# --- Extracao de UF do endereco (a virada mock -> Places real) ----------------
+# O mock devolve endereco limpo terminando na UF ("... Fortaleza - CE"). O Google
+# real anexa CEP e pais ("... Fortaleza - CE, 60150-160, Brasil"), entao pegar os
+# dois ultimos caracteres dava "IL" (de "Brasil") — uma UF inventada que FILTRA
+# fora todo match na Receita (`registro.uf != uf`), pior que nao filtrar nada.
+@pytest.mark.parametrize(
+    ("endereco", "esperado"),
+    [
+        # formato do mock (limpo, UF no fim) — continua funcionando
+        ("Rua Barao de Aracati, 1200 - Aldeota, Fortaleza - CE", "CE"),
+        # formato real do Places BR: UF + CEP + pais
+        ("Av. Santos Dumont, 3300 - Papicu, Fortaleza - CE, 60150-160, Brasil", "CE"),
+        # idem em ingles ("Brazil")
+        ("Av. Paulista, 1578 - Bela Vista, Sao Paulo - SP, 01310-200, Brazil", "SP"),
+        # sem CEP, so pais no fim
+        ("R. da Consolacao - Consolacao, Sao Paulo - SP, Brasil", "SP"),
+        # termina em CEP: a UF esta no meio, nao no fim
+        ("Av. Paulista, 1578 - Sao Paulo - SP, 01310-200", "SP"),
+        # sem estado nenhum: nao inventa UF a partir de "Brasil"
+        ("Endereco sem estado, so cidade, Brasil", None),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_uf_do_endereco_tolera_formato_real_do_places(
+    endereco: str | None, esperado: str | None
+) -> None:
+    assert _uf_do_endereco(endereco) == esperado
 
 
 # --- DiscoveryService ---------------------------------------------------------

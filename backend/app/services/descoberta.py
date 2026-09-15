@@ -14,6 +14,7 @@ Guardrails aplicados aqui:
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -75,6 +76,18 @@ SINAIS_NAO_B2B = frozenset(
 )
 #: Tipos do Places que indicam ponto nao comercial.
 TIPOS_BLOQUEADOS = frozenset({"locality", "route", "street_address", "premise", "political"})
+
+#: As 27 UFs do Brasil. So aceitamos como UF um pedaco do endereco que seja uma
+#: delas — "il" de "Brasil" ou dois digitos de um CEP nao sao UF.
+UFS_VALIDAS = frozenset(
+    {
+        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+        "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+        "SP", "SE", "TO",
+    }
+)
+#: Duas letras isoladas logo apos "-" ou "," (a UF vem como "Cidade - UF").
+_UF_CANDIDATA = re.compile(r"[-,]\s*([A-Za-z]{2})(?![A-Za-z])")
 
 
 @dataclass(slots=True)
@@ -319,10 +332,23 @@ def eh_empresa(place: PlaceResult) -> bool:
 
 
 def _uf_do_endereco(endereco: str | None) -> str | None:
+    """Extrai a UF do endereco formatado do Places.
+
+    O mock devolve endereco limpo terminando na UF ("... Fortaleza - CE"), e
+    pegar os dois ultimos caracteres bastava. O Google real anexa CEP e pais
+    ("... Fortaleza - CE, 60150-160, Brasil"), entao a cauda vira "il" (de
+    "Brasil") ou um pedaco de CEP. Uma UF inventada e pior que nenhuma: o
+    enriquecimento filtra por `registro.uf != uf` e uma UF errada exclui TODO
+    match na Receita. Por isso procuramos o padrao "Cidade - UF" e so aceitamos
+    uma UF real; sem ela, devolvemos None (busca sem filtro de UF).
+    """
     if not endereco:
         return None
-    cauda = endereco.strip()[-2:]
-    return cauda.upper() if cauda.isalpha() else None
+    # A UF do estado e a ultima sigla valida antes do CEP/pais no fim do endereco.
+    for sigla in reversed(_UF_CANDIDATA.findall(endereco)):
+        if sigla.upper() in UFS_VALIDAS:
+            return sigla.upper()
+    return None
 
 
 def _so_digitos(valor: str | None) -> str:
