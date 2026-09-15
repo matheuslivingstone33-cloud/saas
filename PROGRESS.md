@@ -244,6 +244,24 @@ completo exercitado pela interface no navegador.
 
 ---
 
+## Integração das rotinas autônomas (15/09) ✅
+
+- Seis rotinas agendadas rodaram 24 vezes em cópias separadas e nunca salvaram
+  no `main`. Consolidadas em **11 correções diferentes**, escolhidas por
+  comportamento onde havia versões repetidas: busca que sobrevive a recusa do
+  Places, UF do endereço real, tradutor do retorno SES/SNS, corte do histórico
+  citado no Motor 4, três de custo (taxa fracionária, preço do Sonnet 5, saída
+  fantasma do embedding) e quatro de retenção LGPD.
+- Achado na integração: **toda resposta real virava `pedido_humano`**, porque a
+  declaração de IA termina com "falar com uma pessoa" e o Motor 4 lia a mensagem
+  citada. Corrigido junto, com teste.
+- Proteção: a linha do nosso link de descadastro não entra na varredura de
+  opt-out. Sem ela, pôr o link no corpo do e-mail faria todo "tenho interesse"
+  virar descadastro terminal.
+- Radares passam a viver no `main` (`docs/radar/`). **390 testes.**
+
+---
+
 ## Decisões estruturais
 
 | Decisão | Por quê |

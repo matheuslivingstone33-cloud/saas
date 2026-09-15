@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-11 · deploy validado e desfeito; fila autônoma criada
+**Última atualização:** 2026-09-15 · rotinas integradas no main; radares no main
 
 ---
 
@@ -88,6 +88,47 @@ e parece atualizado.
 
 ---
 
+### As rotinas foram integradas — 15/09/2026
+
+De 12 a 15/09 as seis rotinas agendadas rodaram 24 vezes, **cada uma numa cópia
+separada** (worktree + branch `claude/*`). "Commit e push" salvava só a cópia; o
+`main` ficou parado no dia 11. Nenhuma via o trabalho nem o radar da anterior, e
+a mesma correção chegou a ser feita **quatro vezes**.
+
+Das 24 cópias saíram **11 correções diferentes**. Onde havia versões repetidas, a
+escolha foi por **comportamento** — as versões testadas lado a lado com casos de
+e-mail real —, não por data nem por tamanho. Tudo integrado no `main`, **390
+testes verdes**, lint limpo.
+
+Escolhas que valem registro:
+
+- **Leitura das respostas:** descartada a versão que cortava o histórico citado
+  também para o opt-out — ela perdia "me tire da lista" escrito embaixo da
+  citação. Ficou a que procura opt-out no texto inteiro.
+- **Retorno de e-mail (SES/SNS):** das quatro versões, só uma extraía o endereço
+  de `"Nome <email>"`. As outras gravariam o texto inteiro na supressão, e o
+  bloqueio não bateria com o e-mail do lead.
+- **Falha do Places no meio da busca:** ficou a que interrompe após 3 falhas
+  **seguidas**; a que contava 3 no total abortaria rodadas saudáveis.
+
+**Dois defeitos achados na integração, que nenhuma rotina tinha visto:**
+
+1. **Toda resposta real virava "quero falar com uma pessoa".** A declaração de
+   IA termina com *"Responda a este e-mail para falar com uma pessoa"*, e o Motor
+   4 lia a resposta inteira, inclusive a nossa mensagem citada. A IA nunca
+   responderia ninguém. A correção de Conversa fecha isso, com teste.
+2. **Armadilha para o dia em que o link de descadastro for para o corpo do
+   e-mail:** o opt-out é procurado no texto inteiro, e a linha do nosso link
+   voltaria citada com "descadastr" dentro — todo "tenho interesse" viraria
+   opt-out, que é terminal. Proteção adicionada: linha com `/descadastro/` não
+   entra na varredura.
+
+**Por que não se repete:** a regra 0 abaixo manda partir de `origin/main` e
+integrar de volta no `main`, e os radares agora vivem no `main` (`docs/radar/`),
+cada um com um aviso no topo dizendo o que já está integrado.
+
+---
+
 ## 0.1 FILA AUTÔNOMA — a rotina lê daqui
 
 > Esta seção existe para ser lida por um agente rodando em `/loop`. Ele pega o
@@ -95,6 +136,12 @@ e parece atualizado.
 
 **Regras que valem para toda execução da rotina:**
 
+0. **Partir da versão principal e voltar para ela.** No início, `git fetch
+   origin` e trabalhar a partir de `origin/main`. No fim, depois dos testes:
+   `git fetch origin && git rebase origin/main`, testes de novo, e
+   `git push origin HEAD:main`. Se o push for recusado porque outra rotina
+   salvou antes, repita. **Nunca `--force`.** Sem isto a rotina salva numa cópia
+   que ninguém vê — foi o que aconteceu de 12 a 15/09.
 1. **Um item por execução.** Nunca dois. Emendar tarefas produz commit que
    ninguém consegue revisar.
 2. **Não decidir o que é decisão de produto.** Preço, escopo, o que vai na
@@ -113,12 +160,14 @@ e parece atualizado.
 
 | # | Item | Escopo | Estado |
 |---|---|---|---|
-| 1 | **`docs/ARQUITETURA.md` desatualizado** — diz "12 tabelas" (são 13, falta `ramo_weights`) e o fluxo ainda traz "débito de 1 crédito por lead qualificado", que a Etapa 6 substituiu por cobrança na revelação do contato | documentação | ⬜ aberto |
+| 1 | **`docs/ARQUITETURA.md` desatualizado** — diz "12 tabelas" (são 13, falta `ramo_weights`) e o fluxo ainda traz "débito de 1 crédito por lead qualificado", que a Etapa 6 substituiu por cobrança na revelação do contato | documentação | ✅ feito em 15/09 (Consolidação) |
 | 2 | **`frontend/src/pages/Campanhas.tsx` órfão** — substituído por Busca + Descoberta + Conversas, não é importado desde a Etapa 1. Apagar e confirmar que `tsc` e o build seguem limpos | 1 arquivo | ⬜ aberto |
 | 3 | **Recuperação de senha** — não existe; quem esquece só volta com `UPDATE` no banco. Token de uso único com hash no banco (nunca o token), expiração curta, resposta idêntica exista ou não a conta. **Não passa pelo `SendService`**: é transacional, e opt-out protege quem é prospectado, não o dono da conta | serviço + 2 rotas + migration + tela | ⬜ aberto |
 | 4 | **Rate limit no login** — nada limita tentativas. O bcrypt de custo 12 encarece (~250 ms), mas é mitigação, não defesa | middleware ou dependência | ⬜ aberto |
 | 5 | **Expurgo por retenção da LGPD não roda** — `executar_retencao()` existe e nada o chama. Virar tarefa periódica do worker | worker/RQ | ⬜ aberto |
 | 6 | **Revogação de token** — sair apaga o token no cliente; roubado, vale até expirar. Lista de revogação em Redis, que já está no compose | serviço + deps | ⬜ aberto |
+| 7 | **Link de descadastro só no cabeçalho** — o guardrail diz que toda mensagem leva o link, mas hoje ele vai só em `List-Unsubscribe`; o texto do e-mail não o contém. Ao pôr no corpo, **rótulo e link na mesma linha**: a proteção do Motor 4 contra falso opt-out depende disso | `personalizacao.py` + teste | ⬜ aberto |
+| 8 | **Nenhuma rota recebe o retorno do SNS** — o tradutor `classificar_retorno_ses()` existe, mas `/v1/inbound/retorno` exige a nossa assinatura HMAC e o SNS assina com certificado da AWS. Falta rota que valide a assinatura do SNS e confirme a inscrição | rota + teste | ⬜ aberto |
 
 ## 0.2 PRECISA DE VOCÊ — a rotina NÃO decide isto
 

@@ -45,7 +45,7 @@ Trocar mock ↔ real muda **uma variável de ambiente**. Nenhum arquivo de domí
 - `session.py` — engine, `session_scope()` e dependência do FastAPI.
 - `seed.py` — dados mínimos para tudo funcionar sem provedor real.
 
-### `models/` — 12 tabelas
+### `models/` — 13 tabelas
 Multi-tenant por `user_id` em toda tabela de dado do cliente.
 
 | Tabela | Papel | Destaques |
@@ -60,6 +60,7 @@ Multi-tenant por `user_id` em toda tabela de dado do cliente.
 | `audit_logs` | trilha imutável | `seq` + `hash_anterior`/`hash` + trigger no PG |
 | `cost_events` | custo por chamada | `balde` 1 (dados) ou 2 (IA), `modo` mock/real |
 | `score_weights` | pesos do score por tenant | saída do loop de aprendizado, com estatísticas |
+| `ramo_weights` | fator de mira por (tenant, CNAE) | Etapa 7: a intenção da resposta inclina a busca e **multiplica** o peso do Cérebro (piso 0,5 / teto 1,5) |
 | `privacy_requests` | direitos do titular | tipo, protocolo, prazo de 15 dias, desfecho |
 
 ### `repositories/`
@@ -102,7 +103,8 @@ assinatura: assistido <-> automatico   (muda onde a mensagem nasce)
 ## Fluxo de uma campanha
 
 ```
- 0. CreditService.pode_consumir()                    -> bloqueia ANTES de gastar
+ 0. CreditService.pode_consumir("contato_revelado")  -> bloqueia ANTES de gastar
+    (olha a cota de REVELAÇÃO: sem saldo para revelar, descobrir só gastaria balde 1)
  1. ExpansorDeServico.expandir()                     -> ramos + termos        [balde 2]
     (LLMPort.embutir + busca vetorial + filtro de concorrente)
  2. QueryBuilder.construir()                         -> consultas + custo estimado
@@ -111,11 +113,13 @@ assinatura: assistido <-> automatico   (muda onde a mensagem nasce)
  5. dedup por CNPJ/place_id/telefone/domínio
  6. Lead com provenance                              -> audit_log(dado_coletado)
  7. ScoringService.pontuar() com pesos aprendidos    -> score explicável      [balde 2]
- 8. débito de 1 crédito por lead qualificado
+ 8. qualificar NÃO debita crédito (Etapa 6: descobrir é barato e não se cobra)
  9. PersonalizationService.gerar()                   -> gancho do ramo        [balde 2]
     (web search só acima do limiar de score)
+    -> REVELA o contato e DEBITA 1 crédito (contato_revelado), idempotente
 10. SendService.despachar(): opt-out + limites + canal
-11a. assistido  -> aguarda aprovação humana
+    (a rodada para por "cota_de_contatos" AQUI, não na qualificação)
+11a. assistido  -> aguarda aprovação humana (o rascunho já traz o contato revelado)
 11b. automatico -> EmailPort.enviar()                -> audit_log             [balde 1]
 ```
 
