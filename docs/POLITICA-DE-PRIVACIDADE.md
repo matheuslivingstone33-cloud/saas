@@ -98,7 +98,7 @@ para revenda.
 | Dado | Prazo |
 |---|---|
 | Lead sem nenhuma interação | 180 dias, depois anonimizado |
-| Corpo das mensagens enviadas | 365 dias, depois expurgado |
+| Conteúdo das mensagens (assunto e corpo) | 365 dias, depois expurgado |
 | Metadados de envio (para auditoria) | mantidos |
 | Solicitação de direitos (art. 18) | dado pessoal expurgado 365 dias após a conclusão; os metadados do atendimento (tipo, data, prazo) ficam para prestação de contas |
 | Registro de descadastro | **permanente** — é ele que impede o recontato |

@@ -656,6 +656,14 @@ class RetencaoService:
         for mensagem in antigas:
             if not dry_run:
                 mensagem.corpo = CORPO_EXPURGADO
+                # O assunto tambem e conteudo, e na abordagem de saida ele carrega
+                # a identidade do alvo: `_assunto` monta "<servico> para <nome da
+                # empresa>" (services/personalizacao.py). Expurgar o corpo e deixar
+                # o assunto de pe fazia o nome da empresa-alvo sobreviver ao prazo
+                # de retencao — o dado que o expurgo existe para remover. Some junto
+                # com o corpo; e nullable, entao nao precisa de marca-sentinela (a
+                # deteccao de "ja expurgada" ja e feita pelo `corpo`).
+                mensagem.assunto = None
                 # Numa resposta do lead (direcao=ENTRADA) quem responde esta em
                 # `remetente`, nao em `destinatario` — e o `remetente` que carrega
                 # o e-mail real do titular (ver models/message.py). Mascarar so o

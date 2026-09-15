@@ -474,6 +474,38 @@ def test_retencao_de_mensagem_audita_e_nao_reconta(session, usuario, portas_db, 
     assert len(eventos_de_mensagem()) == 1
 
 
+def test_retencao_expurga_o_assunto_junto_do_corpo(session, usuario, settings) -> None:
+    """O assunto tambem e conteudo: na abordagem de saida ele traz o nome da
+    empresa-alvo (`_assunto` monta "<servico> para <empresa>"). Expurgar o corpo
+    e deixar o assunto de pe fazia essa identidade sobreviver ao prazo."""
+    from app.models.enums import Canal, Direcao
+
+    abordagem = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.SAIDA,
+        status=StatusMensagem.ENVIADA,
+        destinatario="contato@hotel-exemplo.com.br",
+        assunto="manutencao de ar condicionado para Hotel Exemplo Ltda",
+        corpo="Ola, notamos que o hotel tem camara fria de grande porte...",
+    )
+    session.add(abordagem)
+    session.flush()
+    abordagem.created_at = now() - timedelta(days=settings.retencao_mensagens_dias + 5)
+    session.flush()
+
+    # dry_run nao pode apagar o assunto.
+    RetencaoService(session, settings=settings).executar(dry_run=True)
+    session.refresh(abordagem)
+    assert abordagem.assunto == "manutencao de ar condicionado para Hotel Exemplo Ltda"
+
+    # Rodada real: assunto some junto do corpo.
+    RetencaoService(session, settings=settings).executar(dry_run=False)
+    session.refresh(abordagem)
+    assert abordagem.assunto is None
+    assert abordagem.corpo == "[expurgado por politica de retencao]"
+
+
 # --- Documentos publicos ------------------------------------------------------
 @pytest.mark.parametrize(
     ("rota", "trecho"),
