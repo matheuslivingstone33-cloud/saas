@@ -29,14 +29,24 @@ from app.ports.dto import EmailMessage, SendResult
 from app.services.cost import CostRecorder, CostSpec
 
 if TYPE_CHECKING:
-    from app.services.entregabilidade import TipoRetorno
+    from app.services.entregabilidade import EscopoFalhaEnvio, TipoRetorno
 
 log = get_logger("ses")
 
-#: Erros do SES que devem virar opt-out automatico (endereco morto).
-ERROS_PERMANENTES = frozenset(
-    {"MessageRejected", "MailFromDomainNotVerifiedException", "AccountSuspendedException"}
+#: Falhas de CONTA/REMETENTE: atingem TODOS os destinatarios. A acao e PAUSAR,
+#: nunca suprimir — suprimir aqui apagaria a base durante uma suspensao de conta.
+ERROS_DE_CONTA = frozenset(
+    {
+        "AccountSuspendedException",
+        "SendingPausedException",
+        "MailFromDomainNotVerifiedException",
+    }
 )
+
+#: Marcas, no texto do erro, de que um `MessageRejected` veio da lista de
+#: supressao da conta (endereco morto de um bounce anterior) — e nao de conteudo
+#: recusado ou identidade nao verificada no sandbox, que atingem todo mundo.
+_MARCAS_SUPRESSAO = ("suppression list", "on the suppression", "suppressed")
 
 
 class SESAdapter:
@@ -119,12 +129,22 @@ class SESAdapter:
                 resposta = self.cliente.send_email(**corpo)
         except Exception as exc:
             codigo = _codigo_do_erro(exc)
-            log.error("ses_falhou", para=mensagem.para, codigo=codigo, erro=str(exc)[:200])
+            escopo = classificar_falha_ses(codigo, str(exc))
+            log.error(
+                "ses_falhou",
+                para=mensagem.para,
+                codigo=codigo,
+                escopo=escopo.value,
+                erro=str(exc)[:200],
+            )
             return SendResult(
                 sucesso=False,
                 erro=f"{codigo}: {exc}"[:500],
                 modo=self.modo,
-                detalhes={"permanente": codigo in ERROS_PERMANENTES},
+                # `escopo_falha` diz ao SendService o que fazer: pausar a
+                # campanha (conta), suprimir o contato (destinatario) ou so
+                # marcar FALHOU (transitoria). Vocabulario neutro de provedor.
+                detalhes={"escopo_falha": escopo.value, "codigo": codigo},
             )
 
         message_id = (resposta or {}).get("MessageId")
@@ -142,6 +162,34 @@ def _codigo_do_erro(exc: Exception) -> str:
     if isinstance(resposta, dict):
         return str((resposta.get("Error") or {}).get("Code") or exc.__class__.__name__)
     return exc.__class__.__name__
+
+
+def classificar_falha_ses(codigo: str, mensagem: str = "") -> EscopoFalhaEnvio:
+    """Classifica uma falha SINCRONA do SES pelo ESCOPO do dano.
+
+    O `permanente` booleano de antes juntava dois mundos que pedem acoes opostas:
+    um endereco morto (suprime AQUELE contato) e uma conta/remetente quebrada
+    (PAUSA tudo). Agir sobre o booleano suprimiria o destinatario durante uma
+    suspensao de conta e apagaria a base inteira.
+
+    `MessageRejected` e SOBRECARREGADO no SES: pode ser um endereco na lista de
+    supressao da conta (aquele contato esta morto), conteudo recusado por
+    politica, ou — no sandbox — identidade nao verificada. So o primeiro e do
+    destinatario; os outros atingem TODOS. Por isso um `MessageRejected` so vira
+    `DESTINATARIO` quando o texto do erro diz explicitamente que veio da lista de
+    supressao; na duvida cai em `TRANSITORIA`, que nao suprime ninguem. O sinal
+    definitivo de endereco morto e o bounce assincrono (via SNS), tratado a parte.
+    """
+    from app.services.entregabilidade import EscopoFalhaEnvio
+
+    codigo = (codigo or "").strip()
+    texto = (mensagem or "").lower()
+
+    if codigo in ERROS_DE_CONTA:
+        return EscopoFalhaEnvio.CONTA
+    if codigo == "MessageRejected" and any(marca in texto for marca in _MARCAS_SUPRESSAO):
+        return EscopoFalhaEnvio.DESTINATARIO
+    return EscopoFalhaEnvio.TRANSITORIA
 
 
 # =============================================================================

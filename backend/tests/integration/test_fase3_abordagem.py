@@ -18,7 +18,8 @@ from app.models.enums import (
 )
 from app.models.lead import Lead
 from app.models.opt_out import OptOut
-from app.repositories.misc import UserRepository
+from app.ports.dto import SendResult
+from app.repositories.misc import OptOutRepository, UserRepository
 from app.services.cerebro import ExpansorDeServico
 from app.services.descoberta import DiscoveryService
 from app.services.envio import SendService
@@ -247,6 +248,107 @@ def test_conteudo_gravado_no_outbox_tem_descadastro(session, usuario, portas_db,
     payload = json.loads(arquivos[-1].read_text(encoding="utf-8"))
     assert "List-Unsubscribe" in payload["headers"]
     assert "inteligencia artificial" in payload["corpo_texto"]
+
+
+# --- Falha SINCRONA de envio (o provedor recusa antes de aceitar) ------------
+class _EmailQueFalha:
+    """EmailPort que sempre recusa, com o escopo de falha que o teste escolher.
+
+    Substitui o mock (que so tem sucesso) pelo caso que so acontece com SES real.
+    """
+
+    provedor = "email"
+    modo = "real"
+
+    def __init__(self, escopo: str) -> None:
+        self.escopo = escopo
+        self.tentativas = 0
+
+    def enviar(self, mensagem) -> SendResult:  # noqa: ANN001
+        self.tentativas += 1
+        return SendResult(
+            sucesso=False,
+            erro=f"falha simulada ({self.escopo})",
+            modo="real",
+            detalhes={"escopo_falha": self.escopo, "codigo": "Simulado"},
+        )
+
+
+def test_falha_de_destinatario_suprime_e_descarta_o_lead(session, usuario, portas_db) -> None:
+    """Endereco morto na entrega: a cadencia nao pode reinsistir nele."""
+    campanha = _campanha(session, usuario, nome="Destino morto", nivel=NivelAutonomia.AUTOMATICO)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    lead = next(x for x in leads if x.email)
+    portas_db.email = _EmailQueFalha("destinatario")
+
+    lote = SendService(session, portas_db).preparar_lote(campanha, [lead], expansao)
+
+    session.refresh(lead)
+    assert lote.mensagens[0].status is StatusMensagem.FALHOU
+    assert lead.status is StatusLead.DESCARTADO
+    suprimido = OptOutRepository(session).existe(lead.email.strip().lower(), user_id=usuario.id)
+    assert suprimido, "endereco morto tem que entrar na supressao, senao a cadencia reinsiste"
+
+
+def _lead_qualificado(session, usuario, campanha, sufixo: str) -> Lead:  # noqa: ANN001
+    lead = Lead(
+        user_id=usuario.id,
+        campaign_id=campanha.id,
+        cnpj=f"445556660001{sufixo}",
+        razao_social=f"EMPRESA {sufixo} LTDA",
+        nome_fantasia=f"Empresa {sufixo}",
+        email=f"contato{sufixo}@exemplo.com.br",
+        municipio="Fortaleza",
+        uf="CE",
+        status=StatusLead.QUALIFICADO,
+        provenance={"fonte_primaria": "teste"},
+        score=40,
+    )
+    session.add(lead)
+    session.flush()
+    return lead
+
+
+def test_falha_de_conta_pausa_a_campanha_e_nao_toca_nos_leads(session, usuario, portas_db) -> None:
+    """Conta/remetente quebrada atinge todo mundo: PAUSA, nunca suprime a base."""
+    campanha = _campanha(session, usuario, nome="Conta quebrada", nivel=NivelAutonomia.AUTOMATICO)
+    leads = [_lead_qualificado(session, usuario, campanha, s) for s in ("11", "22", "33")]
+    fake = _EmailQueFalha("conta")
+    portas_db.email = fake
+
+    lote = SendService(session, portas_db).preparar_lote(campanha, leads, None)
+
+    assert campanha.status is StatusCampanha.PAUSADA
+    assert lote.interrompido_por_conta is True
+    # A leva parou na primeira falha: os demais nem foram redigidos (custo de IA).
+    assert fake.tentativas == 1
+    assert lote.geradas == 1
+    for lead in leads:
+        session.refresh(lead)
+        assert lead.status is not StatusLead.DESCARTADO, "conta quebrada nao descarta lead"
+    op = OptOutRepository(session)
+    assert not any(op.existe(x.email.strip().lower(), user_id=usuario.id) for x in leads)
+
+
+def test_falha_transitoria_so_marca_falhou(session, usuario, portas_db) -> None:
+    """Recusa passageira/ambigua (throttle, conteudo) nao suprime nem pausa.
+
+    E o guarda contra supressao em massa: um `MessageRejected` por conteudo
+    atinge todos os destinatarios; trata-lo como endereco morto apagaria a base.
+    """
+    campanha = _campanha(session, usuario, nome="Transitorio", nivel=NivelAutonomia.AUTOMATICO)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    lead = next(x for x in leads if x.email)
+    portas_db.email = _EmailQueFalha("transitoria")
+
+    lote = SendService(session, portas_db).preparar_lote(campanha, [lead], expansao)
+
+    session.refresh(lead)
+    assert lote.mensagens[0].status is StatusMensagem.FALHOU
+    assert lote.interrompido_por_conta is False
+    assert campanha.status is StatusCampanha.RASCUNHO, "transitorio nao pausa"
+    assert lead.status is not StatusLead.DESCARTADO
+    assert not OptOutRepository(session).existe(lead.email.strip().lower(), user_id=usuario.id)
 
 
 # --- Limites e API -----------------------------------------------------------

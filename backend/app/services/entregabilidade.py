@@ -60,6 +60,32 @@ class TipoRetorno(StrEnum):
     RECLAMACAO = "reclamacao"
 
 
+class EscopoFalhaEnvio(StrEnum):
+    """O ESCOPO de uma falha SINCRONA de envio — e o escopo que decide a acao.
+
+    Uma falha sincrona (o provedor recusa a mensagem na hora, antes de aceita-la)
+    NAO e um bounce: a mensagem nunca chegou a sair, entao nao conta na taxa de
+    reputacao. O que ela pede depende de QUEM falhou, e confundir os dois e
+    perigoso:
+
+      * `CONTA` — remetente/conta quebrada (suspensa, MAIL FROM nao verificado,
+        envio pausado). Atinge TODOS os destinatarios. PAUSA a campanha; NAO
+        suprime nem descarta ninguem — suprimir aqui apagaria a base inteira
+        durante uma suspensao de conta.
+      * `DESTINATARIO` — endereco confirmado morto (ja na lista de supressao da
+        conta, de um bounce anterior). Suprime AQUELE contato e descarta o lead,
+        para a cadencia parar de reinsistir num endereco que o provedor cobra
+        caro para tentar.
+      * `TRANSITORIA` — passageiro (throttle, 5xx) ou ambiguo (recusa por
+        conteudo/identidade, que atinge todos). So marca FALHOU: agir seria
+        arriscar supressao em massa por um problema que nao e do destinatario.
+    """
+
+    CONTA = "conta"
+    DESTINATARIO = "destinatario"
+    TRANSITORIA = "transitoria"
+
+
 #: Retornos que suprimem o contato. `transitorio` fica de fora de proposito.
 SUPRIMEM = frozenset({TipoRetorno.PERMANENTE, TipoRetorno.RECLAMACAO})
 
@@ -241,9 +267,74 @@ class ServicoDeEntregabilidade:
             else "endereco invalido: contato suprimido"
         )
 
+        if tipo is TipoRetorno.PERMANENTE:
+            self._descartar_por_endereco_morto(lead)
+
+    # -- falha SINCRONA de envio (o provedor recusou antes de aceitar) --------
+    def suprimir_destinatario_morto(
+        self,
+        *,
+        contato: str,
+        lead: Lead | None,
+        diagnostico: str | None = None,
+    ) -> None:
+        """Endereco confirmado morto numa falha SINCRONA: suprime e descarta.
+
+        Mesma acao de um bounce PERMANENTE assincrono — a cadencia precisa parar
+        de reinsistir —, mas NAO passa pela taxa de reputacao nem marca `retorno`
+        na mensagem: a mensagem nunca foi aceita pelo provedor, entao nao e um
+        "retorno" de algo enviado, e conta-la como bounce inflaria a taxa sobre
+        um denominador que nem existe. A supressao guarda o endereco com origem
+        de bounce permanente, e o lead vai a DESCARTADO.
+        """
+        contato = (contato or "").strip().lower()
+        if not contato:
+            return
+        self.compliance.registrar(
+            contato=contato,
+            user_id=lead.user_id if lead else None,
+            origem=OrigemOptOut.BOUNCE_PERMANENTE,
+            lead=None,
+            motivo=diagnostico or "endereco recusado na entrega (falha sincrona)",
+        )
+        self._descartar_por_endereco_morto(lead)
+        log.info("destinatario_morto_suprimido", contato=contato, casou_com_lead=lead is not None)
+
+    def pausar_por_falha_de_conta(self, campanha: Campaign | None, *, motivo: str) -> bool:
+        """Falha de conta/remetente: PAUSA a campanha, sem tocar em lead nenhum.
+
+        O problema e do remetente (conta suspensa, MAIL FROM nao verificado), nao
+        dos destinatarios: os leads continuam validos para quando a conta voltar.
+        Suprimir aqui apagaria a base inteira. Idempotente: uma campanha ja
+        pausada apenas devolve False.
+        """
+        if campanha is None:
+            return False
+        if not campaign_state.pode_transicionar(campanha.status, StatusCampanha.PAUSADA):
+            return False
+        atual = campanha.status
+        campanha.status = StatusCampanha.PAUSADA
+        self.session.flush()
+        self.audit.registrar(
+            evento=TipoEvento.CAMPANHA_TRANSICAO,
+            entidade_tipo="campanha",
+            entidade_id=campanha.id,
+            dados={
+                "de": atual.value,
+                "para": StatusCampanha.PAUSADA.value,
+                "motivo": motivo,
+            },
+            ator=Ator.SISTEMA,
+            user_id=campanha.user_id,
+        )
+        log.warning("campanha_pausada_por_falha_de_conta", campanha=str(campanha.id), motivo=motivo)
+        return True
+
+    def _descartar_por_endereco_morto(self, lead: Lead | None) -> None:
+        """Endereco morto → lead DESCARTADO. Nao mexe em quem ja saiu da fila
+        (opt-out e terminal; descartado ja parou)."""
         if (
-            tipo is TipoRetorno.PERMANENTE
-            and lead is not None
+            lead is not None
             and lead.status is not StatusLead.OPT_OUT
             and lead.status is not StatusLead.DESCARTADO
         ):

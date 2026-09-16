@@ -26,11 +26,117 @@
 > `personalizacao.py`, `entregabilidade.py`,
 > `backend/app/adapters/real/ses_email.py` e os testes correspondentes.
 
-**Última execução:** 2026-09-13 · adicionado o tradutor de notificação SNS do SES.
+**Última execução:** 2026-09-16 · falha síncrona de envio classificada por escopo (conta pausa, destinatário morto suprime).
 
 ---
 
-## O que foi corrigido nesta execução
+## 2026-09-16 — a falha SÍNCRONA de envio deixou de ser um "FALHOU" mudo
+
+### O que corrigi (com teste)
+
+**Uma recusa síncrona do SES agora tem consequência — e a consequência certa
+para cada tipo de recusa.**
+
+Antes, quando o `send_email` do SES estourava, o `despachar` (em `envio.py`) só
+marcava a mensagem `FALHOU`. O `SendResult.detalhes["permanente"]` que o
+adaptador calculava não era lido por ninguém. Dois danos ficavam soltos:
+
+- **endereço morto continuava na base**: o próximo toque de cadência tentava de
+  novo, e o SES cobra caro por insistir num endereço morto;
+- **e o "permanente" era uma armadilha**: `ERROS_PERMANENTES` misturava falha do
+  **destinatário** (`MessageRejected`) com falha da **conta/remetente**
+  (`AccountSuspendedException`, `MailFromDomainNotVerifiedException`). Agir
+  cegamente sobre ele para suprimir o destinatário **apagaria a base inteira
+  durante uma suspensão de conta**.
+
+A recusa síncrona passou a ser classificada por **escopo do dano**
+(`EscopoFalhaEnvio`, em `entregabilidade.py`), e cada escopo tem a ação oposta:
+
+- **`conta`** (conta suspensa, envio pausado, MAIL FROM não verificado) →
+  **pausa a campanha** e **interrompe a leva** (para não redigir com IA os
+  próximos leads só para falhar igual). **Não** suprime nem descarta ninguém: o
+  problema é do remetente, os leads seguem válidos para quando a conta voltar.
+- **`destinatario`** (endereço na lista de supressão da conta — morto de um
+  bounce anterior) → **suprime aquele contato** (origem `bounce_permanente`) e
+  **descarta o lead**, pelo mesmo efeito de um bounce permanente assíncrono, mas
+  **sem** contar na taxa de reputação: a mensagem nunca foi aceita, não é
+  "retorno" de nada enviado, e contá-la inflaria a taxa sobre um denominador que
+  não existe.
+- **`transitoria`** (throttle, 5xx, ou `MessageRejected` ambíguo por
+  conteúdo/identidade) → só `FALHOU`, como antes.
+
+Isso fecha os itens **1 e 2** da fila "não corrigi" desta área, juntos e de
+propósito: o item 2 (o `MessageRejected` sobrecarregado) **não é opcional** ao
+fazer o item 1. Tratar todo `MessageRejected` como endereço morto viraria
+**supressão em massa** por uma recusa de conteúdo (que atinge todos os
+destinatários) ou pela identidade não verificada do **sandbox** (que atinge todo
+alvo durante o warmup). Por isso um `MessageRejected` só vira `destinatario`
+quando o texto do erro diz explicitamente que veio da **lista de supressão**; na
+dúvida cai em `transitoria`, que não suprime ninguém. O sinal definitivo de
+endereço morto continua sendo o **bounce assíncrono via SNS**, tratado à parte.
+
+`SendService` continua o único caminho de saída, e opt-out continua terminal: a
+supressão por endereço morto **adiciona** bloqueio (nunca abre exceção), e
+`_descartar_por_endereco_morto` se recusa a mexer em lead já `opt_out` ou
+`descartado`.
+
+Onde:
+
+- `adapters/real/ses_email.py` — `classificar_falha_ses`, `ERROS_DE_CONTA`,
+  `_MARCAS_SUPRESSAO`; `detalhes` agora carrega `escopo_falha` (vocabulário
+  neutro de provedor, não o código cru do SES).
+- `entregabilidade.py` — `EscopoFalhaEnvio`, `suprimir_destinatario_morto`,
+  `pausar_por_falha_de_conta`, e o helper `_descartar_por_endereco_morto`
+  extraído e **reusado pelo bounce assíncrono** (uma fonte só para o descarte).
+- `envio.py` — `despachar` chama `_tratar_falha_sincrona`; a leva para em
+  `interrompido_por_conta` (em `preparar_lote` e `processar_pendentes`).
+
+Testes: 8 em `test_fase7_adaptadores_reais.py` (matriz de classificação por
+escopo, incluindo os dois casos-armadilha — conteúdo e sandbox não-verificado —
+e o wiring do `escopo_falha`) e 3 ponta a ponta com banco em
+`test_fase3_abordagem.py` (destinatário morto suprime+descarta; conta
+pausa+interrompe a leva e não toca em lead nem em opt-out; transitório só marca
+FALHOU). Substituído o antigo `test_ses_marca_erro_permanente`, que fixava o
+booleano removido. **397 passed, 3 skipped; `ruff` limpo.**
+
+### O que achei e não corrigi (uma coisa por execução)
+
+1. **`aprovar()` numa conta quebrada pausa a campanha, mas não tem freio para o
+   próximo clique.** A leva (`preparar_lote`/`processar_pendentes`) para na
+   primeira falha de conta, mas `aprovar` (lote=None) só pausa a campanha —
+   `checar_bloqueios` não olha `campanha.status`, então um segundo `aprovar`
+   manual ainda tentaria enviar. Um guardrail "campanha pausada não despacha"
+   fecharia isso, mas muda também o comportamento para campanhas pausadas por
+   **reputação**, então é decisão de desenho. Bom candidato para a próxima
+   execução, com teste.
+2. **A supressão por endereço morto grava o e-mail cru** (igual ao bounce
+   assíncrono). O radar de Compliance (item 5, "eliminação guarda o e-mail cru,
+   não o hash") aponta o mesmo: minimizar para hash exige que a **consulta** de
+   opt-out antes do envio também compare por hash — vive em
+   `repositories/misc.py`, fora do meu escopo. Registrado para casar com aquela
+   mudança quando vier.
+3. **Bounce `Undetermined` → `transitorio` (não suprime).** Escolha conservadora
+   e reversível, herdada da execução anterior; ainda vale confirmar com
+   produto/ops se o volume for alto. Documentado no código.
+
+### O que depende de outros
+
+- **A classificação síncrona já roda em runtime** (`despachar` age sobre
+  `escopo_falha`), diferente do tradutor **assíncrono** de SNS, que continua
+  **testado por contrato mas sem rota que o chame**. Falta, em
+  `api/routes/entregabilidade.py` (não é meu arquivo): aceitar o envelope cru do
+  SNS, verificar a assinatura X.509 do SNS e percorrer `classificar_retorno_ses`.
+  Tudo o que a execução de 2026-09-13 listou embaixo continua valendo.
+- **`checar_bloqueios` ignorar campanha `PAUSADA`** (item 1 acima) tocaria só
+  `envio.py` (meu), mas é decisão de comportamento — anotado, não decido sozinho.
+
+---
+
+_As seções abaixo são o diário da execução de **2026-09-13** (tradutor SNS),
+mantidas como estavam. **Os itens 1 e 2 daquela lista "não corrigi" foram
+resolvidos nesta execução** — ver o topo._
+
+## O que foi corrigido nesta execução (2026-09-13)
 
 **O tradutor de retorno assíncrono do SES (bounce/complaint via SNS) não existia.**
 
@@ -78,7 +184,10 @@ import (`TipoRetorno` é importado sob demanda; anotação via `TYPE_CHECKING`).
 
 ## O que achei e NÃO corrigi (uma coisa por execução)
 
-1. **`SendResult.detalhes["permanente"]` é calculado pelo SES e ninguém lê.**
+> **Itens 1 e 2 abaixo foram RESOLVIDOS em 2026-09-16** — ver a seção do topo.
+> Ficam aqui pelo argumento; não refazer.
+
+1. ✅ **[RESOLVIDO 2026-09-16] `SendResult.detalhes["permanente"]` é calculado pelo SES e ninguém lê.**
    Em `envio.py::despachar`, uma falha **síncrona** de envio só marca a
    mensagem `FALHOU`: não suprime nem descarta. Um endereço morto continua na
    base e o próximo toque de cadência tenta de novo — o SES cobra caro por
@@ -92,11 +201,12 @@ import (`TipoRetorno` é importado sob demanda; anotação via `TYPE_CHECKING`).
    contato; conta/remetente deve **PAUSAR tudo**, não descartar leads. Bom
    candidato para a próxima execução.
 
-2. **`MessageRejected` é sobrecarregado no SES** (endereço na lista de
+2. ✅ **[RESOLVIDO 2026-09-16] `MessageRejected` é sobrecarregado no SES** (endereço na lista de
    supressão da conta vs. conteúdo recusado por política). Se o caminho síncrono
    passar a consumir `permanente`, distinguir o sub-motivo importa — senão uma
    recusa por conteúdo (que atinge todos os destinatários) viraria supressão em
-   massa.
+   massa. *(Feito junto com o item 1: só a marca de "lista de supressão" vira
+   `destinatario`; o resto cai em `transitoria`.)*
 
 3. **Bounce `Undetermined` → tratado como `TRANSITORIO` (não suprime).** É uma
    escolha conservadora e reversível (perde um lead possivelmente bom, mas não

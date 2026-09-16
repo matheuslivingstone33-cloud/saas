@@ -24,6 +24,7 @@ from app.adapters.real.google_places import GooglePlacesAdapter
 from app.adapters.real.ses_email import (
     RetornoSES,
     SESAdapter,
+    classificar_falha_ses,
     classificar_retorno_ses,
     url_de_confirmacao_sns,
 )
@@ -533,8 +534,37 @@ def test_ses_envia_com_list_unsubscribe() -> None:
     assert custo.balde == 1
 
 
-def test_ses_marca_erro_permanente() -> None:
-    erro = Exception("rejeitado")
+@pytest.mark.parametrize(
+    "codigo,mensagem,esperado",
+    [
+        # `MessageRejected` cru e AMBIGUO (conteudo? sandbox? supressao?): na
+        # duvida NAO suprime, senao uma recusa por conteudo — que atinge TODOS
+        # os destinatarios — viraria supressao em massa, um por um.
+        ("MessageRejected", "Email rejected due to content policy", "transitoria"),
+        # Sandbox: identidade nao verificada NAO e endereco morto. Tratar como
+        # destinatario suprimiria todo alvo durante o teste/warmup.
+        ("MessageRejected", "Email address is not verified.", "transitoria"),
+        # So a lista de supressao da conta (bounce anterior) e do destinatario.
+        (
+            "MessageRejected",
+            "The email address is on the account-level suppression list",
+            "destinatario",
+        ),
+        # Conta/remetente: atinge tudo -> PAUSA, nao suprime.
+        ("AccountSuspendedException", "Your account is suspended", "conta"),
+        ("SendingPausedException", "Sending is paused for your account", "conta"),
+        ("MailFromDomainNotVerifiedException", "MAIL FROM domain not verified", "conta"),
+        # Throttle/5xx: passageiro, so tenta de novo depois.
+        ("Throttling", "Maximum sending rate exceeded", "transitoria"),
+    ],
+)
+def test_ses_classifica_falha_sincrona_por_escopo(codigo, mensagem, esperado) -> None:  # noqa: ANN001
+    assert classificar_falha_ses(codigo, mensagem).value == esperado
+
+
+def test_ses_falha_sincrona_expoe_escopo_no_detalhes() -> None:
+    """O SendService le `escopo_falha`, nao o codigo cru do SES."""
+    erro = Exception("The email address is on the account-level suppression list")
     erro.response = {"Error": {"Code": "MessageRejected"}}  # type: ignore[attr-defined]
     sink = MemoryCostSink()
     adaptador = SESAdapter(
@@ -547,7 +577,8 @@ def test_ses_marca_erro_permanente() -> None:
         EmailMessage(para="morto@lead.com.br", assunto="x", corpo_texto="y")
     )
     assert resultado.sucesso is False
-    assert resultado.detalhes["permanente"] is True
+    assert resultado.detalhes["escopo_falha"] == "destinatario"
+    assert resultado.detalhes["codigo"] == "MessageRejected"
 
 
 def test_ses_sem_variavel_falha_alto() -> None:

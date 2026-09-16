@@ -41,12 +41,13 @@ from app.models.enums import (
 from app.models.lead import Lead
 from app.models.message import Message
 from app.models.user import User
-from app.ports.dto import EmailMessage, WhatsAppMessage
+from app.ports.dto import EmailMessage, SendResult, WhatsAppMessage
 from app.repositories.misc import MessageRepository, OptOutRepository, UserRepository
 from app.services.audit import AuditService
 from app.services.cerebro import Expansao
 from app.services.compliance import OptOutService
 from app.services.creditos import CreditService
+from app.services.entregabilidade import EscopoFalhaEnvio, ServicoDeEntregabilidade
 from app.services.leads import LeadService
 from app.services.observador import Observador, emitir
 from app.services.personalizacao import PersonalizationService
@@ -71,6 +72,10 @@ class Lote:
     falhas: int = 0
     bloqueadas: int = 0
     sem_contato: int = 0
+    # Uma falha de CONTA/REMETENTE (conta suspensa, MAIL FROM nao verificado)
+    # atinge todos os envios: a campanha e pausada e a leva para aqui, para nao
+    # queimar geracao de IA disparando contra uma conta quebrada.
+    interrompido_por_conta: bool = False
     motivos_bloqueio: dict[str, int] = field(default_factory=dict)
     mensagens: list[Message] = field(default_factory=list)
 
@@ -111,6 +116,7 @@ class SendService:
         self.compliance = OptOutService(session, self.audit, self.settings)
         self.creditos = CreditService(session, self.audit)
         self.revelacao = ServicoDeRevelacao(session, self.audit, self.creditos)
+        self.entregabilidade = ServicoDeEntregabilidade(session, self.audit, self.settings)
 
     # -- nivel de autonomia ---------------------------------------------------
     def nivel_de(self, campanha: Campaign) -> NivelAutonomia:
@@ -194,6 +200,11 @@ class SendService:
                     empresa=lead.razao_social or lead.nome_fantasia,
                     destinatario=mensagem.destinatario,
                 )
+                # Conta de envio quebrada: para a leva aqui, senao os proximos
+                # leads sao redigidos (custo de IA) so para falhar igual.
+                if lote.interrompido_por_conta:
+                    log.warning("lote_interrompido_por_conta", campanha=str(campanha.id))
+                    break
             else:
                 lote.aguardando_aprovacao += 1
 
@@ -248,6 +259,7 @@ class SendService:
             mensagem.status = StatusMensagem.FALHOU
             if lote is not None:
                 lote.falhas += 1
+            self._tratar_falha_sincrona(mensagem, campanha, lead, resposta, lote)
 
         self.session.flush()
         self._auditar(
@@ -296,6 +308,11 @@ class SendService:
         )
         for mensagem in pendentes:
             self.despachar(mensagem, lote=lote)
+            if lote.interrompido_por_conta:
+                # Conta quebrada: os demais pendentes falhariam igual. Ficam para
+                # a proxima rodada, depois que a campanha pausada for retomada.
+                log.warning("pendentes_interrompidos_por_conta", user=str(user_id))
+                break
         return lote
 
     # -- guardrails -----------------------------------------------------------
@@ -453,6 +470,45 @@ class SendService:
         except SaldoInsuficiente as exc:  # pragma: no cover - defesa
             # A mensagem ja saiu: registramos a divida em vez de perder o evento.
             log.warning("debito_pos_envio_falhou", mensagem=str(mensagem.id), erro=str(exc))
+
+    def _tratar_falha_sincrona(
+        self,
+        mensagem: Message,
+        campanha: Campaign | None,
+        lead: Lead | None,
+        resposta: SendResult,
+        lote: Lote | None,
+    ) -> None:
+        """Uma falha SINCRONA de envio nao pode ser so `FALHOU` no silencio.
+
+        O provedor diz por que recusou, e o escopo do dano decide a acao:
+
+          * conta/remetente quebrada -> PAUSA a campanha (e interrompe a leva,
+            para nao gastar geracao de IA disparando contra uma conta suspensa).
+            NAO suprime ninguem: os leads seguem validos para quando voltar.
+          * endereco morto -> suprime AQUELE contato e descarta o lead, para a
+            cadencia parar de reinsistir num endereco que o provedor cobra caro.
+          * transitorio/ambiguo -> nada alem do FALHOU ja marcado.
+
+        Sem `escopo_falha` (WhatsApp, mock, adaptador antigo) nada muda.
+        """
+        escopo = (resposta.detalhes or {}).get("escopo_falha")
+        if escopo is None:
+            return
+
+        if escopo == EscopoFalhaEnvio.CONTA:
+            # A conta de envio esta quebrada: pausa a campanha (best-effort) e
+            # interrompe a leva. Vale mesmo se a campanha ja estava pausada ou se
+            # nao ha campanha — insistir so falharia de novo e queimaria geracao.
+            motivo = resposta.erro or "falha de conta/remetente no provedor de envio"
+            self.entregabilidade.pausar_por_falha_de_conta(campanha, motivo=motivo)
+            if lote is not None:
+                lote.interrompido_por_conta = True
+        elif escopo == EscopoFalhaEnvio.DESTINATARIO:
+            destino = (mensagem.destinatario or "").strip().lower()
+            self.entregabilidade.suprimir_destinatario_morto(
+                contato=destino, lead=lead, diagnostico=resposta.erro
+            )
 
     def _enviar_pelo_canal(self, mensagem: Message):  # noqa: ANN202
         if mensagem.canal is Canal.WHATSAPP:
