@@ -8,16 +8,22 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-16 · texto das rotinas corrigido; vazamento entre clientes fechado
+**Última atualização:** 2026-09-16 · consolidação: docs reconferidos contra o
+código (398 testes, 13 tabelas), radares reunidos na §0.3, branches órfãs verificadas
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
-**Estado em 31/08/2026:** Etapas 0 a 8 fechadas. **340 testes verdes**,
-`ruff` e `tsc --noEmit` limpos, migrations sobem e descem nos dois dialetos.
-Tudo commitado **e publicado**: `main` == `origin/main`. Nenhuma chave de
-API — o sistema inteiro roda em mock.
+**Estado em 16/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
+integradas ao `main`**. **398 testes verdes** (3 pulados) e `ruff` limpo,
+reconferidos nesta consolidação; migrations sobem e descem nos dois dialetos e
+`tsc --noEmit` estava limpo na última verificação de frontend. Tudo publicado:
+`main` == `origin/main`. Nenhuma chave de API — o sistema inteiro roda em mock.
+
+> Os "340 testes" de 31/08 (Etapas 0–8) viraram 398 com as correções das rotinas
+> de setembro — Places, custo, Motor 4, retenção e o vazamento entre clientes.
+> Contagem reconferida com `pytest` em 16/09.
 
 **O produto agora tem porta.** Desde a Etapa 8 existe cadastro, login e sessão
 por JWT; `X-User-Email` não autentica mais nada. Foi o último bloqueio antes de
@@ -218,6 +224,10 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 | **Fase 7 — ligar provedores reais** | exige chaves e cartão |
 | **Teto de gasto da paginação do Places** | hoje a busca lê só a 1ª página (20 empresas) e ignora `nextPageToken`. Encadear páginas é fácil, mas **cada página é cobrada pelo Google**: quantas páginas por consulta, e quanto uma campanha pode gastar, é preço |
 | **Conferir quem pede um direito do titular** | o formulário público atende na hora, sem confirmar que quem pede é o dono do e-mail — um impostor pode pedir a exclusão dos dados de outra pessoa. Como confirmar (link no e-mail, prazo) é produto e pede **revisão jurídica** |
+| **Falha parcial na descoberta: entregar o que achou ou falhar a rodada?** | a robustez técnica já está feita (uma consulta recusada não derruba a rodada), mas o que o usuário **vê** — leads parciais com aviso, ou "tente de novo" — é UX/produto (radar Descoberta) |
+| **Falso opt-out pelo nosso próprio rodapé citado** | se o lead responde "tenho interesse" citando nossa mensagem, a linha do nosso `/descadastro/` pode ser lida como pedido de saída. A regra do projeto favorece suprimir na dúvida; o radar Conversa recomenda **remover nosso rodapé antes de varrer opt-out** — decisão do Matheus, não da rotina |
+| **Retenção de lead abordado-e-calado e de opt_out** | hoje o expurgo só alcança `descoberto`/`qualificado`/`descartado`; um lead abordado que nunca respondeu, e um que fez opt-out, guardam PII completa para sempre. O que conta como "interação" e o prazo por estado são **produto + revisão jurídica** (radar Compliance) |
+| **Textos públicos de privacidade (cluster jurídico)** | domínio/e-mail do encarregado (hoje `.local`, TLD reservado), identidade do controlador, transferência internacional (LGPD art. 33), contratos de operador (art. 39/DPA) e o prazo único de 15 dias por direito — tudo pede **revisão jurídica** antes da Fase 7 (radar Compliance) |
 
 **Depois que o deploy voltar**, a ordem sugerida:
 
@@ -228,6 +238,126 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
    de e-mail real, então vem depois do item 1.
 3. **WhatsApp como canal** (§9 de `docs/IDEIAS.md`) — a maior, e a que mais
    depende do resto estável.
+
+### Branches fora do `main` (verificadas em 16/09)
+
+`git branch -r` mostra duas `origin/claude/*` com commit fora do `main`. Confirmei
+**por hash de blob** que o conteúdo das duas **já está no `main`** — são fotos
+antigas que o `main` ultrapassou, não trabalho perdido. **Nada a integrar à mão.**
+A limpeza (apagar as branches) é decisão de quem coordena o repositório.
+
+| Branch | Commits fora do `main` | O que é / situação |
+|---|---|---|
+| `origin/claude/friendly-khayyam-bc537d` | `3ea65d1` | A Consolidação de 15/09. O `ARQUITETURA` corrigido e os três achados dela entraram no `main` em 16/09; os arquivos de código na branch são versões **anteriores** às do `main`. **Superada.** |
+| `origin/claude/vibrant-darwin-c61aa0` | `9d94d23`, `573913c`, `b58a790`, `4e7994f` | Três correções de custo + a nota de radar. As três já estão no `main` (Sonnet 5 US$2/10, embedding-input, saída fantasma); o `app/` da branch é igual ou anterior ao `main`. **Superada.** |
+
+Nenhuma `origin/pendente/*`.
+
+---
+
+## 0.3 RADARES CONSOLIDADOS — o que uma rotina achou e depende de outra
+
+> A Consolidação lê os cinco radares (`docs/radar/*.md`) e reúne aqui o que ficou
+> pendente, o que travou e, principalmente, as **dependências cruzadas**: o que
+> uma rotina não corrige porque a peça que falta mora no arquivo de outra. Cada
+> rotina só enxerga o próprio radar — estas ligações só aparecem de fora.
+>
+> Fonte de cada linha entre parênteses. O que virou fila autônoma aponta para a
+> 0.1; o que virou decisão aponta para a 0.2.
+
+### Dependências cruzadas (uma rotina tem a peça, falta a outra)
+
+1. **Retorno do SES até `opt_outs`** *(Envio → dono das rotas)*. O tradutor
+   `classificar_retorno_ses()` e `url_de_confirmacao_sns()` está **pronto e testado
+   por contrato** em `adapters/real/ses_email.py`; falta a rota
+   `/v1/inbound/retorno` aceitar o envelope cru do SNS, **verificar a assinatura
+   X.509 do SNS** (esquema diferente do HMAC que hoje protege a rota), confirmar a
+   inscrição e chamar `registrar` para cada item. Mora em
+   `api/routes/entregabilidade.py`. **= 0.1 item 8.** Risco de compliance junto:
+   sem verificar a assinatura do SNS, um bounce forjado apaga a base de um
+   concorrente com um laço de `curl`.
+
+2. **Link de descadastro no corpo do e-mail** *(Conversa já blindou ↔ Envio vai
+   mexer)*. A rotina Conversa **já protegeu** o dia em que o link sair do cabeçalho
+   para o corpo: a linha que contém `/descadastro/` fica fora da varredura de
+   opt-out. Quem põe o link no corpo é a Personalização (Envio). **Regra invisível
+   para as duas, e que só a Consolidação vê:** rótulo e link têm de ficar na
+   **mesma linha** — senão a blindagem não pega e todo "tenho interesse" que cite
+   nossa mensagem vira opt-out terminal. **= 0.1 item 7.** Compliance aponta o
+   mesmo ("link só no cabeçalho").
+
+3. **Supressão por hash (minimização LGPD)** *(Compliance ↔ Envio/opt-out)*. A
+   eliminação hoje guarda o **e-mail cru** na lista de supressão, contrariando o
+   próprio comentário do código ("guardamos só o hash"). Guardar o hash exige que
+   a **consulta** de opt-out antes do envio (`repositories/misc.py` +
+   `services/envio.py`, área de Envio) também compare por hash. Compliance não
+   fecha sozinha. **[revisão jurídica]**
+
+4. **Prazos do titular sem vigia** *(Compliance ↔ rotas/worker)*. `prazo_resposta`
+   é gravado e **ninguém lê** para saber se um pedido venceu (`correcao` cai em
+   análise e envelhece calada). Compliance pode criar `pendentes()`/`vencidas()`,
+   mas nasceria **código morto** sem rota ou tarefa que chame — o vício que este
+   handoff cobra. Precisa casar com o dono das rotas/worker na mesma leva.
+
+5. **Custo de LLM sem preço cadastrado** *(Custo ↔ `config.py`)*. Custo pôs a rede
+   em `cost.py` (marca `preco_fallback=True` e avisa em `modo="real"`), mas a trava
+   dura — recusar subir com um `llm_model` sem preço na tabela, como já se faz com
+   `JWT_SECRET` — mora na validação de startup em `config.py`, fora do escopo de
+   Custo.
+
+### Radar que já não bate com o código
+
+- **Compliance, item 2 (🔴 `/solicitacoes` não filtra por tenant)**: o radar de
+  Compliance ainda lista este item como aberto e, na execução de 16/09, o chama
+  de "trava de verdade" para a Fase 7. **Já está corrigido no `main`** — a rota
+  filtra por `user_id` **ou** contato dos leads do cliente (commit `d82d247`, =
+  0.1 item 9, conferido em `api/routes/compliance.py:210-239`). Dos dois 🔴 que o
+  radar destaca, **só o item 1 (verificação de identidade do titular) segue
+  aberto** — esse está na 0.2. Não trate o item 2 como pendência.
+
+### Código pronto sem quem o chame
+
+- **Expurgo por retenção não roda** *(Compliance aponta ↔ worker)*. `executar_retencao()`
+  existe em `workers/tasks.py` e **nada o agenda** (reconferido 16/09: nenhuma
+  chamada, nenhum agendamento, embora o worker suba com `with_scheduler=True`).
+  **= 0.1 item 5.** A Política de Privacidade §7 e o docstring dizem que o expurgo
+  "roda automaticamente" — **texto público prometendo o que o sistema não faz**. O
+  radar Compliance recomenda **fazer rodar**, não enfraquecer o texto; enquanto
+  isso, a salvaguarda de retenção da LIA fica parcialmente aspiracional.
+
+### Achados técnicos ainda abertos (uma rotina só, sem decisão de fora)
+
+- **Descoberta**: `includedType` inválido derruba a consulta inteira (400 do
+  Places) — precisa da lista de tipos válidos da Google. Dedup enfraquece para
+  resultado sem `id` (trade-off de qualidade, sem crash desde 16/09). Nomes sujos
+  degradam o match na Receita (medir antes de mexer).
+- **Envio**: falha síncrona permanente ainda não suprime nem descarta o
+  destinatário. **Landmine:** `ERROS_PERMANENTES` mistura falha do destinatário
+  com suspensão de conta; agir cego apagaria a base inteira durante uma suspensão.
+  Separar os dois antes de mexer (destinatário suprime aquele contato;
+  conta/remetente **pausa tudo**).
+- **Conversa**: assinatura/rodapé corporativo e bottom-posting ainda degradam a
+  classificação de negócio (baixo risco — o opt-out segue varrendo o texto inteiro).
+
+### Bloqueado até a Fase 7 (depende do formato do payload real)
+
+- **Conversa**: HTML e quoted-printable não são decodificados, e a auto-resposta
+  por cabeçalho (`Auto-Submitted`, `Precedence: bulk`) não chega ao corpo. Trava
+  em (a) decidir onde decodificar e (b) o webhook repassar cabeçalhos selecionados
+  — mexe em `api/routes/conversas.py` + DTO, fora dos arquivos da Conversa. Sem a
+  definição do payload real, não fecha.
+- **Custo/Compliance**: a revalidação dos preços de dados (Places/SES/WhatsApp) e
+  os contratos de operador (DPA) só fecham com provedor real.
+
+### Radar de deploy registrado, mas sem arquivo
+
+O `docs/radar/README.md` passou a listar `deploy.md` e `docs/COLOCAR-NO-AR.md`
+(commit `948330a`), mas **nenhum dos dois existe** — o commit só acrescentou a
+linha na tabela. A rotina "Preparação para Colocar no Ar" reservou o lugar e ainda
+não escreveu nada; se ela já rodou, o resultado não chegou ao `main`. Enquanto o
+arquivo não existir, os achados dessa rotina ficam invisíveis para esta
+consolidação. (Os dois arquivos moram em `docs/radar/`/`docs/`, que **não** são
+meus para criar — só registro a lacuna.)
 
 ---
 
@@ -350,7 +480,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**340 testes verdes · lint limpo.**
+**398 testes verdes (3 pulados) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 

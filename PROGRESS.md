@@ -15,9 +15,11 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta máquina:** 290 testes verdes · `ruff` limpo · migrations
-`upgrade head` / `downgrade base` ok · frontend `npm run build` ok · fluxo
-completo exercitado pela interface no navegador.
+**Verificado nesta máquina:** 398 testes verdes (3 pulados) · `ruff` limpo —
+reconferidos na consolidação de 16/09 · migrations `upgrade head` /
+`downgrade base` ok · frontend `npm run build` ok · fluxo completo exercitado
+pela interface no navegador (estes três da última verificação com código, sem
+mudança no `main` desde então).
 
 ---
 
@@ -25,9 +27,11 @@ completo exercitado pela interface no navegador.
 
 - `docker-compose.yml` (postgres+pgvector, redis, backend, worker, frontend),
   Dockerfiles multi-stage, usuário não-root, `HEALTHCHECK`, sem segredo em imagem.
-- 12 tabelas com enums, índices de dedup, soft-delete, `provenance` e
-  `embedding` (pgvector 384d). Migration `0001` cria a extensão, os índices HNSW
-  e a trigger de imutabilidade do `audit_logs`.
+- 10 tabelas na fundação (hoje são **13** no total — `score_weights`,
+  `privacy_requests` e `ramo_weights` entraram depois, nas migrations 0002, 0003
+  e 0010) com enums, índices de dedup, soft-delete, `provenance` e `embedding`
+  (pgvector 384d). Migration `0001` cria a extensão, os índices HNSW e a trigger
+  de imutabilidade do `audit_logs`.
 - 7 portas com DTOs + mocks determinísticos + registry por env.
 - `HttpClient` central: timeout, retry com backoff, rate limit, circuit breaker,
   idempotência, `cost_event` e **bloqueio total de rede em modo mock**.
