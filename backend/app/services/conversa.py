@@ -212,6 +212,24 @@ _RE_SEPARADOR = re.compile(
 _RE_REGUA = re.compile(r"^\s*_{5,}\s*$")  # a regua de sublinhados do Outlook
 _FIM_ATRIBUICAO = ("escreveu:", "wrote:")
 
+#: Bloco de cabecalho que o Outlook (e alguns webmails) intercala antes do
+#: historico citado, SEM a regua de sublinhados e SEM prefixo `>`:
+#:
+#:     De: Fulano <fulano@x.com>
+#:     Enviada em: terca-feira, 9 de setembro de 2026 10:15
+#:     Para: voce@exemplo.com
+#:     Assunto: RE: proposta
+#:
+#: So os rotulos conhecidos de e-mail contam. Com um deles solto uma resposta de
+#: verdade poderia comecar com "Assunto: ..." — por isso o corte so vale com DUAS
+#: linhas de cabecalho SEGUIDAS. E "De acordo, ..." nao vira fronteira porque nao
+#: ha ":" logo depois de "De".
+_RE_CABECALHO_ENCAMINHADO = re.compile(
+    r"^\s*(?:de|para|assunto|data|cc|cco|bcc|enviad[ao](?:\s+em)?"
+    r"|responder(?:\s+(?:a|para))?|from|to|subject|sent|date|reply-to)\s*:",
+    re.IGNORECASE,
+)
+
 
 def _e_fronteira_de_citacao(linha: str) -> bool:
     baixo = linha.strip().lower()
@@ -224,14 +242,22 @@ def _e_fronteira_de_citacao(linha: str) -> bool:
     return False
 
 
+def _abre_bloco_encaminhado(linhas: list[str], i: int) -> bool:
+    """Duas linhas de cabecalho de e-mail seguidas abrem o historico citado."""
+    if not _RE_CABECALHO_ENCAMINHADO.match(linhas[i]):
+        return False
+    return i + 1 < len(linhas) and bool(_RE_CABECALHO_ENCAMINHADO.match(linhas[i + 1]))
+
+
 def remover_historico_citado(texto: str) -> str:
     """Devolve so a RESPOSTA NOVA, cortando o historico citado que vem colado.
 
     E-mail de verdade nao chega limpo como o mock: a resposta vem em cima de
     tudo o que ja foi trocado — a mensagem anterior citada com `>`, a linha
-    "Em <data>, Fulano escreveu:", o "-----Mensagem original-----". Classificar
-    a intencao de negocio sobre esse bolo faz um "nao tenho interesse" antigo
-    descartar um "sim" recem-escrito.
+    "Em <data>, Fulano escreveu:", o "-----Mensagem original-----", ou o bloco
+    de cabecalho "De:/Enviada em:/Para:/Assunto:" que o Outlook intercala.
+    Classificar a intencao de negocio sobre esse bolo faz um "nao tenho
+    interesse" antigo descartar um "sim" recem-escrito.
 
     O corte e CONSERVADOR: so acontece numa fronteira inequivoca, e tudo o que
     esta ACIMA dela e preservado. Sem fronteira, o texto volta inteiro. Assim o
@@ -242,7 +268,7 @@ def remover_historico_citado(texto: str) -> str:
         return texto
     linhas = texto.splitlines()
     for i, linha in enumerate(linhas):
-        if _e_fronteira_de_citacao(linha):
+        if _e_fronteira_de_citacao(linha) or _abre_bloco_encaminhado(linhas, i):
             return "\n".join(linhas[:i]).strip()
     return texto
 

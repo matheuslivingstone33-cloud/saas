@@ -137,6 +137,52 @@ def test_remover_historico_citado_corta_o_que_veio_antes(corpo: str) -> None:
     assert "interesse" not in novo, "o historico citado nao pode sobrar na resposta nova"
 
 
+# --- Bloco de cabecalho do Outlook (De:/Para:/Assunto:) ----------------------
+def test_remover_historico_citado_corta_bloco_encaminhado_sem_regua() -> None:
+    """Outlook intercala De:/Para:/Assunto: SEM a regua de sublinhados e sem ">".
+
+    Sem reconhecer esse bloco, o historico embaixo dele volta como "resposta
+    nova" e um "nao tenho interesse" antigo contamina a intencao de negocio.
+    """
+    corpo = (
+        "Vamos marcar!\n\n"
+        "De: Fulano <fulano@exemplo.com>\n"
+        "Para: voce@exemplo.com\n"
+        "Assunto: RE: proposta\n\n"
+        "nao tenho interesse"
+    )
+    novo = remover_historico_citado(corpo).lower()
+    assert "vamos marcar" in novo
+    assert "interesse" not in novo, "o cabecalho encaminhado tem que cortar o historico"
+
+
+def test_bloco_encaminhado_do_outlook_nao_descarta_lead_que_disse_sim() -> None:
+    """Um "nao tenho interesse" citado sob o bloco De:/Para: nao pode virar recusa.
+
+    E o cenario 1 do objetivo com o formato do Outlook: sem a regua e sem ">",
+    a resposta nova ("tenho interesse") tem que ganhar do historico citado.
+    """
+    corpo = (
+        "Perfeito, tenho interesse! Podemos conversar esta semana.\n\n"
+        "De: Prospector AI <contato@exemplo.com>\n"
+        "Enviada em: terca-feira, 9 de setembro de 2026 10:15\n"
+        "Para: gerencia@brisamarhotel.com.br\n"
+        "Assunto: RE: manutencao de ar-condicionado\n\n"
+        "Ola, equipe. No mes passado voces responderam: nao tenho interesse, obrigado."
+    )
+    assert classificar_por_sinal(corpo) is Intencao.INTERESSE
+
+
+def test_bloco_encaminhado_exige_duas_linhas_e_nao_corta_resposta_comum() -> None:
+    """O corte e conservador: uma linha isolada nao abre bloco.
+
+    "De acordo, ..." nem casa (nao ha ":" depois de "De"), e um unico
+    "Assunto: ..." dentro de uma resposta de verdade nao pode engolir o texto.
+    """
+    corpo = "De acordo, podemos conversar.\nAssunto: o contrato que voce mandou."
+    assert remover_historico_citado(corpo) == corpo
+
+
 # --- Texto real: a citacao nao pode contaminar a intencao --------------------
 def test_recusa_citada_nao_descarta_lead_que_disse_sim() -> None:
     """Um "nao tenho interesse" citado de uma troca antiga nao pode virar recusa.
