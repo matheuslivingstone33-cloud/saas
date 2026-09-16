@@ -80,3 +80,47 @@ def test_embedding_com_saida_zero_nao_infla_o_balde_de_ia() -> None:
     )
     entrada = next(e for e in sink.eventos if e.operacao == "embutir.input")
     assert sink.total_micros(Balde.IA) == entrada.valor_micros
+
+
+def test_modelo_real_sem_preco_e_marcado_como_estimativa() -> None:
+    """Modelo real sem preco na tabela NAO some do painel: cai no preco-espelho
+    do mock, mas o evento fica MARCADO como estimativa.
+
+    A chamada externa ja aconteceu quando o custo e registrado — abortar aqui
+    seria gastar sem registrar. O meio-termo honesto: registrar com o unico
+    preco conhecido (o mock, espelho do Opus 5) e sinalizar `preco_fallback`,
+    para a margem distinguir um custo estimado por falta de tabela de um custo
+    ao preco real do modelo. Sem a marca, um modelo mais barato apareceria
+    custando como Opus e a margem mentiria em silencio na Fase 7.
+    """
+    rec, sink = _recorder()
+    eventos = rec.registrar_llm(
+        provedor="llm",
+        modelo="claude-modelo-novo-sem-preco",
+        operacao="email_abordagem",
+        tokens_entrada=100,
+        tokens_saida=50,
+        modo="real",
+    )
+
+    assert len(eventos) == 2
+    assert all(e.metadados and e.metadados.get("preco_fallback") for e in eventos)
+    assert all(e.chave_preco.startswith("llm.mock.") for e in eventos)
+    # E continua sempre no balde de IA, nunca fora dele.
+    assert all(e.balde == int(Balde.IA) for e in eventos)
+
+
+def test_modelo_com_preco_cadastrado_nao_marca_fallback() -> None:
+    """O caminho normal (modelo com preco) nao carrega a marca de estimativa."""
+    rec, sink = _recorder()
+    eventos = rec.registrar_llm(
+        provedor="llm",
+        modelo="claude-opus-5",
+        operacao="email_abordagem",
+        tokens_entrada=100,
+        tokens_saida=50,
+        modo="real",
+    )
+
+    assert all(not (e.metadados or {}).get("preco_fallback") for e in eventos)
+    assert all(not e.chave_preco.startswith("llm.mock.") for e in eventos)

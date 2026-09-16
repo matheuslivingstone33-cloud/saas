@@ -64,9 +64,70 @@ class DbCostSink:
 
 
 def chave_llm(modelo: str, tipo: str) -> str:
-    """Chave de preco do LLM, com fallback para o modelo mock."""
+    """Chave de preco do LLM, com fallback para o preco-espelho do mock.
+
+    O fallback serve ao adaptador mock (modelo="mock", ja cadastrado). Um modelo
+    REAL que caia nele esta sem preco na tabela — quem monta o evento
+    (`_spec_llm`) marca a estimativa e avisa. Mantida por compatibilidade.
+    """
+    return _resolver_llm(modelo, tipo)[0]
+
+
+def _resolver_llm(modelo: str, tipo: str) -> tuple[str, bool]:
+    """(chave_de_preco, usou_fallback).
+
+    `usou_fallback=True` quando o modelo nao tem preco cadastrado e o custo passa
+    a sair do preco-espelho do mock (Opus 5). Isso preserva "nada gasta sem
+    registrar" — a chamada externa ja aconteceu, registrar com o preco conhecido
+    e melhor que perder o evento —, mas o valor deixa de refletir o modelo real:
+    para um modelo mais barato, apareceria caro como Opus.
+    """
     chave = f"llm.{modelo}.{tipo}"
-    return chave if chave in PRECOS else f"llm.mock.{tipo}"
+    if chave in PRECOS:
+        return chave, False
+    return f"llm.mock.{tipo}", True
+
+
+def _spec_llm(
+    *,
+    provedor: str,
+    operacao: str,
+    modelo: str,
+    tipo: str,
+    modo: str,
+    tokens_entrada: int = 0,
+    tokens_saida: int = 0,
+    lead_id: uuid.UUID | None = None,
+) -> CostSpec:
+    """Monta o `CostSpec` de um evento de LLM, sinalizando preco estimado.
+
+    Sem preco cadastrado para o modelo, o valor sai do mock (espelho do Opus 5)
+    e o evento carrega `preco_fallback=True`, para o painel de margem distinguir
+    um custo estimado por falta de tabela de um custo ao preco real do modelo.
+    Em modo real isso e erro de configuracao: alem de marcar, avisamos no log,
+    porque preco errado distorce a margem em silencio.
+    """
+    chave, fallback = _resolver_llm(modelo, tipo)
+    metadados: dict = {"modelo": modelo}
+    if fallback:
+        metadados["preco_fallback"] = True
+        if modo == "real":
+            log.warning(
+                "preco_llm_sem_cadastro",
+                modelo=modelo,
+                tipo=tipo,
+                chave_ausente=f"llm.{modelo}.{tipo}",
+                modo=modo,
+            )
+    return CostSpec(
+        provedor=provedor,
+        operacao=operacao,
+        chave_preco=chave,
+        tokens_entrada=tokens_entrada,
+        tokens_saida=tokens_saida,
+        lead_id=lead_id,
+        metadados=metadados,
+    )
 
 
 class CostRecorder:
@@ -172,13 +233,14 @@ class CostRecorder:
         """
         eventos = [
             self.registrar(
-                CostSpec(
+                _spec_llm(
                     provedor=provedor,
                     operacao=f"{operacao}.input",
-                    chave_preco=chave_llm(modelo, "input"),
+                    modelo=modelo,
+                    tipo="input",
+                    modo=modo,
                     tokens_entrada=tokens_entrada,
                     lead_id=lead_id,
-                    metadados={"modelo": modelo},
                 ),
                 modo=modo,
                 request_id=request_id,
@@ -188,13 +250,14 @@ class CostRecorder:
         if tokens_saida > 0:
             eventos.append(
                 self.registrar(
-                    CostSpec(
+                    _spec_llm(
                         provedor=provedor,
                         operacao=f"{operacao}.output",
-                        chave_preco=chave_llm(modelo, "output"),
+                        modelo=modelo,
+                        tipo="output",
+                        modo=modo,
                         tokens_saida=tokens_saida,
                         lead_id=lead_id,
-                        metadados={"modelo": modelo},
                     ),
                     modo=modo,
                     request_id=request_id,

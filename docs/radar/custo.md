@@ -164,3 +164,70 @@ integrar isto, não recriar em branch nova.
 - **Baldes derivados centralmente.** `cost.py` grava `balde` a partir da chave de
   preço, não de quem chama — impossível um custo cair no balde errado por
   descuido do adaptador. `test_baldes_nunca_se_misturam` fixa a partição.
+
+---
+
+## 2026-09-16 — preço de LLM sem cadastro deixa de mentir calado
+
+### Corrigido
+- **Modelo de LLM sem preço na tabela caía, em silêncio, no preço-espelho do
+  mock (Opus 5, US$5/US$25) — e a margem passaria a mentir na Fase 7.**
+  `cost.py::chave_llm` tinha fallback `llm.{modelo}.{tipo}` → `llm.mock.{tipo}`
+  sem aviso nem marca. **Hoje não é bug ativo** (o padrão `claude-opus-5` está
+  cadastrado, e Sonnet 5 e Haiku 4.5 também), mas quando um provedor real usar
+  um modelo ainda não cadastrado, o custo apareceria com o preço do Opus: para
+  um modelo mais barato, caro demais; margem pior que a real, escondida num
+  número que ninguém questiona.
+  - **Por que NÃO levantar erro:** o registro de custo acontece **depois** da
+    chamada externa. Abortar ali seria gastar no provedor e não registrar —
+    exatamente o inverso que este radar existe para impedir. O meio-termo:
+    registrar com o único preço conhecido (mock) e **marcar** o evento.
+  - **Correção:** o evento de LLM sem preço cadastrado passa a carregar
+    `metadados.preco_fallback=True`, e em `modo="real"` o `cost.py` emite
+    `log.warning("preco_llm_sem_cadastro", ...)`. O caminho normal (modelo
+    cadastrado) segue **idêntico** — mesma chave, mesmos metadados
+    `{"modelo": ...}`, mesmo valor. Só-refatoração: `chave_llm` delega a
+    `_resolver_llm` (devolve chave + se houve fallback) e `registrar_llm` monta
+    os specs por `_spec_llm`.
+  - **Testes:** `tests/unit/test_cost.py` (novos) — modelo real sem preço gera 2
+    eventos marcados `preco_fallback`, com chave `llm.mock.*`, sempre no balde 2;
+    modelo com preço **não** marca. `pytest` 391 passed / 3 skipped, `ruff` limpo.
+
+### Verificado e OK (sem ação) — tabela conferida contra a fonte oficial nesta execução
+- **Os preços de LLM estão corretos e atuais.** Conferi Opus 5 (US$5/US$25 por
+  1M), Sonnet 5 (US$2/US$10) e Haiku 4.5 (US$1/US$5) contra a tabela oficial da
+  Anthropic (skill `claude-api`, cache 2026-06-24). **Batem exatamente.** O
+  alerta da execução anterior — "Opus a US$5/US$25 parece baixo demais vs. o
+  tier histórico US$15/US$75" — era **falso alarme**: a tabela oficial confirma
+  US$5/US$25 para o Opus 5. Não há mais dúvida de preço de LLM em aberto.
+- **Os três consertos do bloco ESTADO INTEGRADO já estão no `main`** (taxa em
+  float, Sonnet 5 US$2/US$10, embedding sem saída fantasma) — confirmados no
+  código, não refeitos.
+- **Eixo de cobrança = contato revelado.** Reconferido: `lead_qualificado=0`,
+  `contato_revelado=1` conta no teto do mês, `revelar()` idempotente,
+  `mensagem_enviada` não mexe no teto. Nada voltou a cobrar por descoberta.
+
+### Achado e NÃO corrigido (fica para outro dono)
+- **A raiz é de configuração, não de registro.** O lugar certo de **falhar
+  fechado** por modelo sem preço é a validação de startup (recusar subir com
+  `llm_model` sem preço na tabela), como já se faz com `JWT_SECRET`. Isso mora
+  em `config.py`, **fora do meu escopo** (só toco os cinco arquivos de custo +
+  testes). A marca + o aviso que adicionei são a rede em `cost.py`; a trava dura
+  seria no boot.
+- **Preços de dados seguem "revalidar F7".** Places, SES e WhatsApp são
+  estimativas de tabela pública — não invento valor de provedor. A reconciliação
+  (estimado × faturado) já está prevista no smoke test de cada provedor na virada.
+
+### Depende de outros / decisão humana
+- **Integração ao `main`** — este commit precisa chegar ao `main` (rebase + push
+  desta execução). Enquanto branches `claude/*` não integram, o `main` repete
+  trabalho.
+- **`settings.usd_brl` fixo** (`config.py`, fora do escopo) — câmbio velho =
+  margem BRL errada. Em produção precisa vir de fonte real.
+- **Registro de custo dos provedores reais** mora nos adaptadores
+  (`adapters/*`, `http_client.py`, fora do escopo). Meu domínio garante que,
+  **dado** um evento, ele cai no balde certo, é precificado certo (ou marcado
+  como estimativa) e não fabrica custo; garantir que **todo** provedor emita o
+  evento é dos adaptadores.
+- **Fase 7 (chaves + cartão)** — item de "PRECISA DE VOCÊ" (HANDOFF §0.2). A
+  revalidação dos preços de dados fecha depois disso.
