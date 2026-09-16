@@ -496,8 +496,18 @@ class PrivacyService:
             .scalars()
             .all()
         )
+        # Mensagens dos dois lados. Numa mensagem de ENTRADA (a resposta do lead)
+        # o titular esta no `remetente`, nao no `destinatario` — que ali somos nos
+        # (ver models/message.py). Buscar so por `destinatario` devolvia o que
+        # enviamos AO titular, mas escondia a resposta que ele nos enviou, que e
+        # dado pessoal dele. O direito de acesso (art. 18, II) exige os dois lados
+        # — a mesma assimetria que a retencao ja trata ao mascarar o `remetente`.
         mensagens = (
-            self.session.execute(select(Message).where(Message.destinatario == contato))
+            self.session.execute(
+                select(Message).where(
+                    or_(Message.destinatario == contato, Message.remetente == contato)
+                )
+            )
             .scalars()
             .all()
         )
@@ -518,6 +528,7 @@ class PrivacyService:
                 {
                     "id": str(m.id),
                     "canal": m.canal.value,
+                    "direcao": m.direcao.value,
                     "status": m.status.value,
                     "enviado_em": m.enviado_em.isoformat() if m.enviado_em else None,
                 }

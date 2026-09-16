@@ -34,7 +34,57 @@
 > marcado **[revisão jurídica]**; o que é decisão de produto/negócio está
 > marcado **[decisão de produto]**. Esses não devem ser tratados como resolvidos.
 
-**Última execução:** 2026-09-15
+**Última execução:** 2026-09-16
+
+---
+
+## Execução 2026-09-16
+
+> Parti de `origin/main` (`9ee521e`). O risco de processo que abria este radar
+> — trabalho parado em branches órfãs — **está resolvido**: o `HANDOFF` §0
+> confirma que a consolidação de 15/09 foi integrada e o `main` já carrega as
+> quatro correções de retenção (expurgo audita e não reconta, mascara o
+> remetente, alcança as `privacy_requests`, expurga o assunto). Não refiz nada
+> disso. A seção "⚠️ ANTES DE TUDO" abaixo fica como registro histórico.
+
+### O que corrigi (com teste)
+
+**O relatório de acesso do titular não trazia as respostas que o próprio titular
+enviou.** `services/compliance.py` · `PrivacyService.relatorio`
+
+O direito de acesso (art. 18, II) tem que devolver **todo** dado pessoal que
+guardamos sobre o titular. Mas `relatorio()` buscava mensagens só por
+`Message.destinatario == contato` — e numa mensagem de **entrada** (a resposta
+do lead) o titular está no `remetente`, não no `destinatario`, que ali somos nós
+(confirmado em `models/message.py:52-56`). Resultado: o relatório mostrava o que
+**enviamos ao** titular, mas escondia a resposta que o titular **enviou a nós** —
+o texto que ele escreveu e o endereço de onde respondeu, que são dado pessoal
+dele. É a mesma assimetria que a retenção já reconheceu ao mascarar o
+`remetente`; aqui era o direito de acesso que só enxergava um lado.
+
+Agora a busca cobre os dois lados (`destinatario` **ou** `remetente`) e cada
+mensagem do relatório passa a trazer o campo `direcao`, para a lista mista ficar
+legível (o que saiu para o titular vs. o que veio dele). Teste novo
+`test_acesso_inclui_a_resposta_enviada_pelo_titular` — falha antes (a resposta
+de entrada não constava) e passa depois. `pytest` (396 passed, 3 skipped) e
+`ruff` verdes.
+
+### O que achei e NÃO corrigi
+
+Nada novo além do que já está na fila abaixo. Reconferi a fila: os itens 1–10
+seguem válidos e nenhum coincide com esta correção (o buraco do `relatorio` não
+estava mapeado). A correção de hoje **não** resolve o item 5 (eliminação guarda
+e-mail cru, não hash): são coisas diferentes — uma é o que o acesso **lê**, a
+outra é o que a eliminação **grava**.
+
+### O que depende de outra rotina ou de decisão humana
+
+Sem novas dependências criadas por esta correção — ela vive inteira em
+`compliance.py`. As dependências pendentes continuam as da tabela ao fim deste
+radar (rotas, worker, opt-out/envio, domínio real). Destaque do que **trava de
+verdade** para o dia da Fase 7: itens 🔴 1 e 2 (verificação de identidade do
+titular e filtro de tenant em `/solicitacoes`), ambos em
+`api/routes/compliance.py`, fora do meu escopo.
 
 ---
 

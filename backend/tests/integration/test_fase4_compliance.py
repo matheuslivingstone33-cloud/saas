@@ -214,6 +214,49 @@ def test_acesso_devolve_o_que_temos(session, usuario, portas_db) -> None:
     assert resultado["leads"][0]["proveniencia"], "e de saber de onde veio o dado"
 
 
+def test_acesso_inclui_a_resposta_enviada_pelo_titular(session, usuario) -> None:
+    """O relatorio de acesso (art. 18, II) tem que trazer TODO dado do titular —
+    inclusive as respostas que ele mesmo enviou.
+
+    Numa mensagem de ENTRADA o titular esta no `remetente`, nao no
+    `destinatario` (ver models/message.py). Buscar so por `destinatario` trazia
+    a mensagem que enviamos AO titular, mas deixava de fora a resposta que o
+    titular enviou A NOS — que e dado pessoal dele (o texto que escreveu e o
+    endereco de onde respondeu). E a mesma assimetria que a retencao ja
+    reconheceu ao mascarar o `remetente`; aqui e o direito de acesso que
+    precisa enxergar os dois lados.
+    """
+    from app.models.enums import Canal, Direcao, StatusMensagem
+
+    contato = "titular-respondeu@empresa.com.br"
+    saida = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.SAIDA,
+        status=StatusMensagem.ENVIADA,
+        destinatario=contato,
+        remetente="prospector@nosso-dominio.com.br",
+        corpo="Ola, temos uma oferta para a sua empresa...",
+    )
+    entrada = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.ENTRADA,
+        status=StatusMensagem.RESPONDIDA,
+        remetente=contato,
+        destinatario="prospector@nosso-dominio.com.br",
+        corpo="Tenho interesse, pode me ligar.",
+    )
+    session.add_all([saida, entrada])
+    session.flush()
+
+    relatorio = PrivacyService(session).relatorio(contato)
+    por_id = {m["id"]: m for m in relatorio["mensagens"]}
+    assert str(saida.id) in por_id, "a mensagem enviada ao titular deve constar"
+    assert str(entrada.id) in por_id, "a resposta enviada PELO titular tambem deve constar"
+    assert por_id[str(entrada.id)]["direcao"] == Direcao.ENTRADA.value
+
+
 def test_eliminacao_anonimiza_mas_mantem_supressao(session, usuario, portas_db) -> None:
     campanha = _rodar(session, usuario, portas_db, nome="Eliminacao")
     lead = session.execute(
