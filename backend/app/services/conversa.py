@@ -25,6 +25,7 @@ resposta de verdade e o lead nem leu a mensagem ainda.
 
 from __future__ import annotations
 
+import quopri
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -286,6 +287,35 @@ def remover_historico_citado(texto: str) -> str:
 _RE_LINHA_DO_NOSSO_LINK = re.compile(r"^.*/descadastro/.*$", re.IGNORECASE | re.MULTILINE)
 
 
+#: Assinatura do quoted-printable: um "=" seguido de dois hex (`=C3`) ou de
+#: quebra de linha (soft break). Texto comum quase nunca traz isso — "custo = 4"
+#: tem espaco depois do "=" e nao casa.
+_PARECE_QP = re.compile(r"=(?:[0-9A-Fa-f]{2}|\r?\n)")
+
+
+def decodificar_quoted_printable(texto: str) -> str:
+    """Decodifica corpo em quoted-printable para texto legivel.
+
+    E aqui que mora o pior caso do e-mail real: um opt-out que o classificador
+    NAO ve. O provedor manda "nao" como `n=C3=A3o` e quebra palavra longa com
+    soft break (`desca=\\ndastrar`), entao "descadastr"/"nao quero receber" nao
+    casam com marca nenhuma — e a pessoa que pediu para sair continua
+    recebendo.
+
+    So decodifica quando o texto TEM cara de QP, e volta ao original se algo
+    der errado: normalizar de menos e melhor do que corromper resposta comum.
+    """
+    if not texto or not _PARECE_QP.search(texto):
+        return texto
+    try:
+        # QP legitimo e ASCII (o nao-ASCII vira `=XX`); surrogateescape so
+        # protege contra bytes estranhos que tenham escapado ate aqui.
+        bruto = quopri.decodestring(texto.encode("utf-8", "surrogateescape"))
+        return bruto.decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 — decodificacao best-effort, nunca fatal
+        return texto
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -300,7 +330,11 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
     O ESCOPO tambem importa. Opt-out e procurado no texto inteiro (ver
     `_SOBRE_TEXTO_INTEIRO`); os demais sinais, so na resposta nova, para que o
     historico citado nao vote na intencao de negocio.
+
+    O corpo e decodificado ANTES de tudo: em quoted-printable a quebra suave
+    (`=\\n`) parte palavras, a linha do nosso link e as marcas de citacao.
     """
+    texto = decodificar_quoted_printable(texto)
     inteiro = _normalizar(_RE_LINHA_DO_NOSSO_LINK.sub("", texto or ""))
     if not inteiro:
         return None
@@ -725,6 +759,7 @@ class ServicoDeConversa:
         # sobre o historico citado colado embaixo. O opt-out ja foi procurado no
         # texto inteiro em `classificar_por_sinal` acima, entao estreitar o
         # escopo aqui nao arrisca perder um pedido de saida.
+        texto = decodificar_quoted_printable(texto)
         novo = remover_historico_citado(texto) or texto
         resposta = self.portas.llm.completar(
             LLMRequest(

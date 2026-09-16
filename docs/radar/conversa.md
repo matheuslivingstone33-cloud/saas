@@ -11,7 +11,10 @@
 > - A mesma correção fecha um defeito que estava no `main` e nenhuma versão registrou: a nossa declaração termina com *"Responda a este e-mail para falar com uma pessoa"*, e lida inteira fazia **toda** resposta virar `pedido_humano`. Há teste agora.
 > - **Proteção nova:** linha que contém o nosso link `/descadastro/` não entra na varredura de opt-out. Sem ela, no dia em que o link for para o corpo do e-mail, todo "tenho interesse" respondido por cima de uma mensagem nossa viraria opt-out. Rótulo e link devem ficar na mesma linha.
 >
-> O que vem abaixo é o diário da execução de 14/09, mantido como estava.
+> - **Quoted-printable decodificado — integrado em 16/09** (versão de 15/09, `f8116f2`, adaptada ao `main`). `decodificar_quoted_printable()` roda no começo de `classificar_por_sinal` e antes do LLM, então `n=C3=A3o me envie` e `desca=
+dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** também sai da varredura, porque a linha é remontada antes. **Falta ainda o corpo em HTML** (tags e entidades como `n&atilde;o`) — esse é o próximo do item 1 abaixo.
+>
+> O que vem abaixo é o diário das execuções, mantido como estava.
 
 ---
 

@@ -29,6 +29,7 @@ from app.services.conversa import (
     Intencao,
     ServicoDeConversa,
     classificar_por_sinal,
+    decodificar_quoted_printable,
     remover_historico_citado,
 )
 
@@ -234,6 +235,73 @@ def test_recusa_citada_nao_encerra_a_conversa_pelo_motor(
     assert r.intencao is Intencao.INTERESSE
     assert not r.encerrou
     assert lead_abordado.status is StatusLead.RESPONDIDO
+
+
+# --- Texto real: quoted-printable --------------------------------------------
+# O provedor manda o corpo codificado: "nao" vira "n=C3=A3o", e palavra longa
+# quebra com soft break ("desca=\ndastrar"). Sem decodificar, "descadastr" e
+# "nao quero receber" nao casam com marca nenhuma — e o pior acontece: um
+# opt-out que o classificador NAO ve.
+
+
+def test_decodifica_bytes_qp() -> None:
+    assert decodificar_quoted_printable("N=C3=A3o quero receber") == "Não quero receber"
+
+
+def test_decodifica_soft_break_que_parte_palavra() -> None:
+    assert decodificar_quoted_printable("Quero me desca=\ndastrar") == "Quero me descadastrar"
+
+
+def test_texto_comum_com_igual_nao_e_tocado() -> None:
+    """"= 4" (espaco depois) nao tem cara de QP: decodificar corromperia a resposta."""
+    texto = "O custo hoje = 4 mil, da para melhorar?"
+    assert decodificar_quoted_printable(texto) == texto
+
+
+def test_opt_out_em_quoted_printable_e_reconhecido() -> None:
+    assert (
+        classificar_por_sinal("N=C3=A3o quero receber mais, obrigado.")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_opt_out_partido_por_soft_break_e_reconhecido() -> None:
+    assert (
+        classificar_por_sinal("Por favor, quero me desca=\ndastrar da lista.")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_nosso_link_partido_por_soft_break_nao_vira_opt_out() -> None:
+    """A protecao da linha do nosso link precisa ver a linha JA remontada.
+
+    Em QP a linha longa do link chega partida em duas. Sem decodificar antes,
+    so a metade com `/descadastro/` sairia, e a outra metade ("descadastre-se")
+    ficaria na varredura — um "tenho interesse" viraria opt-out.
+    """
+    corpo = (
+        "Tenho interesse, podem me ligar amanha.\n\n"
+        "Em 10/09/2026, Prospector escreveu:\n"
+        "> Para sair da lista, descadastre-se: https://app.exemplo.com.br/desca=\n"
+        "dastro/abc123"
+    )
+    assert classificar_por_sinal(corpo) is Intencao.INTERESSE
+
+
+def test_receber_opt_out_em_qp_registra_supressao(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """Ponta a ponta: opt-out codificado suprime e para, igual ao texto limpo."""
+    r = ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="N=C3=A3o me envie mais e-mails, por favor."
+    )
+    assert r.intencao is Intencao.PEDIDO_OPT_OUT
+    assert r.encerrou and not r.respondeu
+    assert lead_abordado.status is StatusLead.OPT_OUT
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
+    ).scalar_one_or_none()
+    assert supressao is not None
 
 
 # --- Guardrails: quando o motor se cala --------------------------------------
