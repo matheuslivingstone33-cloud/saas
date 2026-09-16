@@ -3,6 +3,10 @@
 Guia do zero até o sistema no ar. Assume um droplet Ubuntu 24.04 (2 vCPU / 4 GB
 é o mínimo confortável) e um domínio apontando para ele.
 
+> **Passo a passo em linguagem simples**, com custos, testes de cada passo e a
+> lista do que ainda falta para rodar 100%: [COLOCAR-NO-AR.md](COLOCAR-NO-AR.md).
+> Este guia fica como a versão técnica, com o porquê de cada escolha.
+
 > O sistema sobe em **modo mock** e continua funcionando assim. As chaves entram
 > depois, **uma por vez**, seguindo o [runbook da Fase 7](RUNBOOK-FASE7.md).
 
@@ -242,6 +246,19 @@ sudo systemctl reload caddy
 
 O Caddy emite e renova o certificado sozinho. O link de descadastro precisa
 funcionar em HTTPS público — é ele que sustenta o legítimo interesse.
+
+> **O link sai na origem do frontend**, não na da API:
+> `URL_PUBLICA/descadastro/<token>`, e `URL_PUBLICA` é `app.` (é também a origem
+> do CORS e o retorno do Stripe). Quem atende `/descadastro/`, `/privacidade/`
+> e `/legal/` nessa origem é o nginx do frontend, que repassa ao backend
+> (`frontend/nginx.conf`, desde 16/09). Antes disso o coringa de SPA devolvia a
+> landing com **200**: o clique não descadastrava ninguém e nada acusava.
+> Confira depois de cada deploy — **400** é o certo (a rota recusou o token
+> falso); **200** é a versão antiga:
+>
+> ```bash
+> curl -s -o /dev/null -w "%{http_code}\n" https://app.<seu-dominio>/descadastro/teste
+> ```
 
 > **Atenção ao SSE.** A execução ao vivo (`/v1/campaigns/{id}/run/stream`) é um
 > fluxo que fica aberto. O Caddy não bufferiza e funciona direto; se você trocar
