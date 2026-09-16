@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-15 · rotinas integradas no main; radares no main
+**Última atualização:** 2026-09-16 · texto das rotinas corrigido; vazamento entre clientes na fila
 
 ---
 
@@ -127,6 +127,36 @@ Escolhas que valem registro:
 integrar de volta no `main`, e os radares agora vivem no `main` (`docs/radar/`),
 cada um com um aviso no topo dizendo o que já está integrado.
 
+**16/09 — o texto das seis rotinas foi reescrito.** Agora cada uma começa com
+`git fetch origin && git switch --detach origin/main`, atualiza o radar **antes**
+do commit, e salva com rebase + `git push origin HEAD:main` (até 3 tentativas;
+nunca `--force`; nunca enviar a branch `claude/*`). Se não conseguir integrar,
+envia para `pendente/<rotina>-<data>` e avisa "PRECISA INTEGRAR À MÃO". A
+Consolidação passou a listar na 0.2 qualquer `origin/claude/*` ou
+`origin/pendente/*` com commit fora do `main`. Cada rotina termina com três
+linhas em português simples para o dono do produto.
+
+> **Como as rotinas disparam de verdade:** com a máquina desligada à noite,
+> elas não rodam no horário; rodam juntas quando o app abre (em 15/09 às 18:37,
+> em 16/09 às 09:28). Por isso rodam **ao mesmo tempo** — o rebase antes do
+> push é o que evita uma apagar a outra.
+
+### O que a Consolidação de 15/09 viu e não chegou ao `main`
+
+A execução de 15/09 da Consolidação (`3ea65d1`) ficou numa cópia. Dela vieram o
+`ARQUITETURA.md` corrigido e três achados que estavam só lá:
+
+1. **🔴 Vazamento entre clientes** — `GET /v1/compliance/solicitacoes` não filtra
+   por cliente: qualquer conta logada lista os 100 últimos pedidos de direitos do
+   titular **de todas as contas**, com o e-mail de quem pediu. Conferido no
+   código em 16/09. Mora em `api/routes/compliance.py`, que nenhuma rotina possui
+   → item 9 da fila.
+2. **`POST /v1/compliance/retencao` aberto a qualquer conta** — dispara o expurgo
+   do sistema inteiro (`RetencaoService` não recebe cliente). Só apaga o que já
+   venceu, mas é ação de administrador exposta a todo cliente → item 10.
+3. **Teto de gasto da paginação do Places** e **verificação de identidade do
+   titular** → 0.2.
+
 ---
 
 ## 0.1 FILA AUTÔNOMA — a rotina lê daqui
@@ -168,6 +198,8 @@ cada um com um aviso no topo dizendo o que já está integrado.
 | 6 | **Revogação de token** — sair apaga o token no cliente; roubado, vale até expirar. Lista de revogação em Redis, que já está no compose | serviço + deps | ⬜ aberto |
 | 7 | **Link de descadastro só no cabeçalho** — o guardrail diz que toda mensagem leva o link, mas hoje ele vai só em `List-Unsubscribe`; o texto do e-mail não o contém. Ao pôr no corpo, **rótulo e link na mesma linha**: a proteção do Motor 4 contra falso opt-out depende disso | `personalizacao.py` + teste | ⬜ aberto |
 | 8 | **Nenhuma rota recebe o retorno do SNS** — o tradutor `classificar_retorno_ses()` existe, mas `/v1/inbound/retorno` exige a nossa assinatura HMAC e o SNS assina com certificado da AWS. Falta rota que valide a assinatura do SNS e confirme a inscrição | rota + teste | ⬜ aberto |
+| 9 | 🔴 **Pedidos de privacidade vazam entre clientes** — `GET /v1/compliance/solicitacoes` faz `select(PrivacyRequest)` sem filtro. O pedido público nasce com `user_id` nulo, então filtrar só por `user_id` esconderia tudo: o cliente deve ver os pedidos com o seu `user_id` **ou** cujo `contato_normalizado` bate com um contato dos seus leads. Teste com duas contas: a B não vê o pedido sobre lead da A. **Fazer antes de qualquer deploy** | `api/routes/compliance.py` + teste | ⬜ aberto |
+| 10 | **Expurgo disparável por qualquer cliente** — `POST /v1/compliance/retencao` roda o expurgo global para quem estiver logado. Some quando o item 5 agendar o expurgo; até lá, restringir (ou tirar a rota) | rota + teste | ⬜ aberto |
 
 ## 0.2 PRECISA DE VOCÊ — a rotina NÃO decide isto
 
@@ -184,6 +216,8 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 | **Recálculo do aprendizado: manual ou automático** | "manual" é resposta legítima; ninguém escolheu |
 | **Bounce deve ensinar pelo desfecho?** | hoje polui o eixo de componentes. Trocar muda como o produto aprende |
 | **Fase 7 — ligar provedores reais** | exige chaves e cartão |
+| **Teto de gasto da paginação do Places** | hoje a busca lê só a 1ª página (20 empresas) e ignora `nextPageToken`. Encadear páginas é fácil, mas **cada página é cobrada pelo Google**: quantas páginas por consulta, e quanto uma campanha pode gastar, é preço |
+| **Conferir quem pede um direito do titular** | o formulário público atende na hora, sem confirmar que quem pede é o dono do e-mail — um impostor pode pedir a exclusão dos dados de outra pessoa. Como confirmar (link no e-mail, prazo) é produto e pede **revisão jurídica** |
 
 **Depois que o deploy voltar**, a ordem sugerida:
 
