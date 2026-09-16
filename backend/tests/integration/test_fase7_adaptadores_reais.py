@@ -153,6 +153,65 @@ def test_places_aplica_termos_negativos_na_resposta() -> None:
     assert [i.place_id for i in resposta.itens] == ["ChIJ_exemplo"]
 
 
+def test_places_campo_nulo_no_meio_nao_derruba_a_resposta_inteira() -> None:
+    """Um place com `types: null` no meio nao pode estourar a conversao e levar
+    junto os resultados bons da mesma resposta.
+
+    O mock devolve `types` como lista limpa; o Google real manda a chave PRESENTE
+    com valor `null`. `list(bruto.get("types", []))` so usa o default `[]` quando
+    a chave esta AUSENTE — com valor `null` vira `list(None)` -> TypeError. Esse
+    erro nao e nenhum dos que `executar_plano` intercepta (RateLimited/Upstream/
+    Circuit), entao sobe e ABORTA a rodada, perdendo os leads ja achados e o SKU
+    ja gasto. Um resultado sujo entre 20 nao pode custar a rodada."""
+    resposta = {
+        "places": [
+            {
+                "id": "ChIJ_bom",
+                "displayName": {"text": "Hotel Boa Vista"},
+                "formattedAddress": "Rua A, 1 - Fortaleza - CE",
+                "types": ["lodging"],
+            },
+            {  # sujo: chaves presentes, valores null (formato real, nao do mock)
+                "id": "ChIJ_sujo",
+                "displayName": {"text": "Clinica Sao Lucas"},
+                "types": None,
+                "location": None,
+            },
+        ]
+    }
+    sink = MemoryCostSink()
+    adaptador = GooglePlacesAdapter(
+        _http(lambda _r: httpx.Response(200, json=resposta), sink, "places"),
+        CostRecorder(sink),
+        _settings(),
+    )
+    itens = adaptador.buscar(PlacesQuery(termo="hotel", regiao="Fortaleza")).itens
+    assert [i.place_id for i in itens] == ["ChIJ_bom", "ChIJ_sujo"]
+    assert itens[1].tipos == []  # null normalizado, sem crash
+
+
+def test_places_place_sem_id_nem_nome_nao_quebra_a_conversao() -> None:
+    """`id` e `displayName` ausentes ou `null` nao podem virar ValidationError.
+
+    `place_id` e `nome` sao `str` OBRIGATORIOS no DTO. `bruto.get("id", "")`
+    devolve `None` quando a chave vem com valor `null` (o default so vale para
+    chave ausente), e `PlaceResult(place_id=None)` estoura na validacao. Um place
+    degenerado assim vira strings vazias — o filtro B2B a jusante descarta o
+    registro sem nome —, mas a conversao em si nao pode derrubar a resposta."""
+    resposta = {"places": [{"id": None, "displayName": None, "types": None, "location": None}]}
+    sink = MemoryCostSink()
+    adaptador = GooglePlacesAdapter(
+        _http(lambda _r: httpx.Response(200, json=resposta), sink, "places"),
+        CostRecorder(sink),
+        _settings(),
+    )
+    itens = adaptador.buscar(PlacesQuery(termo="x", regiao="y")).itens
+    assert len(itens) == 1
+    assert itens[0].place_id == ""
+    assert itens[0].nome == ""
+    assert itens[0].tipos == []
+
+
 def test_places_sem_chave_falha_alto() -> None:
     with pytest.raises(ProviderNotConfigured):
         GooglePlacesAdapter(

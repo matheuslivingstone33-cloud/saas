@@ -161,17 +161,25 @@ class GooglePlacesAdapter:
         return f"{termo} em {regiao}" if regiao else termo
 
     def _para_dto(self, bruto: dict[str, Any]) -> PlaceResult:
+        # `.get(chave, default)` so cai no default quando a chave esta AUSENTE.
+        # O Places real manda a chave PRESENTE com valor `null`, entao usamos
+        # `... or <default>`: normaliza ausente E nulo de uma vez. Sem isso,
+        # `types: null` vira `list(None)` -> TypeError e derruba a conversao da
+        # resposta inteira; `id`/`displayName` nulos virariam ValidationError
+        # (place_id e nome sao `str` obrigatorios). Um resultado sujo no meio de
+        # 20 nao pode custar a rodada.
         local = bruto.get("location") or {}
-        nome = (bruto.get("displayName") or {}).get("text") or bruto.get("id", "")
+        place_id = bruto.get("id") or ""
+        nome = (bruto.get("displayName") or {}).get("text") or place_id
         return PlaceResult(
-            place_id=bruto.get("id", ""),
+            place_id=place_id,
             nome=nome,
             endereco_formatado=bruto.get("formattedAddress"),
             telefone=bruto.get("internationalPhoneNumber"),
             website=bruto.get("websiteUri"),
             latitude=local.get("latitude"),
             longitude=local.get("longitude"),
-            tipos=list(bruto.get("types", [])),
+            tipos=list(bruto.get("types") or []),
             nota=bruto.get("rating"),
             total_avaliacoes=bruto.get("userRatingCount"),
             fonte="google_places",

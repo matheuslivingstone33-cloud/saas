@@ -32,6 +32,44 @@
 
 ## Histórico de execuções
 
+### 2026-09-16 — um resultado sujo do Places derrubava a rodada inteira
+
+**Corrigido.** `_para_dto` (em `google_places.py`) converte cada place cru do
+Google num `PlaceResult`. Três campos não aguentavam o formato real:
+
+- **`types: null` → `TypeError`.** `list(bruto.get("types", []))` só cai no
+  default `[]` quando a chave está **ausente**. O Places real manda a chave
+  **presente com valor `null`**, e `list(None)` estoura. Como isso acontece
+  dentro do list comprehension de `buscar`, a resposta **inteira** morre — e a
+  exceção não é nenhuma das que `executar_plano` intercepta
+  (`RateLimited`/`UpstreamError`/`CircuitOpen`), então sobe, **aborta a rodada**
+  e perde os leads já achados nas consultas anteriores mais o SKU já gasto. Um
+  resultado sujo entre 20 não pode custar a rodada.
+- **`id: null` / `displayName: null` → `ValidationError`.** `place_id` e `nome`
+  são `str` **obrigatórios** no DTO. `bruto.get("id", "")` devolve `None` quando
+  a chave vem com valor `null` (o default só vale para chave ausente), e
+  `PlaceResult(place_id=None)` estoura na validação — o mesmo caminho de morte da
+  resposta inteira.
+
+A correção normaliza **ausente e nulo de uma vez** com `... or <default>` —
+`bruto.get("types") or []`, `bruto.get("id") or ""` —, o mesmo padrão que
+`location` e `displayName` já usavam (`or {}`). Um place degenerado (sem id nem
+nome) vira strings vazias e o filtro B2B a jusante (`eh_empresa`) o descarta;
+o que **não** pode é a conversão derrubar a resposta.
+
+Dois testes novos, que falhavam com `TypeError` antes e passam depois: um place
+`types: null` no meio de uma resposta boa (prova que os leads bons sobrevivem ao
+sujo) e um place com id/displayName/types/location todos `null` (prova que não
+vira `ValidationError`). Commit + push feitos. `pytest` (389 passa, 3 skip) e
+`ruff` verdes.
+
+> **Nota para a próxima execução:** o item 1 da fila abaixo ("uma consulta que
+> falha derruba a rodada") **já está resolvido no `main`** — `executar_plano` já
+> tem o try/except com `BUSCAS_COM_ERRO_MAX` (3 falhas seguidas) e emite
+> `erro_busca`/`interrompido`. Marcado como integrado; não refazer.
+
+---
+
 ### 2026-09-15 — a UF do endereço real quebrava o enriquecimento
 
 **Corrigido.** `_uf_do_endereco` (em `descoberta.py`) tirava a UF pegando os dois
@@ -61,35 +99,32 @@ termina em CEP, e endereço sem estado nenhum (não inventa UF a partir de
 > Ordem sugerida: do que mais quebra e é mais fácil de fechar, para o que
 > depende de decisão. **Uma por execução.**
 
-### 1. Uma consulta que falha derruba a rodada inteira — `descoberta.py`
-`executar_plano` chama `self.portas.places.buscar(consulta)` **sem try/except**.
-No mock nenhuma consulta falha. No real, uma consulta pode estourar por rate
-limit persistente, 5xx transitório ou circuito aberto — e a exceção sobe,
-abortando a descoberta e **perdendo os leads já achados** nas consultas
-anteriores daquela rodada. Um `429` numa consulta não deveria matar a rodada
-toda.
+### 1. ~~Uma consulta que falha derruba a rodada inteira~~ — INTEGRADO no `main`
+Já resolvido. `executar_plano` (em `descoberta.py`) envolve cada `buscar` num
+try/except de `RateLimited`/`UpstreamError`/`CircuitOpen`, pula a consulta que
+falhou preservando o que já foi achado, e só interrompe após
+`BUSCAS_COM_ERRO_MAX` (3) falhas **seguidas**, emitindo `erro_busca` e
+`interrompido`. O mecanismo de espera/retry/circuito continua no `HttpClient`
+(outra rotina). **Não refazer.**
 
-Pronto para fechar por uma rotina: envolver cada consulta, registrar a falha,
-seguir para a próxima e devolver o resultado parcial. **Atenção ao limite de
-escopo:** o *mecanismo* de espera/retry/circuito vive no `HttpClient`
-(`app/core/http_client.py`), que é de **outra rotina** — aqui trata-se só de não
-deixar uma consulta que falhou levar a rodada junto.
+### 2. `_para_dto` sem id: dedup enfraquecido (o resto foi corrigido em 16/09)
+O **crash** deste item foi fechado em 16/09 (ver histórico): `types`/`id`/
+`displayName` nulos não derrubam mais a conversão. **Sobra a semântica do
+dedup**, que é de menor severidade agora que não há mais crash:
 
-### 2. `_para_dto` do Places real não aguenta campo ausente/nulo — `google_places.py`
-Dois furos que só aparecem com dado real:
+- Um resultado sem `id` vira `place_id=""` (string vazia, *falsy*), e
+  `encontrar_duplicado` faz `if place_id:` — então o dedup por `place_id` some
+  para esse registro. Se ele **também** não tiver CNPJ, telefone nem domínio,
+  dois desses nunca deduplicam entre si.
 
-- **`types` nulo estoura.** `list(bruto.get("types", []))` só usa o `[]` quando a
-  chave está **ausente**. Se a API mandar `"types": null` (chave presente, valor
-  nulo), vira `list(None)` → `TypeError`, e a conversão do resultado quebra.
-  Repare que `location` já se protege com `or {}`, mas `types` não — é a mesma
-  armadilha, tratada num lugar e não no outro.
-- **`id` ausente vira `place_id` vazio.** `place_id=bruto.get("id", "")`. Um
-  `place_id` vazio é *falsy*, então o dedup por `place_id` some
-  (`encontrar_duplicado` faz `if place_id:`), e resultados sem id nem outro
-  identificador (CNPJ/telefone/domínio) passam a nunca deduplicar entre si.
-
-Pronto para fechar: normalizar os campos na entrada (tratar nulo como ausente;
-decidir descartar resultado sem `id` em vez de criar lead sem identificador).
+**Por que NÃO despachei "descartar resultado sem id":** parece a saída óbvia,
+mas está errada. Um place sem `id` mas **com telefone ou site** é um lead B2B
+de verdade e ainda deduplica por telefone/domínio — descartá-lo perde lead bom.
+O caso realmente órfão (sem id **e** sem nenhum outro identificador) é raro e o
+filtro B2B (`eh_empresa`) já derruba o que vier sem nome. A escolha entre
+"descartar id-less" e "aceitar dedup fraco no caso órfão" é um **trade-off de
+qualidade de dado, não de crash** — deixei para uma execução futura ou decisão,
+com esta análise, em vez de despachar o palpite fácil que perde leads.
 
 ### 3. `includedType` inválido derruba a consulta inteira — `google_places.py`
 `corpo["includedType"] = query.tipos_incluidos[0]`. A Places API (New) só aceita
