@@ -29,11 +29,71 @@
 > **Regra que não se negocia:** em caso de dúvida, o direito do titular ganha
 > do negócio. Opt-out duvidoso é opt-out.
 
-**Última execução:** 2026-09-14
+**Última execução:** 2026-09-16
 
 ---
 
-## O que corrigiu nesta execução
+## O que corrigiu nesta execução (2026-09-16)
+
+**O bloco de cabeçalho do Outlook (`De:/Enviada em:/Para:/Assunto:`) passou a
+fechar o histórico citado.** (`services/conversa.py`, commit `0c154da`)
+
+Era o item 2 da fila de "achado e não corrigi" (abaixo), e o próximo fechável
+inteiro dentro dos meus três arquivos — o item 1 (HTML/quoted-printable)
+continua travado na definição do formato do payload da Fase 7.
+
+O buraco: `remover_historico_citado` reconhecia `>`, atribuição `escreveu:`/
+`wrote:`, `-----Mensagem original-----` e a régua de sublinhados do Outlook.
+Mas o Outlook (e vários webmails) intercalam o histórico com um bloco de
+cabeçalho **sem a régua e sem `>`**:
+
+```
+Perfeito, tenho interesse! Podemos conversar esta semana.
+
+De: Prospector AI <contato@exemplo.com>
+Enviada em: terça-feira, 9 de setembro de 2026 10:15
+Para: gerencia@brisamarhotel.com.br
+Assunto: RE: manutenção de ar-condicionado
+
+Olá, equipe. No mês passado vocês responderam: não tenho interesse, obrigado.
+```
+
+Sem fronteira reconhecida, o método devolvia o texto **inteiro** como "resposta
+nova". Como `recusa` vem antes de `interesse` na ordem das regras, o
+`"não tenho interesse"` citado lá embaixo ganhava do `"tenho interesse"`
+recém-escrito no topo — e o lead quente ia para `descartado`. É o cenário 1 do
+objetivo, agora no formato do Outlook, e o teste ponta a ponta confirmava o
+dano (retornava `RECUSA`).
+
+O que mudou:
+
+- **`_RE_CABECALHO_ENCAMINHADO`** — casa uma linha que começa com um **rótulo de
+  e-mail conhecido** seguido de `:` (`De`, `Para`, `Assunto`, `Enviada/Enviado
+  em`, `Data`, `Cc`, `Cco`, `Responder para/a`, e os equivalentes EN `From`,
+  `To`, `Subject`, `Sent`, `Date`, `Reply-To`). Só rótulos conhecidos entram —
+  `Prazo:` / `Valor:` de uma resposta de verdade não contam.
+- **`_abre_bloco_encaminhado(linhas, i)`** — o corte só acontece com **DUAS
+  linhas de cabeçalho seguidas**. É o que torna o corte seguro nos dois flancos:
+  `"De acordo, ..."` nem casa (não há `:` depois de `De`), e um `"Assunto: ..."`
+  solto no meio de uma frase não engole a resposta. O corte continua
+  **conservador** — na dúvida, deixa histórico passar, nunca descarta resposta.
+- **Opt-out não muda em nada.** Ele continua varrendo o texto **inteiro** (menos
+  a linha do nosso `/descadastro/`), independente do `remover_historico_citado`.
+  Estreitar o que conta como "resposta nova" só afeta a intenção de negócio;
+  o direito do titular segue no lado mais amplo. "Opt-out duvidoso é opt-out"
+  permanece intacto.
+
+Testes (em `test_motor4_conversa.py`), todos falhando antes e passando depois:
+`test_remover_historico_citado_corta_bloco_encaminhado_sem_regua`,
+`test_bloco_encaminhado_do_outlook_nao_descarta_lead_que_disse_sim` (ponta a
+ponta lexical) e `test_bloco_encaminhado_exige_duas_linhas_e_nao_corta_resposta_comum`
+(o lado conservador). **390 passed, 3 skipped; `ruff` limpo.**
+
+`cadencia.py` e `webhook.py` não foram tocados — a correção foi toda no Motor 4.
+
+---
+
+## O que corrigiu na execução anterior (2026-09-14)
 
 **A intenção de negócio passou a sair da resposta NOVA, não do histórico citado.**
 (`services/conversa.py`, commit `3043612`)
@@ -87,12 +147,12 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
    classificar. É o maior buraco: sem isso, o resto do parsing trabalha sobre
    lixo.
 
-2. **Rodapé de citação do Outlook sem `>` e sem régua.** O bloco
-   `De:/Enviada:/Para:/Assunto:` aparece sozinho em alguns clientes, sem a régua
-   de sublinhados e sem prefixo de citação. Hoje ele **não** é reconhecido como
-   fronteira, então o histórico embaixo dele volta como "resposta nova". Fazer
-   com segurança exige casar o bloco (várias linhas `Campo:`) sem cortar uma
-   resposta que só comece com `"De acordo, ..."`.
+2. ✅ **RESOLVIDO em 2026-09-16 — rodapé de citação do Outlook sem `>` e sem
+   régua.** O bloco `De:/Enviada:/Para:/Assunto:` que aparecia sozinho, sem a
+   régua de sublinhados e sem prefixo de citação, agora é reconhecido como
+   fronteira (ver "O que corrigiu nesta execução (2026-09-16)" acima). Casa duas
+   linhas de rótulo de e-mail conhecido seguidas, o que não corta uma resposta
+   que só comece com `"De acordo, ..."`.
 
 3. **Resposta automática de servidor além de palavra-chave.** `ausência` hoje é
    puramente lexical ("estou de férias", "out of office"). Auto-resposta real
