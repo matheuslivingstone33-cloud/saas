@@ -244,7 +244,8 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 `git branch -r` mostra duas `origin/claude/*` com commit fora do `main`. Confirmei
 **por hash de blob** que o conteúdo das duas **já está no `main`** — são fotos
 antigas que o `main` ultrapassou, não trabalho perdido. **Nada a integrar à mão.**
-A limpeza (apagar as branches) é decisão de quem coordena o repositório.
+**Apagadas do GitHub em 16/09**, depois desta verificação. Cada uma ficou guardada
+na marca local `arquivo/rotinas-2026-09-15/<nome>`. Hoje o GitHub só tem o `main`.
 
 | Branch | Commits fora do `main` | O que é / situação |
 |---|---|---|
