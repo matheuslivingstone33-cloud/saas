@@ -11,6 +11,7 @@ conversarem sem uma desfazer a outra.
 | `conversa.md` | Conversa e Cadência |
 | `custo.md` | Custo, Crédito e Margem |
 | `compliance.md` | Compliance e Jurídico |
+| `deploy.md` | Preparação para Colocar no Ar (mantém também `docs/COLOCAR-NO-AR.md`) |
 
 A Consolidação não tem radar: ela lê todos e mantém o `HANDOFF.md`.
 
