@@ -251,6 +251,71 @@ def test_um_tenant_nao_executa_a_campanha_do_outro(client, vizinho) -> None:
     assert r.status_code in (403, 404), r.text
 
 
+
+def _lead(session, dono_id, campanha_id, email):  # noqa: ANN001, ANN202
+    from app.models.lead import Lead
+
+    lead = Lead(
+        user_id=dono_id,
+        campaign_id=campanha_id,
+        razao_social="Empresa do teste",
+        email=email,
+        provenance={"fonte": "teste"},
+    )
+    session.add(lead)
+    session.flush()
+    return lead
+
+
+def _pedido(session, contato):  # noqa: ANN001, ANN202
+    """Pedido aberto pelo formulario publico: nasce sem `user_id`."""
+    from app.models.enums import TipoSolicitacao
+    from app.services.compliance import PrivacyService
+
+    return PrivacyService(session).abrir(contato=contato, tipo=TipoSolicitacao.ACESSO)
+
+
+def test_um_tenant_nao_ve_pedido_de_privacidade_sobre_lead_do_outro(
+    client, session, vizinho
+) -> None:
+    """A rota listava os pedidos de TODAS as contas, com o e-mail do titular."""
+    outro, campanha_alheia = vizinho
+    _lead(session, outro.id, campanha_alheia.id, "compras@alheia.com.br")
+    pedido = _pedido(session, "compras@alheia.com.br")
+    session.commit()
+
+    r = client.get("/v1/compliance/solicitacoes")
+    assert r.status_code == 200
+    protocolos = {p["protocolo"] for p in r.json()["itens"]}
+    assert str(pedido.id) not in protocolos
+    assert "compras@alheia.com.br" not in r.text
+
+
+def test_cliente_ve_pedido_sobre_o_proprio_lead(client, session, usuario) -> None:
+    """O filtro nao pode esconder o que e do cliente: ele precisa responder ao titular.
+
+    O e-mail do lead vem com maiuscula (como o site da empresa publica) e o
+    pedido e normalizado em minuscula — os dois precisam se encontrar.
+    """
+    campanha = Campaign(
+        user_id=usuario.id, nome="Minha", servico="limpeza", regiao="Natal, RN", filtros={}
+    )
+    session.add(campanha)
+    session.flush()
+    _lead(session, usuario.id, campanha.id, "Contato@MinhaCliente.com.br")
+    pedido = _pedido(session, "contato@minhacliente.com.br")
+    session.commit()
+
+    itens = client.get("/v1/compliance/solicitacoes").json()["itens"]
+    assert str(pedido.id) in {p["protocolo"] for p in itens}
+
+
+def test_expurgo_global_nao_e_rota_do_cliente(client) -> None:
+    """Qualquer conta logada disparava o expurgo da base inteira."""
+    r = client.post("/v1/compliance/retencao", params={"dry_run": "false"})
+    assert r.status_code in (404, 405), r.text
+
+
 # --- Webhooks assinados ------------------------------------------------------
 def test_webhook_sem_assinatura_e_recusado(client_anonimo, usuario) -> None:
     """Antes, qualquer pessoa registrava uma resposta de qualquer lead."""

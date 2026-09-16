@@ -4,8 +4,11 @@ Duas familias:
   * **publicas** (sem autenticacao): descadastro de 1 clique e formulario de
     direitos do titular. Precisam ser publicas — quem recebeu a mensagem nao
     tem conta no sistema.
-  * **do controlador** (autenticadas): LIA, lista de supressao, solicitacoes,
-    retencao e integridade da auditoria.
+  * **do controlador** (autenticadas): LIA, lista de supressao, solicitacoes
+    e integridade da auditoria. Cada uma responde so sobre o cliente logado.
+
+O expurgo por retencao NAO e rota: ele varre a base inteira, e todo cliente
+logado conseguiria dispara-lo. Roda pelo worker (`app.workers.tasks`).
 """
 
 from __future__ import annotations
@@ -15,11 +18,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import config, db, usuario_atual
 from app.core.config import Settings
 from app.models.enums import OrigemOptOut, TipoSolicitacao
+from app.models.lead import Lead
 from app.models.privacy import PrivacyRequest
 from app.models.user import User
 from app.services.compliance import (
@@ -27,7 +32,6 @@ from app.services.compliance import (
     LIAService,
     OptOutService,
     PrivacyService,
-    RetencaoService,
 )
 
 publico = APIRouter(tags=["compliance (publico)"])
@@ -208,10 +212,36 @@ def listar_solicitacoes(
     session: Session = Depends(db),
     user: User = Depends(usuario_atual),
 ) -> dict:
-    from sqlalchemy import select
+    """Pedidos de direitos do titular que dizem respeito a ESTE cliente.
 
+    O formulario e publico, entao o pedido nasce sem `user_id`: o que o liga a
+    um cliente e o contato, que precisa estar entre os leads dele. Sem este
+    filtro a rota listava os pedidos de todas as contas, com o e-mail de quem
+    pediu.
+
+    Limite conhecido: depois de uma eliminacao o lead e anonimizado e o pedido
+    sai desta lista. O fato continua na trilha de auditoria do cliente
+    (`dado_anonimizado`, com o `user_id` dele).
+    """
+    emails_do_cliente = select(func.lower(Lead.email)).where(
+        Lead.user_id == user.id, Lead.email.is_not(None)
+    )
+    telefones_do_cliente = select(Lead.telefone_normalizado).where(
+        Lead.user_id == user.id, Lead.telefone_normalizado.is_not(None)
+    )
     itens = (
-        session.execute(select(PrivacyRequest).order_by(PrivacyRequest.created_at.desc()).limit(100))
+        session.execute(
+            select(PrivacyRequest)
+            .where(
+                or_(
+                    PrivacyRequest.user_id == user.id,
+                    PrivacyRequest.contato_normalizado.in_(emails_do_cliente),
+                    PrivacyRequest.contato_normalizado.in_(telefones_do_cliente),
+                )
+            )
+            .order_by(PrivacyRequest.created_at.desc())
+            .limit(100)
+        )
         .scalars()
         .all()
     )
@@ -229,13 +259,3 @@ def listar_solicitacoes(
             for p in itens
         ],
     }
-
-
-@router.post("/retencao")
-def executar_retencao(
-    session: Session = Depends(db),
-    user: User = Depends(usuario_atual),
-    dry_run: bool = Query(default=True),
-) -> dict:
-    """Expurgo por prazo. `dry_run=true` apenas conta, sem apagar."""
-    return RetencaoService(session).executar(dry_run=dry_run).to_dict()

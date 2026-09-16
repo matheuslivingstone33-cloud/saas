@@ -244,6 +244,16 @@ completo exercitado pela interface no navegador.
 
 ---
 
+## Vazamento entre clientes fechado (16/09) ✅
+
+- `GET /v1/compliance/solicitacoes` listava os pedidos de direitos do titular
+  de todas as contas, com o e-mail de quem pediu. Agora mostra só os pedidos
+  com o `user_id` do cliente ou sobre um contato dos leads dele.
+- `POST /v1/compliance/retencao` removida: qualquer conta logada disparava o
+  expurgo da base inteira. O expurgo roda pelo worker.
+- 3 testes novos com duas contas (dois falhavam antes). 395 testes verdes.
+- Texto das seis rotinas reescrito para salvar direto no `main`.
+
 ## Integração das rotinas autônomas (15/09) ✅
 
 - Seis rotinas agendadas rodaram 24 vezes em cópias separadas e nunca salvaram

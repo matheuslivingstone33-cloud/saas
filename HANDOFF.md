@@ -8,7 +8,7 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-16 · texto das rotinas corrigido; vazamento entre clientes na fila
+**Última atualização:** 2026-09-16 · texto das rotinas corrigido; vazamento entre clientes fechado
 
 ---
 
@@ -198,8 +198,8 @@ A execução de 15/09 da Consolidação (`3ea65d1`) ficou numa cópia. Dela vier
 | 6 | **Revogação de token** — sair apaga o token no cliente; roubado, vale até expirar. Lista de revogação em Redis, que já está no compose | serviço + deps | ⬜ aberto |
 | 7 | **Link de descadastro só no cabeçalho** — o guardrail diz que toda mensagem leva o link, mas hoje ele vai só em `List-Unsubscribe`; o texto do e-mail não o contém. Ao pôr no corpo, **rótulo e link na mesma linha**: a proteção do Motor 4 contra falso opt-out depende disso | `personalizacao.py` + teste | ⬜ aberto |
 | 8 | **Nenhuma rota recebe o retorno do SNS** — o tradutor `classificar_retorno_ses()` existe, mas `/v1/inbound/retorno` exige a nossa assinatura HMAC e o SNS assina com certificado da AWS. Falta rota que valide a assinatura do SNS e confirme a inscrição | rota + teste | ⬜ aberto |
-| 9 | 🔴 **Pedidos de privacidade vazam entre clientes** — `GET /v1/compliance/solicitacoes` faz `select(PrivacyRequest)` sem filtro. O pedido público nasce com `user_id` nulo, então filtrar só por `user_id` esconderia tudo: o cliente deve ver os pedidos com o seu `user_id` **ou** cujo `contato_normalizado` bate com um contato dos seus leads. Teste com duas contas: a B não vê o pedido sobre lead da A. **Fazer antes de qualquer deploy** | `api/routes/compliance.py` + teste | ⬜ aberto |
-| 10 | **Expurgo disparável por qualquer cliente** — `POST /v1/compliance/retencao` roda o expurgo global para quem estiver logado. Some quando o item 5 agendar o expurgo; até lá, restringir (ou tirar a rota) | rota + teste | ⬜ aberto |
+| 9 | ~~🔴 **Pedidos de privacidade vazam entre clientes** — `GET /v1/compliance/solicitacoes` faz `select(PrivacyRequest)` sem filtro. O pedido público nasce com `user_id` nulo, então filtrar só por `user_id` esconderia tudo: o cliente deve ver os pedidos com o seu `user_id` **ou** cujo `contato_normalizado` bate com um contato dos seus leads. Teste com duas contas: a B não vê o pedido sobre lead da A. **Fazer antes de qualquer deploy**~~ | `api/routes/compliance.py` + teste | ✅ feito em 16/09 — filtro por `user_id` ou contato dos leads do cliente (e-mail comparado em minúscula); 3 testes com duas contas |
+| 10 | ~~**Expurgo disparável por qualquer cliente** — `POST /v1/compliance/retencao` rodava o expurgo global para quem estivesse logado~~ | rota + teste | ✅ feito em 16/09 — rota removida (ninguém a usava; o runbook já roda pelo worker). Sem papel de administrador no sistema, não havia a quem restringir |
 
 ## 0.2 PRECISA DE VOCÊ — a rotina NÃO decide isto
 
