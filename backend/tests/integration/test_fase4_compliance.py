@@ -549,6 +549,47 @@ def test_retencao_expurga_o_assunto_junto_do_corpo(session, usuario, settings) -
     assert abordagem.corpo == "[expurgado por politica de retencao]"
 
 
+def test_retencao_preserva_registro_de_destinatario_sem_arroba(
+    session, usuario, settings
+) -> None:
+    """Expurgar um destinatario que nao e e-mail nao pode ANULAR o registro.
+
+    `_mascarar` devolvia `None` para qualquer contato sem `@` — um destinatario
+    de telefone/WhatsApp virava NULL no expurgo, e a auditoria perdia ate a
+    evidencia de que houve destinatario (uma linha sem destinatario e
+    indistinguivel de uma que nunca teve um). O dado pessoal (o numero) tem que
+    sair, mas o registro de que existiu um destinatario fica, com a mesma marca
+    `[expurgado]` ja usada no expurgo de solicitacao. O formato de mascara
+    PARCIAL de telefone e outra decisao, ainda em aberto — aqui so garantimos
+    que o registro nao some em silencio.
+    """
+    from app.models.enums import Canal, Direcao
+
+    zap = Message(
+        user_id=usuario.id,
+        canal=Canal.WHATSAPP,
+        direcao=Direcao.SAIDA,
+        status=StatusMensagem.ENVIADA,
+        destinatario="+5585999990000",
+        corpo="Ola, temos uma oferta para a sua empresa...",
+    )
+    session.add(zap)
+    session.flush()
+    zap.created_at = now() - timedelta(days=settings.retencao_mensagens_dias + 5)
+    session.flush()
+
+    # dry_run nao pode apagar nada.
+    RetencaoService(session, settings=settings).executar(dry_run=True)
+    session.refresh(zap)
+    assert zap.destinatario == "+5585999990000"
+
+    RetencaoService(session, settings=settings).executar(dry_run=False)
+    session.refresh(zap)
+    assert "999990000" not in (zap.destinatario or ""), "o numero real tem que sumir"
+    assert zap.destinatario == "[expurgado]", "mas fica o registro de que houve destinatario"
+    assert zap.corpo == "[expurgado por politica de retencao]"
+
+
 # --- Documentos publicos ------------------------------------------------------
 @pytest.mark.parametrize(
     ("rota", "trecho"),

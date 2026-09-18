@@ -582,6 +582,12 @@ class PrivacyService:
 #: de nao reprocessar a mesma linha em toda rodada.
 CORPO_EXPURGADO = "[expurgado por politica de retencao]"
 
+#: Marca que fica no lugar de um contato expurgado quando nao ha o que mascarar
+#: preservando estrutura (ex.: um telefone, sem `@`). O dado pessoal sai, mas o
+#: registro de que existiu um contato fica — anular o campo perderia ate essa
+#: evidencia na trilha de auditoria.
+CONTATO_EXPURGADO = "[expurgado]"
+
 
 @dataclass(slots=True)
 class ResultadoRetencao:
@@ -727,7 +733,7 @@ class RetencaoService:
             if pedido.resultado == SOLICITACAO_EXPURGADA:
                 continue  # ja expurgada — idempotente entre execucoes
             if not dry_run:
-                mascarado = _mascarar(pedido.contato_normalizado) or "[expurgado]"
+                mascarado = _mascarar(pedido.contato_normalizado) or CONTATO_EXPURGADO
                 pedido.resultado = dict(SOLICITACAO_EXPURGADA)
                 pedido.contato = mascarado
                 pedido.contato_normalizado = mascarado
@@ -770,7 +776,18 @@ def _anonimizar(lead: Lead) -> None:
 
 
 def _mascarar(contato: str | None) -> str | None:
-    if not contato or "@" not in contato:
+    """Remove o dado pessoal do contato preservando o registro de que existiu.
+
+    Contato vazio nao tem o que registrar (devolve None). Um e-mail vira
+    `us***@dominio` — perde o identificador, mantem a estrutura. Um contato sem
+    `@` (ex.: telefone) nao tem estrutura a preservar sem inventar um formato de
+    mascara de telefone (decisao ainda em aberto), entao vira a marca
+    `CONTATO_EXPURGADO`: anular o campo perderia ate a evidencia, na trilha de
+    auditoria, de que houve um contato ali.
+    """
+    if not contato:
         return None
+    if "@" not in contato:
+        return CONTATO_EXPURGADO
     usuario, _, dominio = contato.partition("@")
     return f"{usuario[:2]}***@{dominio}"

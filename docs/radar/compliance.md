@@ -34,7 +34,56 @@
 > marcado **[revisão jurídica]**; o que é decisão de produto/negócio está
 > marcado **[decisão de produto]**. Esses não devem ser tratados como resolvidos.
 
-**Última execução:** 2026-09-16
+**Última execução:** 2026-09-18
+
+---
+
+## Execução 2026-09-18
+
+> Parti de `origin/main` (`186f018`). Reconferi o `HANDOFF` §0 e a fila: as
+> correções de retenção de setembro (audita e não reconta, mascara remetente,
+> alcança `privacy_requests`, expurga assunto) e o buraco do `relatorio` (acesso
+> agora enxerga a resposta do titular) já estão no `main`. Não refiz nada disso.
+
+### O que corrigi (com teste)
+
+**O expurgo anulava — em vez de mascarar — o destinatário/remetente que não é
+e-mail, e a auditoria perdia a evidência de que houve um contato.**
+`services/compliance.py` · `_mascarar`
+
+`_mascarar` devolvia `None` para **qualquer** contato sem `@`. No expurgo de
+mensagem (`RetencaoService.executar`), um destinatário de **telefone/WhatsApp**
+virava `NULL` — e uma linha sem destinatário é indistinguível de uma que nunca
+teve um. O dado pessoal precisa sair, mas o **registro de que existiu um
+destinatário** é parte da trilha de auditoria e não podia sumir em silêncio.
+Hoje o canal é e-mail-first (impacto real nulo), mas o §9 do IDEIAS coloca o
+WhatsApp no mapa, e era uma perda silenciosa esperando o canal.
+
+Agora um contato sem `@` vira a marca `CONTATO_EXPURGADO = "[expurgado]"` — a
+mesma já usada no expurgo de solicitação (antes embutida como literal na linha,
+agora constante reaproveitada). Contato vazio continua devolvendo `None` (não há
+o que registrar); e-mail continua virando `us***@dominio`. **Não inventei
+máscara parcial de telefone** — essa é a metade que ainda depende de decisão
+(abaixo). Teste novo `test_retencao_preserva_registro_de_destinatario_sem_arroba`
+— falha antes (`destinatario` virava `None`) e passa depois. `pytest`
+(419 passed, 3 skipped) e `ruff` verdes. Fecha a **metade sem decisão** do item 6
+da fila.
+
+### O que achei e NÃO corrigi
+
+Nada novo fora do que já está na fila abaixo. A correção de hoje resolve só a
+**perda de registro** do item 6; a **máscara parcial de telefone** (quantos
+dígitos mostrar, se algum) continua aberta e depende de decidir o formato — não
+inventei um para não fingir uma decisão de produto. Os itens 1–5 e 7–10 seguem
+como estavam; nenhum coincide com esta correção.
+
+### O que depende de outra rotina ou de decisão humana
+
+Esta correção vive inteira em `compliance.py` — não cria dependência nova. As
+pendências continuam as da tabela ao fim do radar (rotas, worker, opt-out/envio,
+domínio real). O que **trava de verdade** para o dia da Fase 7 segue sendo os
+🔴 itens 1 e 2 (verificação de identidade do titular e filtro de tenant em
+`/solicitacoes`), ambos em `api/routes/compliance.py`, fora do meu escopo.
 
 ---
 
@@ -228,13 +277,14 @@ código depois da consolidação acima.
 
 ### 🟢 Baixo
 
-6. **`_mascarar` descarta destinatário sem `@`.** No expurgo, `_mascarar`
-   devolve `None` para qualquer contato sem `@` — um destinatário de **telefone**
-   seria anulado, não mascarado, e a auditoria perderia o registro de que
-   existiu um destinatário. Hoje o canal é e-mail-first, impacto nulo; quando o
-   WhatsApp/telefone entrar (§9 do IDEIAS), vira perda silenciosa de registro.
-   Pequeno e dentro do escopo — candidato a uma execução futura (precisa decidir
-   o formato de máscara de telefone).
+6. **Máscara parcial de telefone no expurgo — a decidir.** ✅ **Metade resolvida
+   em 18/09:** `_mascarar` não anula mais um contato sem `@`; ele vira a marca
+   `[expurgado]`, então a auditoria não perde mais o registro de que existiu um
+   destinatário/remetente de telefone (era perda silenciosa esperando o WhatsApp,
+   §9 do IDEIAS). **Falta:** decidir se, e como, mostrar uma **máscara parcial**
+   do telefone (ex.: últimos dígitos) em vez da marca genérica. Não inventei um
+   formato para não fingir uma decisão de produto. Enquanto o canal for
+   e-mail-first o impacto é nulo; a decisão pode esperar o WhatsApp entrar.
 
 ---
 
@@ -311,7 +361,8 @@ Conferido nesta leitura, após a consolidação:
   retenção depende do expurgo rodar (item 7).
 - **Retenção:** cobre leads sem interação, corpo **e assunto** das mensagens,
   ambos os endereços, e as solicitações de direitos concluídas; idempotente e
-  auditada em cada eixo.
+  auditada em cada eixo. Endereço sem `@` (telefone) vira `[expurgado]`, não
+  `NULL` — o registro de que houve um contato sobrevive ao expurgo (18/09).
 - **Trilha de auditoria** encadeada por hash; `verificar_cadeia()` fecha verde
   depois de rodar pipeline + LIA + expurgo.
 - **Declaração de IA** presente no corpo de toda mensagem, com resposta a humano
