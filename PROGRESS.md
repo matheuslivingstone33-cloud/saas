@@ -15,11 +15,12 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta máquina:** 398 testes verdes (3 pulados) · `ruff` limpo —
-reconferidos na consolidação de 16/09 · migrations `upgrade head` /
-`downgrade base` ok · frontend `npm run build` ok · fluxo completo exercitado
-pela interface no navegador (estes três da última verificação com código, sem
-mudança no `main` desde então).
+**Verificado nesta consolidação (18/09):** 428 testes verdes (3 pulados) ·
+`ruff` limpo. Migrations seguem em `0011` (nenhuma nova desde 16/09), então
+`upgrade head` / `downgrade base`, frontend `npm run build` e o fluxo completo
+pela interface continuam valendo da última verificação com código — as mudanças
+de 16 a 18/09 foram todas de backend (Motor 3/4, Descoberta, Custo, Compliance),
+sem frontend nem migration nova.
 
 ---
 
@@ -247,6 +248,32 @@ mudança no `main` desde então).
   distinguir maiúscula). **36 testes.**
 
 ---
+
+## Endurecimento das rotinas para a Fase 7 (16–18/09) ✅
+
+Sem etapa nova: as rotinas agendadas seguiram tapando o que quebra quando os
+provedores reais entrarem, uma correção por execução, todas integradas ao `main`.
+
+- **Motor 3 — falha síncrona do SES classificada por escopo** (16/09): conta
+  suspensa **pausa** a campanha e interrompe a leva (não descarta ninguém);
+  endereço morto **suprime** aquele contato e descarta o lead; recusa ambígua só
+  marca `FALHOU`. Antes, toda recusa era um "FALHOU" mudo e o `permanente`
+  misturava falha de conta com falha de destinatário.
+- **Motor 3 — link de descadastro no corpo do e-mail** (18/09): a abordagem gerada
+  passa a trazer o link **visível** no corpo (rótulo e link na mesma linha, para a
+  proteção do Motor 4 pegar), não só no cabeçalho `List-Unsubscribe`. Cobre os
+  toques de cadência de graça. Fechou o item 7 da fila autônoma.
+- **Motor 4 — corpo real decodificado antes de classificar**: bloco de cabeçalho
+  do Outlook fecha o histórico citado (16/09), quoted-printable (16/09) e HTML
+  (18/09) viram texto puro antes da varredura de opt-out e do corte de citação.
+- **Descoberta — raio do Places grampeado em 50 km** (18/09): raio absurdo vira
+  50 km em vez de derrubar a rodada com `400` do Google.
+- **Custo — sem custo-fantasma nos dois lados** (18/09): evento de entrada e de
+  saída só nascem com token > 0; chamada de LLM sem token não fabrica custo no
+  balde 2. Completa o guarda do lado de "saída" fechado em 15/09.
+- **Compliance — expurgo preserva o registro de destinatário sem `@`** (18/09):
+  telefone/WhatsApp vira `[expurgado]` em vez de `NULL`, sem perder a evidência de
+  que houve um contato na trilha de auditoria.
 
 ## Vazamento entre clientes fechado (16/09) ✅
 
