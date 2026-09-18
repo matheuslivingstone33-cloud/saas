@@ -8,10 +8,10 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-18 · consolidação: docs reconferidos contra o
-código (428 testes verdes / 3 pulados, 13 tabelas, `ruff` limpo), seis radares
-reunidos na §0.3 (o de deploy agora tem arquivo), fila 0.1 item 7 fechado,
-branches verificadas (só `origin/main`)
+**Última atualização:** 2026-09-18 · segurança (cobrança, painel de admin,
+limite de login, APP_SECRET obrigatório) e preparação para o Vercel — 453 testes,
+14 tabelas (`tentativas_acesso`, migration 0012). Passo a passo do dono em
+[docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
 ---
 
@@ -212,7 +212,7 @@ A execução de 15/09 da Consolidação (`3ea65d1`) ficou numa cópia. Dela vier
 | 1 | **`docs/ARQUITETURA.md` desatualizado** — diz "12 tabelas" (são 13, falta `ramo_weights`) e o fluxo ainda traz "débito de 1 crédito por lead qualificado", que a Etapa 6 substituiu por cobrança na revelação do contato | documentação | ✅ feito em 15/09 (Consolidação) |
 | 2 | **`frontend/src/pages/Campanhas.tsx` órfão** — substituído por Busca + Descoberta + Conversas, não é importado desde a Etapa 1. Apagar e confirmar que `tsc` e o build seguem limpos | 1 arquivo | ⬜ aberto |
 | 3 | **Recuperação de senha** — não existe; quem esquece só volta com `UPDATE` no banco. Token de uso único com hash no banco (nunca o token), expiração curta, resposta idêntica exista ou não a conta. **Não passa pelo `SendService`**: é transacional, e opt-out protege quem é prospectado, não o dono da conta | serviço + 2 rotas + migration + tela | ⬜ aberto |
-| 4 | **Rate limit no login** — nada limita tentativas. O bcrypt de custo 12 encarece (~250 ms), mas é mitigação, não defesa | middleware ou dependência | ⬜ aberto |
+| 4 | ~~**Rate limit no login**~~ | middleware ou dependência | ✅ feito em 18/09 — 5 falhas por e-mail / 30 por IP em 15 min (429 antes do bcrypt); 5 cadastros por IP por hora; contagem no banco (`tentativas_acesso`), que também é o registro de acesso do Marco Civil (6 meses) |
 | 5 | **Expurgo por retenção da LGPD não roda** — `executar_retencao()` existe e nada o chama. Virar tarefa periódica do worker | worker/RQ | ⬜ aberto |
 | 6 | **Revogação de token** — sair apaga o token no cliente; roubado, vale até expirar. Lista de revogação em Redis, que já está no compose | serviço + deps | ⬜ aberto |
 | 7 | ~~**Link de descadastro só no cabeçalho** — o guardrail diz que toda mensagem leva o link, mas ele ia só em `List-Unsubscribe`; o texto do e-mail não o continha~~ | `personalizacao.py` + teste | ✅ feito em 18/09 (Motor 3) — `LINHA_DESCADASTRO` põe rótulo **e** link na **mesma linha** no corpo, abaixo da declaração de IA, com o mesmo token do header; cobre os toques de cadência de graça. A proteção do Motor 4 (remove a linha do `/descadastro/` antes de varrer opt-out) já estava no `main` |
@@ -336,7 +336,7 @@ código (billing e catálogo); os demais são o retrato do próprio radar.
 | 🔴 | **Catálogo de ramos vazio em produção.** `ramos_cnae` só é carregado por `db/seed.py`, e produção roda `SEED_ON_START=false` (conferido: default `True`, mas o compose de produção fixa `false`). Sem catálogo, `ExpansorDeServico` devolve **0 ramos** — a busca perde o "quem consome" e a exclusão de concorrente. Separar a carga do catálogo (idempotente) do resto do seed | `db/seed.py`, `services/cerebro.py` — Descoberta/Cérebro |
 | 🔴 | **Vetores do catálogo sempre do mock.** O seed vetoriza com `FakeLLM` mesmo com `LLM_MODE=real` → o serviço, vetorizado pela OpenAI, é comparado com vetores de outro espaço. Revetorizar com o provedor ativo | `db/seed.py`, `services/cerebro.py` — Descoberta/Cérebro |
 | 🔴 | **Sem base da Receita, nenhum e-mail sai.** O compose aponta para `cnpj_full.csv`, que não existe e não tem importador; `ReceitaLocal` carrega tudo em memória (inviável com o dump de 4 GB). **Nunca** apontar para `cnpj_sample.csv` em produção (e-mails com cara de reais) | `adapters/mock/receita_local.py` — Descoberta |
-| 🔴 | **Cobrança burlável — trava para o dia do Stripe real.** Conferido em `api/routes/billing.py`: `POST /v1/billing/plano` troca de plano e **recarrega créditos sem pagamento**; `POST /v1/billing/confirmar` credita o `pacote` **do corpo** (não o do checkout), após um `confirmar()` que no mock sempre passa, e **não é idempotente** por `checkout_id` — o mesmo checkout credita de novo. Travar **antes** de `STRIPE_SECRET_KEY` real | `api/routes/billing.py` — Custo/Crédito + rotas |
+| ✅ 18/09 | ~~**Cobrança burlável — trava para o dia do Stripe real.**~~ Fechada: `BillingPort.consultar()` devolve o que o provedor diz que foi pago (mock assina o id com o APP_SECRET; Stripe lê o metadata), crédito entra uma vez (índice único parcial em `credit_ledger`), plano pago fora do dev responde 402. Antes: Conferido em `api/routes/billing.py`: `POST /v1/billing/plano` troca de plano e **recarrega créditos sem pagamento**; `POST /v1/billing/confirmar` credita o `pacote` **do corpo** (não o do checkout), após um `confirmar()` que no mock sempre passa, e **não é idempotente** por `checkout_id` — o mesmo checkout credita de novo. Travar **antes** de `STRIPE_SECRET_KEY` real | `api/routes/billing.py` — Custo/Crédito + rotas |
 | 🟡 | **Política e declaração de IA dão 404 em produção** — a imagem do backend não leva `docs/`. A correção do compose é do deploy, mas **publica texto que Compliance marca como pendente de revisão jurídica** → espera a decisão do dono (§0.2) | `api/routes/compliance.py` + compose |
 | 🟡 | **Trava de produção só olha o `JWT_SECRET`** — `APP_SECRET` (assina o token de descadastro) e `WEBHOOK_SECRET` fracos passam; `URL_PUBLICA`/`ENCARREGADO_EMAIL` com `.local` também | `services/auth.py`, `config.py` — Autenticação/config |
 | 🟡 | **Retorno do Stripe cai na landing** — `success_url = URL_PUBLICA/creditos?...`, mas o frontend roteia por hash (`#/creditos`) | `adapters/real/stripe_billing.py` — Custo + frontend |

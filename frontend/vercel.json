@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/descadastro/:caminho*", "destination": "https://prospector-ai-api.vercel.app/descadastro/:caminho*" },
+    { "source": "/privacidade/:caminho*", "destination": "https://prospector-ai-api.vercel.app/privacidade/:caminho*" },
+    { "source": "/legal/:caminho*", "destination": "https://prospector-ai-api.vercel.app/legal/:caminho*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

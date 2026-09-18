@@ -275,6 +275,23 @@ provedores reais entrarem, uma correção por execução, todas integradas ao `m
   telefone/WhatsApp vira `[expurgado]` em vez de `NULL`, sem perder a evidência de
   que houve um contato na trilha de auditoria.
 
+## Segurança e preparação para o Vercel (18/09) ✅
+
+- **Cobrança:** crédito só entra por pagamento que o provedor confirma — pacote
+  e valor vêm do checkout, não do navegador; o mesmo pagamento credita uma vez;
+  plano pago fora do desenvolvimento responde 402; descer para o gratuito não
+  dá crédito.
+- **Painel de margem de todos os clientes:** só `ADMIN_EMAILS` (404 para os
+  demais). Integridade da auditoria passou a exigir sessão.
+- **Login e cadastro com limite** (migration 0012, `tentativas_acesso`).
+- **APP_SECRET obrigatório em produção** (assina descadastro e checkout).
+- **Vercel:** dependências no `pyproject.toml` (com teste de espelho dos
+  requirements), Python 3.12 fixo, região São Paulo, build que traz `data/` e
+  os textos jurídicos, migra o banco e carrega o catálogo de ramos só no deploy
+  de produção; sem pool de conexões na função; `frontend/vercel.json` repassa
+  `/descadastro`, `/privacidade` e `/legal` ao servidor.
+- 453 testes verdes, ruff limpo, build do frontend limpo.
+
 ## Vazamento entre clientes fechado (16/09) ✅
 
 - `GET /v1/compliance/solicitacoes` listava os pedidos de direitos do titular

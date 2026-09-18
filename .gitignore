@@ -35,3 +35,7 @@ backend/tests/_tmp/
 
 # Artefato de build do TypeScript
 frontend/tsconfig.tsbuildinfo
+
+# Copias que o build do Vercel traz da raiz para dentro do backend
+backend/data/
+backend/docs/

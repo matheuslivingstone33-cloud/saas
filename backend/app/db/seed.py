@@ -84,6 +84,47 @@ def limpar(session: Session) -> None:
     log.info("seed_limpo")
 
 
+def carregar_catalogo(session: Session) -> int:
+    """Carrega o catalogo de ramos (base do Cerebro). Idempotente.
+
+    Separado do `semear` porque o catalogo NAO e dado de demonstracao: sem ele
+    a busca roda com zero ramos e nao acha cliente nenhum. Em producao o seed
+    de demo fica desligado, entao o deploy chama esta funcao sozinha.
+    Devolve quantos ramos foram acrescentados.
+    """
+    existentes = {c for (c,) in session.execute(select(RamoCnae.codigo)).all()}
+    faltando = [r for r in carregar_cnaes() if r["codigo"] not in existentes]
+    if not faltando:
+        return 0
+    llm = FakeLLM()
+    # DECISAO IMPORTANTE: o vetor do ramo representa O QUE ELE CONSOME,
+    # nao o que ele faz. Se vetorizassemos a descricao, o servico
+    # "ar condicionado" casaria com o CNAE de quem INSTALA ar condicionado
+    # (o concorrente) em vez de quem PRECISA dele (supermercado, hotel).
+    textos = [
+        "Necessidades recorrentes: {perfil}. Contexto do negocio: {termos}".format(
+            perfil=", ".join(r.get("perfil", [])) or r["descricao"],
+            termos=", ".join(r.get("termos", [])),
+        )
+        for r in faltando
+    ]
+    emb = llm.embutir(textos)
+    for ramo, vetor in zip(faltando, emb.vetores, strict=True):
+        session.add(
+            RamoCnae(
+                codigo=ramo["codigo"],
+                descricao=ramo["descricao"],
+                secao=ramo.get("secao"),
+                divisao=ramo["codigo"][:2],
+                termos_busca=[*ramo.get("termos", []), *ramo.get("perfil", [])],
+                embedding=vetor,
+            )
+        )
+    session.flush()
+    log.info("catalogo_carregado", ramos=len(faltando))
+    return len(faltando)
+
+
 def semear(session: Session, reset: bool = False) -> dict[str, int]:
     if reset:
         limpar(session)
@@ -142,34 +183,7 @@ def semear(session: Session, reset: bool = False) -> dict[str, int]:
         log.info("senha_demo_definida")
 
     # --- base do Cerebro (Motor 2) -------------------------------------------
-    existentes = {c for (c,) in session.execute(select(RamoCnae.codigo)).all()}
-    faltando = [r for r in carregar_cnaes() if r["codigo"] not in existentes]
-    if faltando:
-        llm = FakeLLM()
-        # DECISAO IMPORTANTE: o vetor do ramo representa O QUE ELE CONSOME,
-        # nao o que ele faz. Se vetorizassemos a descricao, o servico
-        # "ar condicionado" casaria com o CNAE de quem INSTALA ar condicionado
-        # (o concorrente) em vez de quem PRECISA dele (supermercado, hotel).
-        textos = [
-            "Necessidades recorrentes: {perfil}. Contexto do negocio: {termos}".format(
-                perfil=", ".join(r.get("perfil", [])) or r["descricao"],
-                termos=", ".join(r.get("termos", [])),
-            )
-            for r in faltando
-        ]
-        emb = llm.embutir(textos)
-        for ramo, vetor in zip(faltando, emb.vetores, strict=True):
-            session.add(
-                RamoCnae(
-                    codigo=ramo["codigo"],
-                    descricao=ramo["descricao"],
-                    secao=ramo.get("secao"),
-                    divisao=ramo["codigo"][:2],
-                    termos_busca=[*ramo.get("termos", []), *ramo.get("perfil", [])],
-                    embedding=vetor,
-                )
-            )
-        contadores["cnaes"] = len(faltando)
+    contadores["cnaes"] = carregar_catalogo(session)
 
     # --- opt-out de exemplo (guardrail testavel desde a Fase 0) --------------
     contato = "naoquero@exemplo.com.br"

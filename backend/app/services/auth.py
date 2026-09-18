@@ -202,3 +202,11 @@ def verificar_segredo_de_producao(settings: Settings | None = None) -> None:
         )
     if len(s.jwt_secret) < 32:
         raise RuntimeError("JWT_SECRET curto demais: use ao menos 32 caracteres aleatorios.")
+    # O APP_SECRET assina o link de descadastro e o checkout simulado. Com o
+    # valor de desenvolvimento, que esta escrito neste repositorio, qualquer
+    # leitor forjaria um descadastro em nome de outro lead ou uma compra paga.
+    if s.app_secret in SEGREDOS_DE_DESENVOLVIMENTO or len(s.app_secret) < 32:
+        raise RuntimeError(
+            "APP_SECRET ausente, curto ou com o valor de desenvolvimento em "
+            f"APP_ENV={s.app_env}. Use ao menos 32 caracteres aleatorios."
+        )

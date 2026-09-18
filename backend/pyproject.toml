@@ -2,7 +2,38 @@
 name = "prospector-ai-backend"
 version = "0.1.0"
 description = "Prospector AI — descoberta, qualificacao e abordagem de clientes B2B"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
+# ESPELHO de requirements.txt + requirements-prod.txt (ha teste conferindo).
+# O Vercel instala por AQUI quando os dois arquivos existem; sem esta lista ele
+# instalaria nada e a API cairia na primeira importacao. O Docker segue lendo
+# os requirements.
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.5",
+  "pydantic-settings==2.7.1",
+  "SQLAlchemy==2.0.36",
+  "alembic==1.14.0",
+  "psycopg[binary]==3.2.3",
+  "pgvector==0.3.6",
+  "redis==5.2.1",
+  "rq==2.0.0",
+  "httpx==0.28.1",
+  "structlog==24.4.0",
+  "python-json-logger==3.2.1",
+  "email-validator==2.2.0",
+  "PyJWT==2.10.1",
+  "bcrypt==4.2.1",
+  "anthropic==0.69.0",
+  "boto3==1.35.76",
+  "stripe==11.4.1",
+]
+
+[tool.vercel]
+entrypoint = "app.main:app"
+
+[tool.vercel.scripts]
+build = "python scripts/vercel_build.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

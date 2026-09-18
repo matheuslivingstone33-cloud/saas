@@ -470,6 +470,24 @@ def test_producao_recusa_subir_com_segredo_de_desenvolvimento(monkeypatch) -> No
         cfg.get_settings.cache_clear()
 
 
+def test_producao_recusa_app_secret_de_desenvolvimento(monkeypatch) -> None:
+    """O APP_SECRET assina o descadastro e o checkout: o de dev esta no repositorio."""
+    from app.core import config as cfg
+
+    monkeypatch.setenv("APP_ENV", "producao")
+    monkeypatch.setenv("JWT_SECRET", "j" * 40)
+    monkeypatch.delenv("APP_SECRET", raising=False)
+    cfg.get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="APP_SECRET"):
+            verificar_segredo_de_producao()
+        monkeypatch.setenv("APP_SECRET", "a" * 40)
+        cfg.get_settings.cache_clear()
+        verificar_segredo_de_producao()
+    finally:
+        cfg.get_settings.cache_clear()
+
+
 def test_producao_recusa_segredo_curto(monkeypatch) -> None:
     from app.core import config as cfg
 
