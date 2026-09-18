@@ -26,7 +26,85 @@
 > `personalizacao.py`, `entregabilidade.py`,
 > `backend/app/adapters/real/ses_email.py` e os testes correspondentes.
 
-**Última execução:** 2026-09-16 · falha síncrona de envio classificada por escopo (conta pausa, destinatário morto suprime).
+**Última execução:** 2026-09-18 · link de descadastro agora vai VISÍVEL no corpo do e-mail, com rótulo e link na mesma linha (proteção do Motor 4).
+
+---
+
+## 2026-09-18 — o link de descadastro saiu do cabeçalho e foi para o CORPO
+
+### O que corrigi (com teste)
+
+**Toda abordagem gerada pela IA agora traz o link de descadastro visível no
+corpo do e-mail, e não só no cabeçalho `List-Unsubscribe`.** Fecha o item 7 da
+fila autônoma.
+
+Por que isto é risco de envio, não de tela: com SES real, o que suspende a conta
+e queima a reputação do domínio — o ativo mais frágil do produto — é a **taxa de
+reclamação de spam**. Quem não acha como sair marca como spam. O cabeçalho
+`List-Unsubscribe` sozinho não basta: muitos clientes de e-mail não o exibem.
+Dar o link na cara do destinatário é a mitigação que mais mexe no risco que mais
+importa antes de ligar `EMAIL_MODE=real`.
+
+**A regra invisível que só a Consolidação via (radar 0.3, dependência 2):**
+rótulo e link ficam na **mesma linha**, de propósito. O Motor 4 remove a linha
+inteira que contém `/descadastro/` antes de varrer opt-out
+(`conversa.py::_RE_LINHA_DO_NOSSO_LINK`, já no `main`). Se o rótulo
+("descadastre-se") caísse numa linha separada da URL, ele voltaria citado em toda
+resposta e um "tenho interesse" que citasse nosso rodapé viraria opt-out — que é
+**terminal**. Por isso o rodapé é uma linha só, e o teste prova que, removida a
+linha do `/descadastro/`, não sobra nenhuma marca de opt-out no corpo.
+
+Onde:
+
+- `personalizacao.py` — nova `LINHA_DESCADASTRO` (rótulo + `{link}` na mesma
+  linha) anexada ao corpo logo abaixo da declaração de IA. O link é o
+  `OptOutService.link_para(lead, url_publica)`, **determinístico** (HMAC de
+  `lead.id` + `app_secret`): sai idêntico ao que o `SendService` e a cadência já
+  põem no header `List-Unsubscribe`, então o destinatário não vê dois endereços
+  de saída diferentes.
+- **Cobre a cadência de graça:** `personalizacao.gerar` é o mesmo caminho dos
+  toques 2 e 3 (Motor 5), então todos os toques passaram a levar o link no corpo
+  **sem tocar em `cadencia.py`** (que não é meu).
+
+`SendService` continua o único caminho de saída e opt-out continua terminal:
+esta mudança só **adiciona** um link visível, não abre exceção a nada.
+
+Teste: 1 novo em `test_fase3_abordagem.py`
+(`test_corpo_traz_link_de_descadastro_com_rotulo_na_mesma_linha`) — verificado
+que **falha antes** (corpo sem `/descadastro/`) e **passa depois**. **419 testes,
+3 pulados; `ruff` limpo.**
+
+### O que achei e NÃO corrigi (uma coisa por execução)
+
+1. **A resposta manual (Etapa 5) leva o link só no cabeçalho.** O corpo digitado
+   pela pessoa não recebe o link visível — o rodapé é montado em `conversa.py`
+   (`responder_manualmente`), **fora do meu escopo**. Quando for para o corpo lá,
+   vale a mesma regra: rótulo e link na mesma linha, senão a blindagem do Motor 4
+   não pega. Registrado para o dono daquele arquivo.
+2. **O link do corpo e o do header são calculados duas vezes** (uma na
+   personalização, uma no `SendService`/cadência ao gravar a `Message`). São
+   idênticos por serem determinísticos, então não há divergência possível; unir
+   numa fonte só (campo `link_descadastro` na `Personalizacao`) seria limpeza,
+   mas mexeria em `cadencia.py`, que não é meu. Deixei como está.
+3. **`aprovar()` numa conta quebrada pausa a campanha, mas não freia o próximo
+   clique** — herdado da execução de 16/09, segue aberto. A leva
+   (`preparar_lote`/`processar_pendentes`) para na primeira falha de conta, mas
+   um segundo `aprovar` manual ainda tentaria enviar, porque `checar_bloqueios`
+   não olha `campanha.status`. Um guardrail "campanha pausada não despacha"
+   fecharia isso, mas muda também o comportamento de campanhas pausadas por
+   reputação — é decisão de desenho. Bom candidato para a próxima execução.
+
+### O que depende de outros
+
+- **Motor 4 já está pronto para receber este rodapé** (`conversa.py`, não é meu):
+  a remoção da linha do `/descadastro/` roda **depois** da decodificação de
+  quoted-printable, então mesmo que o SES quebre a linha longa do link com um
+  soft break (`=\n`) na entrega, o QP é remontado antes da varredura e o
+  `/descadastro/` volta inteiro numa linha só. Nada a fazer aqui; registro por
+  ser a peça que torna a "mesma linha" segura ponta a ponta.
+- **Retorno assíncrono do SNS** continua testado por contrato e sem rota que o
+  chame (item 8 da fila, em `api/routes/entregabilidade.py`, não é meu) — sem
+  mudança nesta execução.
 
 ---
 

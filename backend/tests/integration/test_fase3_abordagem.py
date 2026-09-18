@@ -21,6 +21,7 @@ from app.models.opt_out import OptOut
 from app.ports.dto import SendResult
 from app.repositories.misc import OptOutRepository, UserRepository
 from app.services.cerebro import ExpansorDeServico
+from app.services.compliance import OptOutService
 from app.services.descoberta import DiscoveryService
 from app.services.envio import SendService
 from app.services.personalizacao import LIMIAR_INTENCAO, PersonalizationService
@@ -71,6 +72,46 @@ def test_mensagem_e_personalizada_com_contexto_do_lead(session, usuario, portas_
     assert conteudo.assunto and nome.split()[0] in conteudo.assunto
     assert conteudo.declaracao_ia, "toda mensagem de IA precisa se declarar"
     assert conteudo.gancho
+
+
+def test_corpo_traz_link_de_descadastro_com_rotulo_na_mesma_linha(
+    session, usuario, portas_db, settings
+) -> None:
+    """O link de descadastro precisa aparecer VISIVEL no corpo, nao so no header.
+
+    Com SES real, quem nao acha como sair marca como spam — e reclamacao de spam
+    e o que suspende a conta e queima a reputacao do dominio. Dar o link na cara
+    reduz o risco que mais importa.
+
+    Regra invisivel (radar 0.3): rotulo e link ficam na MESMA linha. O Motor 4
+    remove a linha inteira que contem `/descadastro/` antes de varrer opt-out; se
+    o rotulo caisse numa linha a parte, ele voltaria citado em toda resposta e
+    todo "tenho interesse" viraria opt-out, que e terminal.
+    """
+    campanha = _campanha(session, usuario)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    lead = next(x for x in leads if x.email)
+
+    conteudo = PersonalizationService(session, portas_db, settings).gerar(
+        lead, campanha, expansao, usuario
+    )
+
+    # O link do corpo e IDENTICO ao que vai no header List-Unsubscribe (mesmo
+    # gerador deterministico), senao o destinatario teria dois enderecos de saida.
+    link = OptOutService(session, settings=settings).link_para(lead, settings.url_publica)
+    assert "/descadastro/" in link
+    assert link in conteudo.corpo, "o link de descadastro tem que estar no corpo, nao so no header"
+
+    linhas_com_link = [ln for ln in conteudo.corpo.splitlines() if "/descadastro/" in ln]
+    assert len(linhas_com_link) == 1, "o link do descadastro tem que ficar numa unica linha"
+    linha = linhas_com_link[0]
+    assert linha.strip() != link, "a linha do link precisa trazer o rotulo junto, nao a URL nua"
+
+    # A prova do que importa para o Motor 4: removida a linha do `/descadastro/`,
+    # o corpo nao guarda NENHUMA marca de opt-out. Se o rotulo estivesse solto,
+    # "descadastr" sobraria aqui e o rodape citado viraria falso opt-out.
+    resto = "\n".join(ln for ln in conteudo.corpo.splitlines() if "/descadastro/" not in ln)
+    assert "descadastr" not in resto.lower()
 
 
 def test_web_search_so_roda_em_lead_de_alto_valor(session, usuario, portas_db) -> None:

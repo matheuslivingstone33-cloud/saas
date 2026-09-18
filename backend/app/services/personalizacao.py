@@ -34,6 +34,7 @@ from app.models.lead import Lead
 from app.models.user import User
 from app.ports.dto import LLMMessage, LLMRequest
 from app.services.cerebro import Expansao
+from app.services.compliance import OptOutService
 
 log = get_logger("personalizacao")
 
@@ -69,6 +70,19 @@ DECLARACAO_IA = (
     "Esta mensagem foi redigida por um agente de inteligencia artificial a "
     "servico de {empresa}. Responda a este e-mail para falar com uma pessoa."
 )
+
+#: Rodape de descadastro VISIVEL no corpo. So o header `List-Unsubscribe` nao
+#: basta: muitos clientes de e-mail nao o exibem, e quem nao acha como sair
+#: marca a mensagem como spam. Com SES real, reclamacao de spam e o que suspende
+#: a conta e queima a reputacao do dominio — o ativo mais fragil do produto —,
+#: entao dar o link na cara reduz o risco que mais importa.
+#:
+#: Rotulo e link ficam na MESMA linha DE PROPOSITO. O Motor 4 remove a linha
+#: inteira que contem `/descadastro/` antes de varrer opt-out (conversa.py,
+#: `_RE_LINHA_DO_NOSSO_LINK`). Se o rotulo ("descadastre-se") caisse numa linha
+#: separada da URL, ele voltaria citado em toda resposta e um "tenho interesse"
+#: citando nosso rodape viraria opt-out — que e terminal. Nao quebre esta linha.
+LINHA_DESCADASTRO = "Para nao receber mais estas mensagens, descadastre-se: {link}"
 
 
 @dataclass(slots=True)
@@ -107,6 +121,7 @@ class PersonalizationService:
         self.session = session
         self.portas = portas
         self.settings = settings or get_settings()
+        self.compliance = OptOutService(session, settings=self.settings)
         self._buscas_usadas = 0
 
     def reiniciar_orcamento(self) -> None:
@@ -153,7 +168,12 @@ class PersonalizationService:
 
         empresa_remetente = (getattr(remetente, "empresa", None)) or "nossa equipe"
         declaracao = DECLARACAO_IA.format(empresa=empresa_remetente)
-        corpo = f"{resposta.texto}\n\n---\n{declaracao}"
+        # O link e deterministico (HMAC do lead.id + app_secret): sai identico ao
+        # que o SendService/cadencia poe no header List-Unsubscribe. Rotulo e link
+        # na MESMA linha — ver LINHA_DESCADASTRO.
+        link_descadastro = self.compliance.link_para(lead, self.settings.url_publica)
+        rodape = LINHA_DESCADASTRO.format(link=link_descadastro)
+        corpo = f"{resposta.texto}\n\n---\n{declaracao}\n{rodape}"
 
         return Personalizacao(
             assunto=self._assunto(lead, campanha, toque),
