@@ -231,3 +231,85 @@ integrar isto, não recriar em branch nova.
   evento é dos adaptadores.
 - **Fase 7 (chaves + cartão)** — item de "PRECISA DE VOCÊ" (HANDOFF §0.2). A
   revalidação dos preços de dados fecha depois disso.
+
+---
+
+## 2026-09-18 — custo-fantasma de ENTRADA: o outro lado do guarda
+
+### Corrigido
+- **`registrar_llm` fabricava 1 unidade de ENTRADA fantasma quando a chamada
+  vinha com `tokens_entrada=0`.** A execução de 15/09 fechou o custo-fantasma de
+  **saída** (evento de saída só quando `tokens_saida > 0`), mas deixou o evento
+  de **entrada** sendo registrado **sempre**. É o mesmo defeito, do outro lado:
+  um evento de lado com zero token cai no ramo de `quantidade` default (1.0) de
+  `registrar` e vira 1 unidade ao preço cheio — para o mock (espelho Opus 5),
+  5 micros de entrada fantasma; para uma completude Opus real, os mesmos 5.
+  Fere o inverso do eixo deste radar: **nada registra sem gastar.**
+  - **Onde mordia:** hoje, quase nunca — completude sempre tem prompt e o mock
+    conta tokens reais (> 0). O gatilho real aparece na Fase 7: um `usage` que
+    reporta `input_tokens=0` (resposta vazia, recusa, ou tudo servido de cache)
+    passando por `registrar_llm` — inclusive o caminho de web search
+    (`adapters/real/anthropic_search.py::_registrar` chama `registrar_llm` sempre
+    que há `usage`, mesmo com 0/0). Aí o balde 2 do painel ganhava um custo que
+    não existiu.
+  - **Correção:** simetria total. Cada lado (entrada, saída) só vira evento
+    quando teve `token > 0`. O caminho real (entrada > 0) segue **idêntico** —
+    mesma chave, mesmo valor, mesmo número de eventos para toda completude e todo
+    embedding de verdade. Só muda o degenerado: `(0, N)` gera um evento só de
+    saída; `(0, 0)` não registra nada — chamada sem token gasto não fabrica custo.
+  - **Retorno:** continua `list[CostEvent]`, agora podendo vir **vazio** para
+    `(0, 0)`. Nenhum chamador usa o retorno (reconferido: `fake_llm` x2,
+    `anthropic_llm`, `anthropic_search` — todos ignoram o valor).
+  - **Testes:** `tests/unit/test_cost.py` (2 novos) — `(0, 50)` gera só o evento
+    de saída, sem `.input` e sem fantasma no balde 2; `(0, 0)` não registra nada.
+    Falham antes (2 eventos / 1 evento fantasma), passam depois. `pytest` 422
+    tests, exit 0 (3 skipped), `ruff` limpo.
+
+### Verificado e OK (sem ação) — reconferido nesta execução
+- **Tabela de LLM correta e atual.** Conferi Opus 5 (US$5/US$25 por 1M), Sonnet 5
+  (US$2/US$10) e Haiku 4.5 (US$1/US$5) contra a tabela oficial da Anthropic
+  (skill `claude-api`, cache 2026-06-24) — **batem exatamente**. Os IDs canônicos
+  (`claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5`) casam com as chaves da
+  tabela, e o padrão `settings.llm_model="claude-opus-5"` resolve sem cair no
+  fallback. Sem dúvida de preço de LLM em aberto.
+- **Embedding-input em `float`, sem arredondar por token** — no `main` (herdado
+  da integração de 15/09): `micros_por_unidade: float`, `_por_milhao(0.02)` não
+  arredonda, arredondamento só em `estimar_micros`. `test_pricing` guarda.
+- **Web search registra os DOIS custos.** `anthropic_search.py::_registrar` emite
+  a taxa por busca (`search.web_search`, balde 2) **e** os tokens da conversa
+  (`registrar_llm`). Nenhum lado gasta sem registrar.
+- **Eixo de cobrança = contato revelado.** Reconferido: `lead_qualificado=0`,
+  `contato_revelado=1` conta no teto do mês, `revelar()` idempotente
+  (`lead.revelado_em`), `mensagem_enviada` cobra 1 crédito mas **não** mexe no
+  teto de contatos. Nada voltou a cobrar por descoberta.
+- **Baldes derivados centralmente.** `cost.py` grava `balde` a partir da chave de
+  preço, não de quem chama — impossível um custo cair no balde errado por
+  descuido do adaptador.
+
+### Achado e NÃO corrigido (fica para outro dono)
+- **A raiz do fantasma continua sendo o *caller* usar `registrar_llm` para
+  operação só-de-entrada.** O guarda que fiz é a rede em `cost.py` (só-de-entrada
+  → um evento; sem token → nenhum). A limpeza completa seria o mock
+  (`fake_llm.py`) registrar embedding como evento único de entrada, como o real
+  já faz — mas `fake_llm.py` está **fora do meu escopo**.
+- **Preço sem cadastro falha fechado só no boot, não aqui.** O lugar de recusar
+  subir com `llm_model` sem preço na tabela é a validação de startup em
+  `config.py` (fora do escopo), como já se faz com `JWT_SECRET`. A marca
+  `preco_fallback` + aviso (execução de 16/09) é a rede em `cost.py`.
+- **Preços de dados seguem "revalidar F7".** Places, SES e WhatsApp são
+  estimativas de tabela pública — não invento valor de provedor. A reconciliação
+  (estimado × faturado) já está prevista no smoke test de cada provedor na virada.
+
+### Depende de outros / decisão humana
+- **Integração ao `main`** — este commit precisa chegar ao `main` (rebase + push
+  desta execução). Enquanto branches `claude/*` não integram, o `main` repete
+  trabalho.
+- **`settings.usd_brl` fixo** (`config.py`, fora do escopo) — câmbio velho =
+  margem BRL errada. Em produção precisa vir de fonte real.
+- **Registro de custo dos provedores reais** mora nos adaptadores
+  (`adapters/*`, `http_client.py`, fora do escopo). Meu domínio garante que,
+  **dado** um evento, ele cai no balde certo, é precificado certo (ou marcado
+  como estimativa) e não fabrica custo; garantir que **todo** provedor emita o
+  evento é dos adaptadores.
+- **Fase 7 (chaves + cartão)** — item de "PRECISA DE VOCÊ" (HANDOFF §0.2). A
+  revalidação dos preços de dados fecha depois disso.

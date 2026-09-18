@@ -217,36 +217,47 @@ class CostRecorder:
         request_id: str | None = None,
         latencia_ms: int | None = None,
     ) -> list[CostEvent]:
-        """Evento de ENTRADA e, quando ha tokens de saida, tambem o de SAIDA
-        — sempre no balde 2.
+        """Um evento por LADO que de fato consumiu token — sempre no balde 2.
 
-        Uma completude sempre gera texto (saida > 0), entao continua com dois
-        eventos. Mas operacao so-de-entrada — embedding nao produz texto — chama
-        com `tokens_saida=0` e NAO tem custo de saida a registrar. Sem esse
-        guarda, o evento de saida caia no ramo de `quantidade` default (1.0) e,
-        para `embedding`, ainda no fallback `llm.mock.output` (a chave
-        `llm.embedding.output` nao existe) — cobrando ~25 micros de "saida"
-        fantasma por chamada. Isso so acontece no mock (o adaptador real ja
-        registra embedding como evento unico de entrada) e, como embedding roda
-        em todo servico do Cerebro e em todo lead do scoring, inflava em silencio
-        o balde 2 do painel de margem. Agora o mock casa com o real.
+        Cada lado (entrada, saida) so vira evento quando teve token > 0. Essa
+        simetria e o que mantem "nada registra sem gastar": um evento de LADO com
+        zero token cairia no ramo de `quantidade` default (1.0) de `registrar` e
+        fabricaria 1 unidade ao preco cheio.
+
+        - **Saida:** uma completude sempre gera texto (saida > 0), entao mantem
+          os dois eventos; operacao so-de-entrada — embedding nao produz texto —
+          chama com `tokens_saida=0`. Sem o guarda, o evento de saida ainda caia
+          no fallback `llm.mock.output` (a chave `llm.embedding.output` nao
+          existe) cobrando ~25 micros de "saida" fantasma por chamada de
+          embedding, que roda em todo servico do Cerebro e em todo lead do
+          scoring — inflando em silencio o balde 2 do painel de margem.
+        - **Entrada:** o mesmo do outro lado. Uma chamada com `tokens_entrada=0`
+          (usage que reporta 0 de entrada, resposta vazia) registrava 1 unidade
+          de entrada fantasma. Com o guarda, sem token de entrada nao ha custo de
+          entrada a registrar.
+
+        O adaptador real ja registra embedding como evento unico de entrada; com
+        os dois guardas o mock casa com o real, e uma chamada sem token nenhum
+        nao registra nada.
         """
-        eventos = [
-            self.registrar(
-                _spec_llm(
-                    provedor=provedor,
-                    operacao=f"{operacao}.input",
-                    modelo=modelo,
-                    tipo="input",
+        eventos: list[CostEvent] = []
+        if tokens_entrada > 0:
+            eventos.append(
+                self.registrar(
+                    _spec_llm(
+                        provedor=provedor,
+                        operacao=f"{operacao}.input",
+                        modelo=modelo,
+                        tipo="input",
+                        modo=modo,
+                        tokens_entrada=tokens_entrada,
+                        lead_id=lead_id,
+                    ),
                     modo=modo,
-                    tokens_entrada=tokens_entrada,
-                    lead_id=lead_id,
-                ),
-                modo=modo,
-                request_id=request_id,
-                latencia_ms=latencia_ms,
+                    request_id=request_id,
+                    latencia_ms=latencia_ms,
+                )
             )
-        ]
         if tokens_saida > 0:
             eventos.append(
                 self.registrar(

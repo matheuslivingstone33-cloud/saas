@@ -82,6 +82,51 @@ def test_embedding_com_saida_zero_nao_infla_o_balde_de_ia() -> None:
     assert sink.total_micros(Balde.IA) == entrada.valor_micros
 
 
+def test_chamada_sem_entrada_nao_registra_entrada_fantasma() -> None:
+    """O outro lado de "nada registra sem gastar": sem tokens de ENTRADA, nao
+    ha custo de entrada a registrar.
+
+    O guarda de saida (tokens_saida>0) ja impede o custo-fantasma de saida do
+    embedding. Mas a entrada era registrada SEMPRE — e uma chamada com
+    tokens_entrada=0 caia no ramo de `quantidade` default (1.0), fabricando 1
+    unidade de entrada ao preco cheio (para o mock, 5 micros). Simetria: cada
+    lado so gera evento quando de fato houve token daquele lado.
+    """
+    rec, sink = _recorder()
+    eventos = rec.registrar_llm(
+        provedor="llm",
+        modelo="claude-opus-5",
+        operacao="resposta",
+        tokens_entrada=0,
+        tokens_saida=50,
+    )
+
+    assert len(eventos) == 1
+    assert eventos[0].operacao == "resposta.output"
+    # Nenhum evento de entrada, nenhum custo-fantasma no balde 2.
+    assert not any(e.operacao.endswith(".input") for e in sink.eventos)
+    assert sink.total_micros(Balde.IA) == eventos[0].valor_micros
+
+
+def test_chamada_sem_tokens_nao_registra_nada() -> None:
+    """Uma chamada que nao consumiu token nenhum nao fabrica custo.
+
+    Antes, (entrada=0, saida=0) ainda registrava 1 evento de entrada fantasma
+    (quantidade default 1.0). Sem token gasto, nada a registrar.
+    """
+    rec, sink = _recorder()
+    eventos = rec.registrar_llm(
+        provedor="llm",
+        modelo="claude-opus-5",
+        operacao="vazia",
+        tokens_entrada=0,
+        tokens_saida=0,
+    )
+
+    assert eventos == []
+    assert sink.eventos == []
+
+
 def test_modelo_real_sem_preco_e_marcado_como_estimativa() -> None:
     """Modelo real sem preco na tabela NAO some do painel: cai no preco-espelho
     do mock, mas o evento fica MARCADO como estimativa.
