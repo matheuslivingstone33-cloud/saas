@@ -14,8 +14,137 @@
 > **Limite desta máquina:** não há Docker. A validação é por leitura, por
 > script Python contra o código e por simulação do layout do container.
 
-**Última execução:** 2026-09-16 · link de descadastro chegando ao backend na
-origem do frontend; `docs/COLOCAR-NO-AR.md` criado.
+**Última execução:** 2026-09-18 · a imagem do backend passa a instalar os SDKs
+dos adaptadores reais (`requirements-prod.txt`); achado 🔴 de outro dono: o SDK
+da Anthropic fixado recusa `output_config`.
+
+---
+
+## 2026-09-18 — a imagem de produção não tinha os SDKs dos adaptadores reais
+
+### O que corrigi
+
+**Três das seis APIs reais quebrariam no dia da virada, e uma delas em
+silêncio.** O `backend/Dockerfile` instalava só `requirements.txt`. Os SDKs que
+os adaptadores reais usam — `anthropic` (LLM e busca), `boto3` (SES) e `stripe`
+— moram em `requirements-prod.txt`, que **nenhum arquivo de build lia** (só o
+`requirements-dev.txt`, por isso tudo passa nesta máquina). Os adaptadores fazem
+`import` **dentro** da propriedade `cliente`, na primeira chamada real — então a
+imagem sobe `healthy` em mock, sobe `healthy` com `*_MODE=real`, e quebra na
+primeira chamada:
+
+- `LLM_MODE`/`SEARCH_MODE=real` → `ModuleNotFoundError: anthropic` na primeira
+  pergunta (500 na tela);
+- `BILLING_MODE=real` → na primeira compra;
+- `EMAIL_MODE=real` → o pior: o `SESAdapter` captura a exceção, o código do erro
+  vira `ModuleNotFoundError`, que `classificar_falha_ses` classifica como
+  **transitória** — nada pausa, ninguém é avisado, e **todo** e-mail vira
+  `FALHOU`. Depois de 5, o circuito abre e o motivo passa a ser `CircuitOpen`,
+  escondendo a causa. Simulado com `sys.modules["boto3"] = None`, sem rede: 8
+  envios → 5 × `(False, transitoria, ModuleNotFoundError)` + 3 × `CircuitOpen`.
+
+Places e WhatsApp usam `httpx` e não eram afetados. Os testes não pegam: injetam
+cliente falso e nunca executam o `import`. É da espécie dos quatro de 09–11/09:
+build passa, container sobe, e a falha só aparece rodando.
+
+**Correção** (`backend/Dockerfile`): o estágio `builder` copia e instala os dois
+arquivos (`pip install -r requirements.txt -r requirements-prod.txt`), e o
+estágio `runtime` ganhou uma trava de build — `RUN python -c "import anthropic,
+boto3, stripe"` — para que remover um SDK dos requirements quebre o **build**, e
+não a primeira chamada paga. O `docker-compose.yml` de dev usa o mesmo alvo e
+herda a correção.
+
+**Como verifiquei, sem Docker:**
+
+- script que lê o `Dockerfile`, pega os `-r` instalados e confere que cada um é
+  copiado, fecha as dependências transitivas pelos metadados do venv, e cruza
+  com **todo** `import` de `backend/app`, `backend/scripts` e `backend/alembic`
+  (inclusive os de dentro de função, via AST). **Antes:** falha com `anthropic`
+  (`anthropic_llm.py:100`, `anthropic_search.py:57`), `boto3`
+  (`ses_email.py:83`) e `stripe` (`stripe_billing.py:48`). **Depois:** ok, 57
+  pacotes, nada faltando;
+- `pip check` limpo no venv que tem os dois arquivos instalados juntos (as
+  versões fixadas convivem);
+- `pytest` 428 verdes / 3 pulados e `ruff` limpo.
+
+**Não verificado:** o build de verdade (sem Docker). O `RUN python -c "import
+..."` roda com o `PATH` do venv já definido no estágio e com
+`PYTHONDONTWRITEBYTECODE=1`; se falhar, o `up -d --build` do passo 3.5 para com
+a mensagem na tela, antes de trocar qualquer container.
+
+### Também nesta execução (documentos)
+
+- **`GET /v1/providers` exige login** (responde 401 — conferido com
+  `TestClient`), mas o `COLOCAR-NO-AR` (fase 5), o `DEPLOY` (§5 e §9) e o
+  `RUNBOOK` (§0) mandavam usar `curl` sem token. Trocado por
+  `docker compose ... exec backend python -c "...get_settings().modes()"`,
+  testado aqui (`PLACES_MODE=real` → `'places': 'real'`).
+- `RUNBOOK-FASE7` §10 "Reverter" passou a usar `up -d --build` (item 5 da fila
+  de 16/09, parte do `--build`).
+- `COLOCAR-NO-AR`: data de conferência, 428 testes, o link no corpo (item 7 da
+  fila, fechado pelo Motor 3 em 18/09) e o bloqueio da Anthropic abaixo — na
+  tabela do topo, no 5.1 e no 5.2, com o erro exato que o dono vai ver.
+
+### O que achei e NÃO corrigi — código de OUTRO dono
+
+**14. 🔴 O SDK da Anthropic fixado recusa a chamada que os adaptadores fazem.**
+`requirements-prod.txt` fixa `anthropic==0.69.0`; `anthropic_llm.py:119`,
+`:199` e `anthropic_search.py:70` passam `output_config={"effort": ...}` para
+`messages.create`, e essa versão **não tem o parâmetro**. O Python recusa o
+kwarg antes de montar a requisição. Prova, sem rede (chave fictícia e
+`ANTHROPIC_BASE_URL=http://127.0.0.1:9`):
+
+```
+smoke.py llm → [falhou] Messages.create() got an unexpected keyword argument 'output_config'
+```
+
+`inspect.signature(Messages.create).bind(...)` confirma: sem `output_config`, a
+chamada é aceita. O teste `test_fase7_adaptadores_reais.py:336` **afirma** que
+`output_config` é passado — para um cliente falso, que aceita tudo. Efeito: com
+`LLM_MODE=real`, **nenhuma** função de IA funciona (onboarding, Cérebro,
+personalização, Motor 4) nem a busca na web. Correção possível: subir o
+`anthropic` para uma versão que tenha `output_config` (conferir no changelog do
+SDK qual) ou mandar por `extra_body`. `requirements-prod.txt` não tem dono nas
+rotinas; os adaptadores `anthropic_*` ficam entre Custo e Cérebro. Minha trava
+de build **não** pega isto (o `import` passa) — quem pega é o `smoke.py llm` do
+passo 5.1, que agora avisa o dono do erro esperado.
+
+Conferido também, sem achado: `botocore` 1.35.99 (o que o `boto3==1.35.76`
+puxa) aceita `Content.Simple.Headers` no `SendEmail` do SESv2 (o
+`List-Unsubscribe` vai por ali); `stripe` 11.4.1 aceita
+`sessions.create(params=...)`.
+
+**15. 🟢 `GET /v1/audit/integridade` é público** — responde 200 sem login com o
+número de registros da trilha (conferido). Útil para a vigia do dia a dia
+(`COLOCAR-NO-AR` 7.6), mas expõe o volume de atividade a quem conhecer o
+endereço `api.`. Baixo risco. `api/routes/system.py:148` — rotas.
+
+### Fila dos MEUS arquivos (de 16/09, sem mudança)
+
+Itens 1 a 8 da entrada de 16/09 seguem abertos, na mesma ordem. O 5 perdeu a
+parte do `--build` (feita hoje). O **1** (`.env.example` anulando as travas
+`${VAR:?}` e o aquecimento) continua o próximo: segue mitigado pelo passo 3.4
+do `COLOCAR-NO-AR`, e hoje o maior risco era o desta entrada — mitigação
+nenhuma cobria a falta dos SDKs.
+
+### O que depende de outra rotina ou de decisão do dono
+
+- **Item 14** (SDK da Anthropic) → quem cuidar de `requirements-prod.txt` /
+  `adapters/real/anthropic_*`. Bloqueia `LLM_MODE` e `SEARCH_MODE` reais.
+- Da tabela de 16/09 (outros donos), nada foi fechado desde então. O item 9
+  (descadastro sem "1 clique") mudou de figura: o link agora vai **visível no
+  corpo** (Motor 3, `186f018`); segue faltando o `List-Unsubscribe-Post`
+  (RFC 8058) e o link no corpo da resposta **manual** (`conversa.py`).
+- Decisões do dono: as mesmas de 16/09 (domínio, provedor e quando subir, quais
+  APIs e teto de gasto, aquecimento, onde guardar a cópia fora do servidor,
+  horário das tarefas diárias, texto jurídico da Política).
+
+### Próxima execução: por onde começar
+
+Item 1 da fila dos meus arquivos (`.env.example`: tirar os placeholders não
+vazios e os limites de 200/500, conferindo antes o que o desenvolvimento local
+lê dali). Depois, reconferir se o item 14 foi corrigido e, se foi, tirar o aviso
+dos passos 5.1/5.2 e a linha da tabela do `COLOCAR-NO-AR`.
 
 ---
 

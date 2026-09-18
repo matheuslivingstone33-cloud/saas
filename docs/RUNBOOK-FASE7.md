@@ -22,7 +22,9 @@ cp .env.example .env
 
 - [ ] `.env` não está versionado (confira o `.gitignore`).
 - [ ] Nenhuma chave em imagem Docker — só variável de runtime.
-- [ ] `GET /v1/providers` mostra tudo em `mock`.
+- [ ] Tudo em `mock`: `GET /v1/providers` (exige login) ou, sem login,
+      `python -c "from app.core.config import get_settings; print(get_settings().modes())"`
+      (no servidor, dentro do container: `docker compose -f docker-compose.prod.yml exec backend ...`).
 - [ ] Suíte verde: `pytest -q`.
 - [ ] Painel de margem funcionando com valores estimados: `GET /v1/margem`.
 
@@ -67,6 +69,13 @@ balde 2, e `is_error` de volta ao modelo quando uma ferramenta falha.
 ```bash
 cd backend && .venv/Scripts/python scripts/smoke.py llm
 ```
+
+> **Bloqueio conhecido (18/09):** o SDK fixado em `requirements-prod.txt`
+> (`anthropic==0.69.0`) não tem o parâmetro `output_config` em
+> `messages.create`, e o Python recusa o kwarg antes de qualquer requisição:
+> `Messages.create() got an unexpected keyword argument 'output_config'`. Vale
+> para `LLM_MODE` e `SEARCH_MODE`. Os testes não pegam porque injetam cliente
+> falso. Detalhe em `docs/radar/deploy.md`.
 
 - [ ] Comparar o custo estimado com o faturado no console da Anthropic.
 - [ ] Ajustar `app/core/pricing.py` se divergir.
@@ -192,5 +201,8 @@ Qualquer provedor volta para mock trocando `*_MODE=real` por `mock` e
 reiniciando o serviço. O código de domínio não muda — é o mesmo binário.
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+Sem `--build` a troca do `.env` também vale, mas o comando é sempre o mesmo de
+propósito: se houve `git pull` antes, `up -d` sozinho sobe código velho.

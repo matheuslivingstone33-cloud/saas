@@ -18,7 +18,7 @@
 > **Preços:** mudam com frequência. Onde está escrito "conferir no site", o
 > valor não foi confirmado — abra o endereço indicado antes de contratar.
 >
-> Última conferência deste documento contra o código: **16/09/2026**.
+> Última conferência deste documento contra o código: **18/09/2026**.
 
 ---
 
@@ -28,7 +28,7 @@
 
 - ✅ O sistema inteiro funciona em **modo de teste** (sem gastar nada): busca,
   qualificação, mensagens, conversas, 2º e 3º contato, créditos e painel.
-  415 testes automáticos passando (conferido em 16/09).
+  428 testes automáticos passando (conferido em 18/09).
 - ✅ Cadastro, login e sessão com senha.
 - ✅ Os arquivos que montam o sistema num servidor **já foram usados de verdade**
   (09 a 11/09/2026). Os quatro defeitos que apareceram ali foram corrigidos.
@@ -40,6 +40,12 @@
   endereço do site. Antes ele abria a página inicial e **não descadastrava
   ninguém** — ver [radar de deploy](radar/deploy.md).
 - ✅ **16/09:** um cliente não vê mais os pedidos de privacidade de outro cliente.
+- ✅ **18/09:** o link "descadastrar" aparece **no texto** de toda mensagem, e
+  não só escondido no cabeçalho.
+- ✅ **18/09:** o sistema montado no servidor agora leva as peças que conversam
+  com a Anthropic, a AWS e o Stripe. Antes elas ficavam de fora: ligar a IA ou o
+  pagamento de verdade quebraria na primeira vez, e com o e-mail real **todas**
+  as mensagens falhariam sem aviso nenhum — ver [radar de deploy](radar/deploy.md).
 
 ### ⬜ O que falta você fazer (em ordem)
 
@@ -63,6 +69,7 @@ subir o sistema e testar sem isto; só não abra para clientes.
 
 | | O que falta | O que acontece hoje |
 |---|---|---|
+| ⬜ 🔴 | **Peça da IA (Anthropic) atualizada** | A versão da peça que o projeto usa é antiga e recusa um ajuste que o sistema manda em **toda** pergunta à IA. Com a IA real ligada, nenhuma pergunta passa — nem a busca na web. O teste do [passo 5.1](#51-ia-anthropic--openai) mostra o erro. Conferido em 18/09 sem gastar nada |
 | ⬜ 🔴 | **Base completa de empresas da Receita Federal** dentro do banco | O servidor não tem a base. Sem ela, as empresas encontradas **não têm e-mail** — e sem e-mail nenhuma mensagem sai. A base completa também não cabe na memória do jeito que o código lê hoje: precisa ir para o banco de dados |
 | ⬜ 🔴 | **Catálogo de ramos carregado no servidor** | O catálogo que diz "quem consome o seu serviço" só é carregado junto com os dados de demonstração, que ficam desligados no servidor. Resultado: a busca roda com **0 ramos** (conferido em 16/09) |
 | ⬜ 🔴 | **Catálogo de ramos compatível com a IA real** | Quando a IA real é ligada, o catálogo continua com a "impressão digital" do modo de teste, e a comparação entre os dois perde o sentido |
@@ -72,7 +79,7 @@ subir o sistema e testar sem isto; só não abra para clientes.
 | ⬜ | **Recuperação de senha** (fila, item 3) | Quem esquece a senha não volta pela tela |
 | ⬜ | **Limite de tentativas no login** (fila, item 4) | Nada impede alguém de testar senhas sem parar |
 | ⬜ | **Expurgo da LGPD e 2º/3º contato rodando sozinhos** (fila, item 5) | Nada dispara os dois. Enquanto não houver, o [passo 7.4](#74-tarefas-diárias-expurgo-da-lgpd-e-2º3º-contato) agenda os dois no servidor |
-| ⬜ | **Link de descadastro no texto do e-mail** (fila, item 7) e no formato "1 clique" que Gmail e Yahoo pedem | Hoje o link vai só no cabeçalho da mensagem |
+| ⬜ | **Descadastro no formato "1 clique" que Gmail e Yahoo pedem** | Desde 18/09 o link vai no texto e no cabeçalho. Falta a marcação que faz o Gmail e o Yahoo mostrarem o botão próprio de "cancelar inscrição". A resposta escrita à mão (quando você assume a conversa) ainda leva o link só no cabeçalho |
 | ⬜ | **Encerrar sessão de verdade** (fila, item 6) | Sair apaga a sessão só no navegador |
 | ⬜ | **Política de privacidade e declaração de IA no ar** | No servidor as duas páginas respondem "não encontrado", porque o texto não vai junto com o sistema. O texto também precisa de revisão jurídica antes (ver decisões) |
 | ⬜ | **Painel de margem de todos os clientes** protegido | Qualquer conta logada consegue abrir |
@@ -617,8 +624,12 @@ para a mais delicada.
 **Onde ver o que está ligado:**
 
 ```bash
-curl -s localhost:8000/v1/providers
+cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python -c "from app.core.config import get_settings; print(get_settings().modes())"
 ```
+
+**Deu certo quando:** cada API aparece com `real` ou `mock`, do jeito que você
+deixou no arquivo. `enrichment` aparece sempre como `mock`: é a base da Receita
+Federal, que não tem chave nem modo real.
 
 ### 5.1 IA (Anthropic + OpenAI)
 
@@ -628,8 +639,9 @@ Linhas: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LLM_MODE=real`.
 cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python scripts/smoke.py llm
 ```
 
-**Deu certo quando:** aparece a resposta da IA e o custo estimado. Este teste
-**não** confere a OpenAI; confira com:
+**Deu certo quando:** aparece a resposta da IA e o custo estimado.
+
+Este teste **não** confere a OpenAI; confira com:
 
 ```bash
 cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python -c "from app.adapters.registry import ProviderRegistry as R; print(len(R().llm.embutir(['teste']).vetores[0]))"
@@ -637,6 +649,13 @@ cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python
 
 **Deu certo quando:** aparece `384`. Custo dos dois testes: frações de centavo.
 Tempo: 5 minutos.
+
+> **Hoje o primeiro teste falha**, com uma linha `[falhou]` que termina em
+> `unexpected keyword argument 'output_config'`. Não é erro seu nem da chave, e
+> nada é cobrado: o pedido nem chega a sair do servidor. É o item 🔴 "Peça da IA"
+> da tabela do topo. O teste da OpenAI funciona mesmo assim. Depois de rodar os
+> dois, volte `LLM_MODE` para `mock`, aplique, e espere a correção. O mesmo vale
+> para o passo 5.2.
 
 ### 5.2 Busca na web (Anthropic)
 
@@ -648,6 +667,9 @@ cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python
 
 **Deu certo quando:** aparece `buscas=` com um número maior que zero. Custo: cerca
 de 1 centavo de dólar por busca, mais a IA. Tempo: 5 minutos.
+
+> Hoje falha com o mesmo erro `output_config` do passo 5.1 — mesma causa, mesma
+> correção. Deixe `SEARCH_MODE` em `mock` até lá.
 
 ### 5.3 Busca de empresas (Google)
 

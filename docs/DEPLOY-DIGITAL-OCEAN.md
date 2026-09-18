@@ -203,8 +203,12 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 ```
 
 ```bash
-curl -s localhost:8000/health && curl -s localhost:8000/v1/providers
+curl -s localhost:8000/health && docker compose -f docker-compose.prod.yml exec backend python -c "from app.core.config import get_settings; print(get_settings().modes())"
 ```
+
+> `GET /v1/providers` exige login desde a Etapa 8 (responde 401 sem token). Para
+> ver os modos no servidor, pergunte à configuração de dentro do container, como
+> acima.
 
 **Confira que a porta está fechada** — é o ponto inteiro da Etapa 8:
 
@@ -320,7 +324,7 @@ Coloque no cron diário, ou agende via RQ Scheduler no worker.
 |---|---|
 | Logs da API | `docker compose -f docker-compose.prod.yml logs -f backend` |
 | Logs do worker | `docker compose -f docker-compose.prod.yml logs -f worker` |
-| Estado dos provedores | `curl -s localhost:8000/v1/providers` |
+| Estado dos provedores | `docker compose -f docker-compose.prod.yml exec backend python -c "from app.core.config import get_settings; print(get_settings().modes())"` |
 | Margem consolidada | `curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/margem/consolidado` |
 | Integridade da auditoria | `curl -s localhost:8000/v1/audit/integridade` |
 | Deploy de nova versão | `git pull && docker compose -f docker-compose.prod.yml up -d --build` |
