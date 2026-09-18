@@ -30,6 +30,7 @@ from app.services.conversa import (
     ServicoDeConversa,
     classificar_por_sinal,
     decodificar_quoted_printable,
+    html_para_texto,
     remover_historico_citado,
 )
 
@@ -590,3 +591,78 @@ def test_titular_que_pede_para_sair_continua_sendo_opt_out() -> None:
     assert classificar_por_sinal("Quero me descadastrar, por favor.") is Intencao.PEDIDO_OPT_OUT
     embaixo_da_citacao = "> Podemos agendar uma visita?\nMe tire da lista."
     assert classificar_por_sinal(embaixo_da_citacao) is Intencao.PEDIDO_OPT_OUT
+
+
+# --- Texto real: corpo em HTML -----------------------------------------------
+# Muito e-mail real chega em HTML: tags de bloco (`<div>`, `<br>`), inline
+# (`<span>`, `<a>`) e entidades (`&nbsp;`, `n&atilde;o`). Sem converter para
+# texto, o casamento lexical trabalha sobre "<p>N&atilde;o tenho interesse</p>"
+# e nao acha marca nenhuma — inclusive um opt-out entidade-codificado, que e o
+# pior caso: um pedido de saida que o classificador NAO ve.
+
+
+def test_html_vira_texto_e_decodifica_entidades() -> None:
+    limpo = html_para_texto("<p>N&atilde;o quero receber mais.</p>")
+    assert limpo.strip() == "Não quero receber mais."
+
+
+def test_texto_comum_com_menor_que_nao_e_tocado() -> None:
+    """"< 4 mil" (espaco depois do "<") nao tem cara de HTML: converter engoliria
+    o texto ate o proximo ">" e poderia apagar ate um opt-out."""
+    texto = "Nosso consumo hoje e < 4 mil kWh > o do ano passado, da para melhorar?"
+    assert html_para_texto(texto) == texto
+
+
+def test_tags_de_bloco_viram_quebra_de_linha() -> None:
+    """O corte por linha depende disso: `<div>`/`<br>` precisam separar linhas."""
+    linhas = html_para_texto("<div>linha um</div><div>linha dois<br>linha tres</div>").split("\n")
+    assert [linha for linha in linhas if linha.strip()] == ["linha um", "linha dois", "linha tres"]
+
+
+def test_opt_out_em_html_e_reconhecido() -> None:
+    assert (
+        classificar_por_sinal("<div>N&atilde;o quero receber mais, obrigado.</div>")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_conteudo_de_style_e_script_nao_vota_na_intencao() -> None:
+    """CSS/JS nao e texto de leitura: um "nao tenho interesse" perdido num seletor
+    nao pode descartar um lead que, no corpo, disse que tem interesse."""
+    corpo = (
+        "<style>.rodape::after{content:'nao tenho interesse'}</style>"
+        "<script>var t='ja temos fornecedor';</script>"
+        "<p>Tenho interesse, podemos conversar!</p>"
+    )
+    assert classificar_por_sinal(corpo) is Intencao.INTERESSE
+
+
+def test_recusa_citada_em_html_nao_descarta_lead_que_disse_sim() -> None:
+    """A conversao para texto e o que faz o corte de historico funcionar em HTML.
+
+    Sem as quebras de linha das tags de bloco, tudo vira uma linha so, nenhuma
+    fronteira e reconhecida, e o "Nao tenho interesse" citado (RECUSA vem antes
+    de INTERESSE na ordem das regras) descartaria o lead que acabou de dizer sim.
+    """
+    corpo = (
+        "<div>Perfeito, tenho interesse! Podemos conversar esta semana.</div>"
+        "<div>Em 10/09/2026, Prospector escreveu:</div>"
+        "<blockquote>Não tenho interesse, obrigado.</blockquote>"
+    )
+    assert classificar_por_sinal(corpo) is Intencao.INTERESSE
+
+
+def test_opt_out_em_html_encerra_e_suprime_ponta_a_ponta(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """Ponta a ponta: opt-out em HTML com entidade suprime e para, como o texto limpo."""
+    r = ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="<p>Por favor, n&atilde;o me envie mais e-mails.</p>"
+    )
+    assert r.intencao is Intencao.PEDIDO_OPT_OUT
+    assert r.encerrou and not r.respondeu
+    assert lead_abordado.status is StatusLead.OPT_OUT
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
+    ).scalar_one_or_none()
+    assert supressao is not None

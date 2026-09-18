@@ -12,7 +12,8 @@
 > - **Proteção nova:** linha que contém o nosso link `/descadastro/` não entra na varredura de opt-out. Sem ela, no dia em que o link for para o corpo do e-mail, todo "tenho interesse" respondido por cima de uma mensagem nossa viraria opt-out. Rótulo e link devem ficar na mesma linha.
 >
 > - **Quoted-printable decodificado — integrado em 16/09** (versão de 15/09, `f8116f2`, adaptada ao `main`). `decodificar_quoted_printable()` roda no começo de `classificar_por_sinal` e antes do LLM, então `n=C3=A3o me envie` e `desca=
-dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** também sai da varredura, porque a linha é remontada antes. **Falta ainda o corpo em HTML** (tags e entidades como `n&atilde;o`) — esse é o próximo do item 1 abaixo.
+dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** também sai da varredura, porque a linha é remontada antes.
+> - **Corpo em HTML decodificado — integrado em 18/09.** `html_para_texto()` roda logo depois do quoted-printable, nos dois pontos (`classificar_por_sinal` e antes do LLM). Tags de bloco (`<div>`, `<br>`) viram quebra de linha, `<script>`/`<style>` saem inteiros e entidades (`n&atilde;o`, `&nbsp;`) são expandidas — então `<p>N&atilde;o quero receber</p>` vira opt-out e o corte de histórico volta a funcionar em e-mail HTML. **Só converte quando o texto tem cara de HTML**: "custo < 4 mil" fica intacto. Fecha a metade que faltava do item 1 abaixo.
 >
 > O que vem abaixo é o diário das execuções, mantido como estava.
 
@@ -32,11 +33,68 @@ dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** tamb
 > **Regra que não se negocia:** em caso de dúvida, o direito do titular ganha
 > do negócio. Opt-out duvidoso é opt-out.
 
-**Última execução:** 2026-09-16
+**Última execução:** 2026-09-18
 
 ---
 
-## O que corrigiu nesta execução (2026-09-16)
+## O que corrigiu nesta execução (2026-09-18)
+
+**O corpo em HTML passou a ser decodificado para texto antes de classificar.**
+(`services/conversa.py`)
+
+Era a metade que faltava do item 1 da fila (o quoted-printable já tinha sido
+fechado em 16/09) e é o **maior buraco** que sobrava dentro dos meus arquivos:
+sem isso, todo o parsing (casamento lexical, corte de histórico, proteção do
+nosso link) trabalha sobre lixo quando o provedor entrega o corpo em HTML.
+
+O caso que dói: um opt-out que o classificador **não vê**. O provedor manda
+`<p>N&atilde;o quero receber</p>` e nem `"não quero receber"` nem `"descadastr"`
+casam com marca nenhuma — e a pessoa que pediu para sair continua recebendo. E o
+inverso do item 1: sem as quebras de linha das tags de bloco, a resposta nova, o
+histórico citado e a linha do nosso link colam numa linha só, o corte de
+histórico não acha fronteira, e um `"Não tenho interesse"` citado descarta um
+lead que acabou de dizer sim.
+
+O que mudou:
+
+- **`html_para_texto(texto)`** — converte o corpo em HTML para texto legível.
+  Roda logo **depois** de `decodificar_quoted_printable` (é a ordem do e-mail
+  real: o HTML chega codificado em QP), nos dois pontos: começo de
+  `classificar_por_sinal` e antes do LLM em `classificar`.
+- **Só converte quando o texto TEM cara de HTML** (`_PARECE_HTML`: tag de
+  fechamento `</x` ou tag de abertura conhecida). É a mesma prudência do QP: em
+  texto puro um `<` de `"custo < 4 mil kWh > o do ano passado"` não pode virar
+  início de tag e engolir o resto — o que poderia até apagar um opt-out. O
+  strip de tag usa `[^<>]`, não `[^>]`, então um `<` solto nunca engole até o
+  próximo `>`.
+- **`<script>`/`<style>` saem inteiros, antes de tudo.** CSS e JS não são texto
+  de leitura: um `"nao tenho interesse"` perdido num seletor não pode votar na
+  intenção. Há teste com a recusa dentro de `<style>` e o interesse no corpo —
+  ganha o corpo.
+- **Tags de bloco e `<br>` viram quebra de linha**; as entidades (`&nbsp;`,
+  `n&atilde;o`) são expandidas **por último**, depois de tirar as tags, para que
+  um `&lt;` escrito pelo remetente vire texto e não tag.
+- **Opt-out não muda de escopo.** Continua varrendo o texto **inteiro** (menos a
+  linha do nosso `/descadastro/`); a conversão só entrega texto de verdade no
+  lugar de tags e entidades. "Opt-out duvidoso é opt-out" permanece intacto — e
+  a conversão só **revela** opt-out escondido em entidade, nunca esconde um
+  (frase de titular é texto, não tag).
+
+Testes novos (em `test_motor4_conversa.py`), todos falhando antes e passando
+depois — as unitárias de `html_para_texto` e as ponta a ponta pela
+classificação: `test_html_vira_texto_e_decodifica_entidades`,
+`test_texto_comum_com_menor_que_nao_e_tocado` (o lado conservador),
+`test_tags_de_bloco_viram_quebra_de_linha`, `test_opt_out_em_html_e_reconhecido`,
+`test_conteudo_de_style_e_script_nao_vota_na_intencao`,
+`test_recusa_citada_em_html_nao_descarta_lead_que_disse_sim` e
+`test_opt_out_em_html_encerra_e_suprime_ponta_a_ponta`.
+**397 passed, 3 skipped; `ruff` limpo.**
+
+`cadencia.py` e `webhook.py` não foram tocados — a correção foi toda no Motor 4.
+
+---
+
+## O que corrigiu na execução de 2026-09-16
 
 **O bloco de cabeçalho do Outlook (`De:/Enviada em:/Para:/Assunto:`) passou a
 fechar o histórico citado.** (`services/conversa.py`, commit `0c154da`)
@@ -140,15 +198,25 @@ continua pego; três casos parametrizados fixam o corte de Gmail, Outlook e
 
 Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
 
-1. **HTML e quoted-printable ainda não são decodificados.** Se o provedor
-   entregar o corpo em HTML (`<br>`, `<div>`, `&nbsp;`, entidades) ou em
-   quoted-printable (`=E3`, `=0D=0A`, soft breaks `=\n`), tanto o casamento
-   lexical quanto a detecção de fronteira de citação degradam: `"não tenho
-   interesse"` pode chegar como `n=C3=A3o tenho interesse` e escapar de toda
-   marca. **Depende de decidir onde decodificar** (ver seção seguinte) — mas a
-   decodificação para texto puro, uma vez definida a origem, mora aqui, antes de
-   classificar. É o maior buraco: sem isso, o resto do parsing trabalha sobre
-   lixo.
+1. ✅ **RESOLVIDO — quoted-printable (16/09) e HTML (18/09) decodificados.** O
+   corpo em quoted-printable (`=E3`, soft breaks `=\n`) e em HTML (`<br>`,
+   `<div>`, `&nbsp;`, entidades como `n&atilde;o`) agora vira texto legível antes
+   de classificar — `decodificar_quoted_printable` e depois `html_para_texto`,
+   nos dois pontos (`classificar_por_sinal` e antes do LLM). Era o maior buraco:
+   sem isso o resto do parsing trabalhava sobre lixo.
+
+   **Resíduo honesto, para uma execução futura** (não fechei, é "outra coisa"):
+   - **Citação HTML em `<blockquote>` sem linha de atribuição.** O Gmail
+     costuma pôr um `"Em <data>, Fulano escreveu:"` antes do `<blockquote>`, que
+     o corte já reconhece. Mas um cliente que jogue o histórico direto num
+     `<blockquote>` **sem** essa linha e **sem** `>` não é cortado: hoje a tag
+     vira só quebra de linha, não fronteira de citação. Risco baixo (o opt-out
+     ainda varre o texto inteiro), mas a intenção de negócio pode vir poluída.
+     Tratar `<blockquote>` como fronteira é possível, mas é ampliar a detecção de
+     citação — deixei de fora para não juntar duas coisas numa execução.
+   - **Entidades numéricas / largura-zero** (`&#8203;`, `&#x200B;`) que partem
+     palavra (`des&#8203;cadastrar`) não são tratadas — análogo ao soft break do
+     QP, mas mais raro. Fica para depois.
 
 2. ✅ **RESOLVIDO em 2026-09-16 — rodapé de citação do Outlook sem `>` e sem
    régua.** O bloco `De:/Enviada:/Para:/Assunto:` que aparecia sozinho, sem a

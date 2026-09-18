@@ -25,6 +25,7 @@ resposta de verdade e o lead nem leu a mensagem ainda.
 
 from __future__ import annotations
 
+import html
 import quopri
 import re
 import uuid
@@ -316,6 +317,72 @@ def decodificar_quoted_printable(texto: str) -> str:
         return texto
 
 
+#: Assinatura de HTML: uma tag de FECHAMENTO (`</x`) ou uma tag de abertura
+#: CONHECIDA. Texto comum com "custo < 4 mil" ou "a -> b" nao casa — o `<` de
+#: verdade vem seguido de espaco ou de digito, nunca de "/" nem de nome de tag.
+#: So convertemos quando o corpo REALMENTE parece HTML: em texto puro um `<`
+#: solto nao pode virar inicio de tag e engolir a resposta ate o proximo `>`.
+_PARECE_HTML = re.compile(
+    r"</[a-zA-Z]"
+    r"|<(?:br|p|div|span|table|thead|tbody|tr|td|th|ul|ol|li|a|b|i|u|em|strong|"
+    r"font|small|center|pre|blockquote|h[1-6]|hr|img|meta|link|title|style|"
+    r"script|html|body|head|o:p)\b",
+    re.IGNORECASE,
+)
+
+#: Conteudo de <script>/<style> NAO e texto de leitura. Uma palavra perdida numa
+#: folha de estilo ou num script ("nao tenho interesse" dentro de um seletor) nao
+#: pode votar na intencao — sai inteiro, antes de qualquer outra limpeza.
+_RE_SCRIPT_STYLE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
+
+#: Tags de bloco e o <br> viram QUEBRA DE LINHA. Sem isso o HTML cola a resposta,
+#: o historico citado e a linha do nosso link numa unica linha — e tanto
+#: `remover_historico_citado` quanto a protecao do `/descadastro/` trabalham por
+#: linha. Perder a fronteira de linha faria um "nao tenho interesse" citado
+#: descartar um lead que disse sim.
+_RE_QUEBRA_HTML = re.compile(
+    r"<\s*/?\s*(?:br|p|div|tr|table|blockquote|li|ul|ol|h[1-6]|hr|"
+    r"header|footer|section|article|o:p)\b[^>]*>",
+    re.IGNORECASE,
+)
+
+#: Qualquer tag restante (inline: <span>, <a href=...>, <font>). `[^<>]` — e nao
+#: `[^>]` — impede que um `<` solto que tenha sobrado engula tudo ate o proximo `>`.
+_RE_TAG_RESTANTE = re.compile(r"<[^<>]+>")
+
+
+def html_para_texto(texto: str) -> str:
+    """Converte corpo em HTML para texto legivel, antes de classificar.
+
+    E-mail real chega com frequencia em HTML: `<br>`, `<div>`, `&nbsp;` e
+    entidades como `n&atilde;o`. Sem converter, o casamento lexical trabalha
+    sobre `<p>N&atilde;o tenho interesse</p>` e nao acha "nao tenho interesse";
+    pior, um opt-out entidade-codificado (`n&atilde;o me envie`) escaparia — e a
+    pessoa que pediu para sair continuaria recebendo. Opt-out duvidoso e opt-out,
+    e um opt-out que o classificador NAO ve e o pior caso.
+
+    So converte quando o texto TEM cara de HTML (`_PARECE_HTML`): em texto puro
+    um `<` de "custo < 4 mil" nao pode virar inicio de tag. O conteudo de
+    <script>/<style> sai inteiro, as tags de bloco viram quebra de linha (o corte
+    por linha depende disso) e as entidades sao expandidas POR ULTIMO — depois de
+    tirar as tags, para que `&lt;` escrito pelo remetente vire texto, nao tag.
+    Volta ao original se algo der errado: normalizar de menos e melhor do que
+    corromper resposta.
+    """
+    if not texto or not _PARECE_HTML.search(texto):
+        return texto
+    try:
+        t = _RE_SCRIPT_STYLE.sub(" ", texto)
+        t = _RE_QUEBRA_HTML.sub("\n", t)
+        t = _RE_TAG_RESTANTE.sub("", t)
+        t = html.unescape(t)
+        # HTML gera muita linha vazia; o corte por linha nao precisa delas.
+        t = re.sub(r"[ \t]*\n[ \t]*(?:\n[ \t]*)+", "\n\n", t)
+        return t.strip()
+    except Exception:  # noqa: BLE001 — conversao best-effort, nunca fatal
+        return texto
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -331,10 +398,14 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
     `_SOBRE_TEXTO_INTEIRO`); os demais sinais, so na resposta nova, para que o
     historico citado nao vote na intencao de negocio.
 
-    O corpo e decodificado ANTES de tudo: em quoted-printable a quebra suave
-    (`=\\n`) parte palavras, a linha do nosso link e as marcas de citacao.
+    O corpo e normalizado ANTES de tudo, e nesta ordem: primeiro o
+    quoted-printable (a quebra suave `=\\n` parte palavras, a linha do nosso link
+    e as marcas de citacao), depois o HTML (tags e entidades). E a ordem do
+    e-mail real — o HTML chega codificado em quoted-printable, entao decodificar
+    QP primeiro entrega o HTML inteiro para `html_para_texto`.
     """
     texto = decodificar_quoted_printable(texto)
+    texto = html_para_texto(texto)
     inteiro = _normalizar(_RE_LINHA_DO_NOSSO_LINK.sub("", texto or ""))
     if not inteiro:
         return None
@@ -758,8 +829,11 @@ class ServicoDeConversa:
         # Sem sinal claro, o modelo decide — mas sobre a RESPOSTA NOVA, nao
         # sobre o historico citado colado embaixo. O opt-out ja foi procurado no
         # texto inteiro em `classificar_por_sinal` acima, entao estreitar o
-        # escopo aqui nao arrisca perder um pedido de saida.
+        # escopo aqui nao arrisca perder um pedido de saida. Mesma normalizacao
+        # do sinal lexical (QP e depois HTML) para o modelo nao ver tag nem
+        # entidade em vez de texto.
         texto = decodificar_quoted_printable(texto)
+        texto = html_para_texto(texto)
         novo = remover_historico_citado(texto) or texto
         resposta = self.portas.llm.completar(
             LLMRequest(
