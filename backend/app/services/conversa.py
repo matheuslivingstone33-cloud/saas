@@ -59,6 +59,7 @@ from app.repositories.misc import MessageRepository, OptOutRepository, UserRepos
 from app.services.audit import AuditService
 from app.services.envio import SendService
 from app.services.leads import LeadService
+from app.services.personalizacao import LINHA_DESCADASTRO
 
 log = get_logger("conversa")
 
@@ -608,6 +609,12 @@ class ServicoDeConversa:
             return resultado
 
         automatica = nivel is NivelAutonomia.AUTOMATICO
+        # O mesmo link assinado do primeiro contato, no cabecalho e no texto.
+        # Ate 18/09 a resposta da IA saia com um endereco de teste montado com o
+        # id cru do lead — a pagina de descadastro recusava — e sem link no
+        # corpo: justo a mensagem que responde a quem ja esta conversando.
+        link = self.envio.compliance.link_para(lead, self.envio.settings.url_publica)
+        rodape = LINHA_DESCADASTRO.format(link=link)
         mensagem = self.mensagens.add(
             Message(
                 user_id=lead.user_id,
@@ -622,9 +629,9 @@ class ServicoDeConversa:
                 ),
                 destinatario=lead.email,
                 assunto=self._assunto_de_resposta(campanha),
-                corpo=f"{texto}\n\n---\n{declaracao}",
+                corpo=f"{texto}\n\n---\n{declaracao}\n{rodape}",
                 declaracao_ia=declaracao,
-                link_descadastro=f"https://app.prospector.local/descadastro/{lead.id}",
+                link_descadastro=link,
                 idempotency_key=chave,
                 aprovado_em=now() if automatica else None,
                 # Sempre DEPOIS da mensagem que a originou.

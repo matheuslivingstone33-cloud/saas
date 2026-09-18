@@ -389,6 +389,29 @@ def test_interesse_gera_resposta_aguardando_aprovacao_no_assistido(
     assert resposta.link_descadastro
 
 
+def test_resposta_da_ia_leva_link_de_descadastro_que_funciona(
+    session, usuario, portas_db, lead_abordado, settings
+) -> None:
+    """O link saia com endereco de teste e o id cru do lead: a pagina recusava.
+
+    E o corpo nao trazia link nenhum. Guardrail: toda mensagem leva descadastro.
+    """
+    from app.services.compliance import OptOutService
+
+    r = ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="Tenho interesse sim, me manda mais detalhes."
+    )
+    resposta = session.get(Message, r.resposta_id)
+
+    assert resposta.link_descadastro.startswith(settings.url_publica.rstrip("/"))
+    linha = next(li for li in resposta.corpo.splitlines() if "/descadastro/" in li)
+    assert "descadastre-se" in linha, "rotulo e link na mesma linha (protecao do Motor 4)"
+    assert resposta.link_descadastro in linha
+
+    token = resposta.link_descadastro.rsplit("/", 1)[1]
+    assert OptOutService(session).por_token(token).registrado
+
+
 def test_interesse_dispara_sozinho_no_automatico(
     session, usuario, portas_db, lead_abordado, settings
 ) -> None:
