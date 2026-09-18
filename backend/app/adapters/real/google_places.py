@@ -29,6 +29,17 @@ log = get_logger("google_places")
 
 BASE_URL = "https://places.googleapis.com/v1"
 
+#: Raio maximo do circulo de `locationBias`/`locationRestriction` que a Places
+#: API (New) aceita: 0 a 50 km. Um raio acima disso responde 400
+#: (INVALID_ARGUMENT) e derruba a consulta inteira. O raio vem do filtro do
+#: usuario (`raio_km`) SEM teto, entao grampeamos aqui, na fronteira com o
+#: Google — como ja se faz com `maxResultCount`. E limite da API, nao do
+#: dominio, entao mora no adaptador, nao no QueryBuilder. No mock o raio e
+#: ignorado, por isso isto so aparece na virada para real.
+RAIO_MAX_M = 50_000.0
+#: Raio default quando a consulta nao especifica um (cobre um bairro/regiao).
+RAIO_PADRAO_M = 20_000.0
+
 #: Campos do Text Search. Cada campo extra pode mudar o SKU cobrado.
 FIELD_MASK_BUSCA = ",".join(
     [
@@ -86,10 +97,12 @@ class GooglePlacesAdapter:
             "regionCode": "BR",
         }
         if query.latitude is not None and query.longitude is not None:
+            raio = float(query.raio_m or RAIO_PADRAO_M)
             corpo["locationBias"] = {
                 "circle": {
                     "center": {"latitude": query.latitude, "longitude": query.longitude},
-                    "radius": float(query.raio_m or 20_000),
+                    # Grampeado no que a API aceita: fora de [1, 50 km] e 400.
+                    "radius": min(RAIO_MAX_M, max(1.0, raio)),
                 }
             }
         if query.tipos_incluidos:

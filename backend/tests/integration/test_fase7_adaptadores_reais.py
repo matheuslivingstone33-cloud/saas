@@ -213,6 +213,53 @@ def test_places_place_sem_id_nem_nome_nao_quebra_a_conversao() -> None:
     assert itens[0].tipos == []
 
 
+def test_places_grampeia_raio_no_maximo_da_api() -> None:
+    """Raio acima de 50 km responde 400 (INVALID_ARGUMENT) e derruba a consulta.
+
+    `maxResultCount` ja e grampeado (`min(20, ...)`); o raio do `locationBias`
+    nao era. Ele vem do filtro do usuario (`raio_km`) SEM teto, e a Places API
+    (New) so aceita raio de circulo entre 0 e 50.000 m — acima disso responde
+    400 e mata a consulta inteira. No mock isso nunca aparece porque o raio e
+    ignorado. Grampeamos na fronteira com o Google, no maximo que a API aceita."""
+    capturado: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        capturado["body"] = json.loads(request.read())
+        return httpx.Response(200, json=RESPOSTA_PLACES)
+
+    sink = MemoryCostSink()
+    adaptador = GooglePlacesAdapter(_http(handler, sink, "places"), CostRecorder(sink), _settings())
+    adaptador.buscar(
+        PlacesQuery(
+            termo="hotel",
+            regiao="Fortaleza, CE",
+            latitude=-3.73,
+            longitude=-38.52,
+            raio_m=100_000,  # 100 km: acima do teto de 50 km da API
+        )
+    )
+    raio = capturado["body"]["locationBias"]["circle"]["radius"]
+    assert raio == 50_000.0, "raio acima do maximo da API tem que ser grampeado, nao mandado cru"
+
+
+def test_places_raio_dentro_do_limite_passa_intacto() -> None:
+    """Um raio valido (e o default) nao pode ser mexido pelo grampo."""
+    capturado: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        capturado["body"] = json.loads(request.read())
+        return httpx.Response(200, json=RESPOSTA_PLACES)
+
+    sink = MemoryCostSink()
+    adaptador = GooglePlacesAdapter(_http(handler, sink, "places"), CostRecorder(sink), _settings())
+    adaptador.buscar(
+        PlacesQuery(
+            termo="hotel", regiao="Fortaleza", latitude=-3.73, longitude=-38.52, raio_m=15_000
+        )
+    )
+    assert capturado["body"]["locationBias"]["circle"]["radius"] == 15_000.0
+
+
 def test_places_sem_chave_falha_alto() -> None:
     with pytest.raises(ProviderNotConfigured):
         GooglePlacesAdapter(

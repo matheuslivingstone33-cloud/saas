@@ -32,6 +32,35 @@
 
 ## Histórico de execuções
 
+### 2026-09-18 — o raio da busca não tinha teto e derrubava a consulta no real
+
+**Corrigido.** Em `google_places.py`, o `buscar` monta o `locationBias` com
+`"radius": float(query.raio_m or 20_000)` — o raio ia **cru** para o Google. A
+Places API (New) só aceita raio de círculo entre **0 e 50.000 m**; acima disso
+responde **400 (INVALID_ARGUMENT)** e a consulta inteira falha.
+
+Por que importa na virada: o raio vem do filtro do usuário (`raio_km`, em
+`query_builder.py`: `int(raio * 1000)`) **sem nenhum teto**. Uma campanha com
+"raio de 100 km" manda `raio_m=100000` — válido no mock (que **ignora** o raio),
+mas 400 no real. E como o raio é o mesmo em todas as consultas do plano, o 400
+se repete: a rodada bate em `BUSCAS_COM_ERRO_MAX` e para com `interrompido_por
+_erro`, sem entregar nada — tudo por um limite que o `maxResultCount` já respeita
+(`min(20, ...)`, na linha logo acima) e o raio não respeitava.
+
+A correção grampeia na **fronteira com o Google** (não no QueryBuilder: o limite
+é da API, não do domínio, e o DTO é agnóstico de provedor): `min(RAIO_MAX_M,
+max(1.0, raio))`, com `RAIO_MAX_M = 50_000.0`. Raio válido (e o default de 20 km)
+passa intacto; raio absurdo vira 50 km em vez de matar a rodada — resultado mais
+amplo é melhor que resultado nenhum, o mesmo princípio do `_uf_do_endereco`
+(UF nenhuma > UF errada).
+
+Dois testes novos em `test_fase7_adaptadores_reais.py`: um com `raio_m=100_000`
+que falhava (mandava 100.000 cru) e agora afirma 50.000 no corpo; outro com
+`raio_m=15_000` provando que raio válido não é mexido. `pytest` (417 passa,
+3 skip) e `ruff` verdes. Commit + push feitos.
+
+---
+
 ### 2026-09-16 — um resultado sujo do Places derrubava a rodada inteira
 
 **Corrigido.** `_para_dto` (em `google_places.py`) converte cada place cru do
@@ -140,6 +169,17 @@ nome na base da Receita). Nomes reais vêm com espaço extra, caixa alta, emoji,
 sufixo de unidade. A tokenização já normaliza bastante, então o risco é de
 **qualidade** do casamento, não de quebra. Observação, não urgência — medir
 antes de mexer.
+
+### 5. `places` no topo da resposta com valor `null` — `google_places.py` (baixa)
+`dados.get("places", [])` em `buscar` cai no default `[]` só quando a chave está
+**ausente**. É exatamente o padrão "chave presente com valor `null`" que já
+derrubava os campos internos (corrigido em 16/09 com `... or <default>`): se o
+Google mandar `"places": null`, `list()` sobre `None` no list comprehension
+estoura `TypeError` e aborta a rodada. **Não corrigido nesta execução (uma por
+vez).** Severidade baixa: a doc do Text Search (New) diz que resultado vazio vem
+como `{}` (chave omitida), não `null` — então é seguro por hoje, mas frágil pela
+mesma razão dos campos internos. Fecha trocando por `dados.get("places") or []`
+(e o mesmo para `nextPageToken`, já tolerante). Sem decisão, sem dependência.
 
 ---
 
