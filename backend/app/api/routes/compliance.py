@@ -13,6 +13,7 @@ logado conseguiria dispara-lo. Roda pelo worker (`app.workers.tasks`).
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -122,12 +123,25 @@ def abrir_solicitacao(
     }
 
 
+_NOTA_INTERNA = re.compile(r"<!--.*?-->\n?", re.DOTALL)
+
+
+def sem_notas_internas(texto: str) -> str:
+    """Tira os comentarios `<!-- ... -->` antes de publicar.
+
+    Os textos juridicos sao servidos como texto cru, e os rascunhos carregam
+    notas de revisao — algumas descrevem falhas ainda abertas. Esquecer uma
+    delas no arquivo nao pode virar publicacao.
+    """
+    return _NOTA_INTERNA.sub("", texto)
+
+
 @publico.get("/legal/privacidade", response_class=PlainTextResponse)
 def politica_privacidade(settings: Settings = Depends(config)) -> str:
     caminho = settings.resolve_path("docs/POLITICA-DE-PRIVACIDADE.md")
     if not caminho.exists():  # pragma: no cover
         raise HTTPException(status_code=404, detail="Politica nao publicada")
-    return caminho.read_text(encoding="utf-8")
+    return sem_notas_internas(caminho.read_text(encoding="utf-8"))
 
 
 @publico.get("/legal/ia", response_class=PlainTextResponse)
@@ -135,7 +149,7 @@ def declaracao_ia(settings: Settings = Depends(config)) -> str:
     caminho = settings.resolve_path("docs/DECLARACAO-DE-IA.md")
     if not caminho.exists():  # pragma: no cover
         raise HTTPException(status_code=404, detail="Declaracao nao publicada")
-    return caminho.read_text(encoding="utf-8")
+    return sem_notas_internas(caminho.read_text(encoding="utf-8"))
 
 
 # =============================================================================

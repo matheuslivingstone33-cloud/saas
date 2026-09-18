@@ -604,6 +604,20 @@ def test_documentos_legais_publicados(client, rota: str, trecho: str) -> None:
     assert trecho in r.text
 
 
+def test_nota_interna_de_revisao_nao_vai_para_o_texto_publico() -> None:
+    """Rascunho juridico carrega notas que descrevem falhas abertas."""
+    from app.api.routes.compliance import sem_notas_internas
+
+    rascunho = (
+        "# Politica\n<!-- REVISAR: hoje um impostor\npode pedir dados -->\n"
+        "Texto publico.\n<!-- outra nota -->"
+    )
+    publicado = sem_notas_internas(rascunho)
+    assert "REVISAR" not in publicado and "impostor" not in publicado
+    assert "outra nota" not in publicado
+    assert "Texto publico." in publicado
+
+
 def test_auditoria_continua_integra_depois_de_tudo(session, usuario, portas_db) -> None:
     from app.services.audit import AuditService
 
