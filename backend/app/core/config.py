@@ -7,6 +7,8 @@ herdam o `PROVIDER_MODE`.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -110,6 +112,24 @@ class Settings(BaseSettings):
     whatsapp_template_enabled: bool = False
     seed_on_start: bool = True
 
+    # --- Acesso --------------------------------------------------------------
+    #: E-mails de quem opera o SaaS, separados por virgula. So eles veem a
+    #: visao de todos os clientes (margem consolidada). Vazio = ninguem: o
+    #: sistema nao tem papel de administrador no banco, e um padrao que
+    #: liberasse para "qualquer logado" foi exatamente a brecha fechada aqui.
+    admin_emails: str = ""
+    #: Tentativas de senha erradas por e-mail antes de travar, e a janela.
+    login_max_falhas: int = 5
+    login_janela_minutos: int = 15
+    #: Teto por IP, para quem testa uma senha em muitas contas.
+    login_max_falhas_por_ip: int = 30
+    #: Cadastros por IP numa hora. Cada conta nova ganha creditos: sem teto,
+    #: criar contas em serie vira fonte de credito gratis.
+    cadastro_max_por_ip_hora: int = 5
+    #: Registros de acesso (IP + data/hora). O Marco Civil (art. 15) manda o
+    #: provedor de aplicacao guardar por 6 meses; depois disso, apagar.
+    retencao_registros_acesso_dias: int = 180
+
     # --- Limites de envio (Fase 3 refina) -----------------------------------
     max_envios_por_campanha_dia: int = 200
     max_envios_por_usuario_dia: int = 500
@@ -145,6 +165,20 @@ class Settings(BaseSettings):
     @classmethod
     def _strip(cls, v: object) -> object:
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _driver_do_postgres(cls, v: str) -> str:
+        """`postgres://` e `postgresql://` passam a usar o psycopg 3.
+
+        E o formato que o Neon (e quase todo Postgres gerenciado) entrega. Sem
+        o `+psycopg`, o SQLAlchemy procura o psycopg2, que nao esta instalado,
+        e a API cai na primeira consulta com um erro que nao fala de URL.
+        """
+        for prefixo in ("postgres://", "postgresql://"):
+            if v.startswith(prefixo):
+                return "postgresql+psycopg://" + v[len(prefixo):]
+        return v
 
     # --- Resolucao de modo ---------------------------------------------------
     def mode_for(self, provider: Provider | str) -> Mode:
@@ -182,6 +216,22 @@ class Settings(BaseSettings):
         return [self.url_publica.rstrip("/")] if self.url_publica else []
 
     @property
+    def em_producao(self) -> bool:
+        """Qualquer ambiente que nao seja o de desenvolvimento ou o da suite."""
+        return self.app_env not in {"dev", "test"}
+
+    @property
+    def sem_servidor(self) -> bool:
+        """Rodando como funcao do Vercel: disco so de leitura, sem processo fixo."""
+        return bool(os.environ.get("VERCEL"))
+
+    def e_admin(self, email: str | None) -> bool:
+        if not email:
+            return False
+        admins = {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+        return email.strip().lower() in admins
+
+    @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
 
@@ -207,8 +257,17 @@ class Settings(BaseSettings):
 
     @property
     def outbox_path(self) -> Path:
+        """Onde o e-mail simulado e gravado.
+
+        No Vercel o disco do projeto e so de leitura: sem o desvio para a pasta
+        temporaria, o primeiro envio simulado derrubaria a requisicao.
+        """
         p = Path(self.outbox_dir)
-        p.mkdir(parents=True, exist_ok=True)
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            p = Path(tempfile.gettempdir()) / "outbox"
+            p.mkdir(parents=True, exist_ok=True)
         return p
 
 

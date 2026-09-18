@@ -98,6 +98,20 @@ def test_api_expoe_margem(client, usuario, session, portas_db) -> None:
     assert corpo["custo"]["balde_1_dados_usd"] >= 0
     assert corpo["custo"]["balde_2_ia_usd"] >= 0
 
+
+def test_margem_consolidada_so_para_quem_opera_o_saas(
+    client, usuario, session, portas_db, monkeypatch
+) -> None:
+    """Receita e custo de TODOS os clientes: era aberta a qualquer conta logada."""
+    from app.core.config import get_settings
+
+    _rodar(session, usuario, portas_db, nome="API consolidado")
+
+    monkeypatch.setattr(get_settings(), "admin_emails", "")
+    assert client.get("/v1/margem/consolidado").status_code == 404
+
+    admins = f"outra@empresa.com, {usuario.email.upper()}"
+    monkeypatch.setattr(get_settings(), "admin_emails", admins)
     consolidado = client.get("/v1/margem/consolidado")
     assert consolidado.status_code == 200
     assert "global" in consolidado.json()

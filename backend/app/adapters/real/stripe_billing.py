@@ -16,7 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import ProviderNotConfigured
 from app.core.http_client import HttpClient
 from app.core.logging import get_logger
-from app.ports.dto import CheckoutSession
+from app.ports.dto import CheckoutSession, ConsultaCheckout
 from app.services.cost import CostRecorder
 
 log = get_logger("stripe")
@@ -88,3 +88,15 @@ class StripeAdapter:
         pago = getattr(sessao, "payment_status", None) == "paid"
         log.info("checkout_consultado", sessao=checkout_id, pago=pago)
         return pago
+
+    def consultar(self, checkout_id: str) -> ConsultaCheckout:
+        """O que o Stripe diz que foi pago, lido do metadata gravado no checkout."""
+        with self.http.guard("checkout.retrieve"):
+            sessao = self.cliente.checkout.sessions.retrieve(checkout_id)
+        metadata = getattr(sessao, "metadata", None) or {}
+        return ConsultaCheckout(
+            pago=getattr(sessao, "payment_status", None) == "paid",
+            user_id=metadata.get("user_id") or getattr(sessao, "client_reference_id", None),
+            pacote=metadata.get("pacote"),
+            valor_centavos=getattr(sessao, "amount_total", None),
+        )

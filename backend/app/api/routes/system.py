@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.adapters.registry import ProviderRegistry
-from app.api.deps import config, db, registry, usuario_atual
+from app.api.deps import config, db, registry, usuario_admin, usuario_atual
 from app.api.schemas import (
     AuditLogOut,
     CostEventOut,
@@ -117,9 +117,12 @@ def margem(
 @router.get("/margem/consolidado")
 def margem_consolidada(
     session: Session = Depends(db),
-    user: User = Depends(usuario_atual),  # noqa: ARG001 — exige sessao autenticada
+    user: User = Depends(usuario_admin),  # noqa: ARG001 — so quem opera o SaaS
 ) -> dict:
-    """Visao do operador do SaaS. Em producao, restringir a papel de admin."""
+    """Visao do operador do SaaS: receita e custo de TODOS os clientes.
+
+    Era aberta a qualquer conta logada. So `ADMIN_EMAILS` entra agora.
+    """
     from app.services.margem import MargemService
 
     return MargemService(session).consolidado()
@@ -146,7 +149,10 @@ def listar_auditoria(
 
 
 @router.get("/audit/integridade", response_model=IntegridadeOut)
-def integridade(session: Session = Depends(db)) -> dict:
+def integridade(
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),  # noqa: ARG001 — o total e do sistema inteiro
+) -> dict:
     servico = AuditService(session)
     integra, erro = servico.verificar_cadeia()
     return {"integra": integra, "registros": servico.total(), "primeiro_erro_seq": erro}

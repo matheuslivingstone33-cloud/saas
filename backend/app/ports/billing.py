@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.ports.dto import CheckoutSession
+from app.ports.dto import CheckoutSession, ConsultaCheckout
 
 
 @runtime_checkable
@@ -16,4 +16,8 @@ class BillingPort(Protocol):
         ...
 
     def confirmar(self, checkout_id: str) -> bool:
+        ...
+
+    def consultar(self, checkout_id: str) -> ConsultaCheckout:
+        """Pago? Por quem, qual pacote e quanto — segundo o provedor."""
         ...

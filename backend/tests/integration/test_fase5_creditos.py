@@ -271,6 +271,98 @@ def test_api_troca_de_plano_aplica_teto_e_recarrega(client, usuario, session) ->
     assert saldo["leads_consumidos_mes"] == 0
 
 
+# --- Credito so entra por pagamento que o provedor confirma -------------------
+# Ate 18/09 havia tres jeitos de ganhar credito sem pagar. Cada teste abaixo
+# fecha um deles.
+
+
+def _comprar(client, pacote: str = "recarga_100") -> str:  # noqa: ANN001
+    r = client.post("/v1/billing/comprar", json={"pacote": pacote})
+    assert r.status_code == 200, r.text
+    return r.json()["checkout"]["id"]
+
+
+def test_confirmar_credita_o_pacote_pago_e_nao_o_pedido(client, usuario) -> None:
+    """Pagar a recarga de 100 e pedir a de 2.000 na confirmacao."""
+    antes = client.get("/v1/billing/saldo").json()["creditos"]
+    checkout = _comprar(client, "recarga_100")
+
+    r = client.post(
+        "/v1/billing/confirmar", json={"checkout_id": checkout, "pacote": "recarga_2000"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["creditado"] == 100
+    assert client.get("/v1/billing/saldo").json()["creditos"] == antes + 100
+
+
+def test_checkout_alterado_nao_confirma(client, usuario) -> None:
+    """Trocar o pacote dentro do id do checkout quebra a assinatura."""
+    checkout = _comprar(client, "recarga_100")
+    forjado = checkout.replace(".recarga_100.", ".recarga_2000.").replace(".9900.", ".129900.")
+    assert forjado != checkout
+
+    r = client.post("/v1/billing/confirmar", json={"checkout_id": forjado})
+    assert r.status_code == 402
+
+
+def test_mesmo_pagamento_credita_uma_vez_so(client, usuario) -> None:
+    antes = client.get("/v1/billing/saldo").json()["creditos"]
+    checkout = _comprar(client, "recarga_500")
+
+    primeira = client.post("/v1/billing/confirmar", json={"checkout_id": checkout})
+    segunda = client.post("/v1/billing/confirmar", json={"checkout_id": checkout})
+
+    assert primeira.json()["creditado"] == 500
+    assert segunda.status_code == 200
+    assert segunda.json()["creditado"] == 0
+    assert segunda.json()["ja_creditado"] is True
+    assert client.get("/v1/billing/saldo").json()["creditos"] == antes + 500
+
+
+def test_pagamento_de_outra_conta_nao_credita_aqui(client, usuario, settings) -> None:
+    import uuid as _uuid
+
+    from app.adapters.mock.fake_billing import FakeBilling
+
+    alheio = FakeBilling(settings).criar_checkout(str(_uuid.uuid4()), "recarga_100", 9_900)
+    r = client.post("/v1/billing/confirmar", json={"checkout_id": alheio.id})
+    assert r.status_code == 404
+
+
+def test_plano_pago_exige_pagamento_fora_do_desenvolvimento(
+    client, usuario, monkeypatch
+) -> None:
+    """No ar, mesmo com o pagamento simulado, subir de plano nao e de graca."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "app_env", "producao")
+    antes = client.get("/v1/billing/saldo").json()
+
+    r = client.post("/v1/billing/plano", json={"plano": "scale"})
+    assert r.status_code == 402, r.text
+
+    depois = client.get("/v1/billing/saldo").json()
+    assert depois["plano"] == antes["plano"]
+    assert depois["creditos"] == antes["creditos"]
+
+
+def test_descer_para_o_gratuito_nao_da_credito(client, usuario) -> None:
+    """Ir e voltar entre planos recarregava o ciclo a cada troca."""
+    assert client.post("/v1/billing/plano", json={"plano": "pro"}).status_code == 200
+    saldo_no_pro = client.get("/v1/billing/saldo").json()["creditos"]
+
+    r = client.post("/v1/billing/plano", json={"plano": "trial"})
+    assert r.status_code == 200, r.text
+    assert r.json()["creditos_creditados"] == 0
+    assert client.get("/v1/billing/saldo").json()["creditos"] == saldo_no_pro
+
+
+def test_trocar_para_o_mesmo_plano_nao_recarrega(client, usuario) -> None:
+    atual = client.get("/v1/billing/saldo").json()["plano"]
+    r = client.post("/v1/billing/plano", json={"plano": atual})
+    assert r.status_code == 409
+
+
 def test_api_extrato_pagina(client, usuario, session, portas_db) -> None:
     campanha = _campanha(session, usuario, nome="Extrato")
     PipelineStub(session, portas_db).executar(campanha, limite_leads=2)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import BigInteger, ForeignKey, Index, String, Uuid
+from sqlalchemy import BigInteger, ForeignKey, Index, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, Timestamps, UUIDPk
@@ -14,7 +14,18 @@ class CreditLedger(Base, UUIDPk, Timestamps):
     """Livro-razao de creditos. Append-only: o saldo e derivado, nunca sobrescrito."""
 
     __tablename__ = "credit_ledger"
-    __table_args__ = (Index("ix_credit_ledger_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_credit_ledger_user_created", "user_id", "created_at"),
+        # O mesmo pagamento entra no extrato uma vez so, mesmo com duas
+        # confirmacoes chegando juntas (migration 0012).
+        Index(
+            "uq_credit_ledger_checkout",
+            "referencia_id",
+            unique=True,
+            postgresql_where=text("referencia_tipo = 'checkout'"),
+            sqlite_where=text("referencia_tipo = 'checkout'"),
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

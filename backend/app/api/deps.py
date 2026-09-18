@@ -73,6 +73,21 @@ def usuario_atual(
     return user
 
 
+def usuario_admin(
+    user: User = Depends(usuario_atual),
+    settings: Settings = Depends(config),
+) -> User:
+    """Quem opera o SaaS (`ADMIN_EMAILS`). Para os demais a rota nao existe.
+
+    404 e nao 403: responder "proibido" confirma a um cliente curioso que ha
+    uma visao de todos os clientes atras daquele endereco.
+    """
+    if not settings.e_admin(user.email):
+        log.info("rota_de_admin_recusada", user_id=str(user.id))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return user
+
+
 async def webhook_autenticado(request: Request) -> bytes:
     """Confere a assinatura HMAC do provedor e devolve o corpo cru.
 

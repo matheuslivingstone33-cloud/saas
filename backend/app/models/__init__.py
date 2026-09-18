@@ -1,6 +1,7 @@
 """Modelos ORM. Importar daqui garante que o Alembic enxergue todo o metadata."""
 
 from app.db.base import Base
+from app.models.acesso import TentativaDeAcesso
 from app.models.audit_log import AuditLog
 from app.models.campaign import Campaign
 from app.models.cost_event import CostEvent
@@ -26,5 +27,6 @@ __all__ = [
     "RamoWeights",
     "ScoreWeights",
     "Subscription",
+    "TentativaDeAcesso",
     "User",
 ]

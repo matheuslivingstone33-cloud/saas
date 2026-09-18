@@ -25,6 +25,7 @@ TABELAS_ESPERADAS = {
     "cost_events",
     "score_weights",
     "ramo_weights",
+    "tentativas_acesso",
 }
 
 

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import Settings, get_settings
 
@@ -19,6 +20,15 @@ def _build_engine(settings: Settings) -> Engine:
     if settings.is_sqlite:
         # SQLite so para dev/teste local sem Docker.
         kwargs["connect_args"] = {"check_same_thread": False}
+    elif settings.sem_servidor:
+        # No Vercel cada instancia da funcao teria o proprio pool de 10+20, e o
+        # banco gerenciado estoura o limite de conexoes com poucas instancias.
+        # Sem pool, a conexao vive o tempo da requisicao; quem agrupa e o
+        # pooler do provedor. `prepare_threshold=None` porque esse pooler
+        # (PgBouncer em modo transacao) nao garante que o comando preparado
+        # volte para a mesma conexao.
+        kwargs["poolclass"] = NullPool
+        kwargs["connect_args"] = {"prepare_threshold": None}
     else:
         kwargs.update(pool_size=10, max_overflow=20)
     engine = create_engine(settings.database_url, **kwargs)

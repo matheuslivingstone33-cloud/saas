@@ -317,13 +317,14 @@ class CreditService:
         tipo: TipoCredito = TipoCredito.COMPRA_PACOTE,
         descricao: str | None = None,
         referencia_id: uuid.UUID | None = None,
+        referencia_tipo: str = "compra",
     ) -> int:
         lancamento = self.ledger.lancar(
             user_id=user_id,
             tipo=tipo,
             quantidade=abs(quantidade),
             descricao=descricao,
-            referencia_tipo="compra",
+            referencia_tipo=referencia_tipo,
             referencia_id=referencia_id,
         )
         assinatura = self.assinatura(user_id)

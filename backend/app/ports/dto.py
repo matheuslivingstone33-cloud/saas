@@ -161,3 +161,12 @@ class CheckoutSession(_Base):
     valor_centavos: int
     moeda: str = "BRL"
     modo: str = "mock"
+
+
+class ConsultaCheckout(_Base):
+    """O que o PROVEDOR diz que foi pago — nunca o que o cliente afirma."""
+
+    pago: bool
+    user_id: str | None = None
+    pacote: str | None = None
+    valor_centavos: int | None = None
