@@ -16,8 +16,11 @@ Tres retornos, tres decisoes diferentes:
   * `transitorio` — caixa cheia, servidor fora do ar. NAO suprime nada.
     Suprimir aqui seria descartar cliente bom por um problema de ontem.
 
-E o freio: acima de `bounce_taxa_maxima` a campanha PAUSA sozinha. Continuar e
-torcer e como a maior parte dos dominios morre.
+E o freio: acima de `bounce_taxa_maxima` a campanha PAUSA sozinha. A RECLAMACAO
+tem freio PROPRIO, bem mais baixo (`RECLAMACAO_TAXA_MAXIMA`), porque o provedor a
+cobra num patamar dez a vinte vezes menor que o bounce — misturar as duas na
+mesma regua deixaria a conta ser suspensa por spam antes de a campanha pausar.
+Continuar e torcer e como a maior parte dos dominios morre.
 """
 
 from __future__ import annotations
@@ -86,30 +89,53 @@ class EscopoFalhaEnvio(StrEnum):
     TRANSITORIA = "transitoria"
 
 
-#: Retornos que suprimem o contato. `transitorio` fica de fora de proposito.
-SUPRIMEM = frozenset({TipoRetorno.PERMANENTE, TipoRetorno.RECLAMACAO})
-
 ORIGEM: dict[TipoRetorno, OrigemOptOut] = {
     TipoRetorno.PERMANENTE: OrigemOptOut.BOUNCE_PERMANENTE,
     TipoRetorno.RECLAMACAO: OrigemOptOut.RECLAMACAO_SPAM,
 }
 
+#: Teto SEPARADO para a taxa de RECLAMACAO de spam. Bounce e reclamacao NAO se
+#: medem na mesma regua: o SES e os provedores de caixa (Gmail/Yahoo) toleram
+#: varios por cento de bounce, mas cobram a reclamacao num patamar dez a vinte
+#: vezes mais baixo — o SES poe a conta em revisao perto de 0,1% e a suspende
+#: perto de 0,5% de reclamacao, e a regra de remetente em massa do Gmail (02/2024)
+#: manda ficar abaixo de 0,3%. Somar reclamacao ao mesmo `bounce_taxa_maxima` (2%)
+#: deixava a conta ser SUSPENSA por spam ANTES de a campanha pausar: o dominio
+#: morre exatamente pelo sinal que este modulo existe para vigiar. Por isso a
+#: reclamacao ganha teto proprio, bem mais baixo, e a pausa dispara se a taxa
+#: COMBINADA ou a de RECLAMACAO estourar (nunca deixa de pausar o que ja pausava;
+#: so pausa mais cedo quando o problema e spam). Constante do modulo de proposito:
+#: promove-la a `Settings` tocaria `config.py`, que e de outro dono.
+RECLAMACAO_TAXA_MAXIMA = 0.003  # 0,3% — abaixo do gatilho de suspensao do SES
+
 
 @dataclass(slots=True)
 class Reputacao:
     enviadas: int = 0
+    #: Bounces + reclamacoes. Mantido para quem ja consome a taxa combinada.
     retornos: int = 0
     taxa: float = 0.0
+    #: Reclamacao de spam medida a parte: tem teto proprio (RECLAMACAO_TAXA_MAXIMA)
+    #: bem mais baixo que o de bounce, porque e o que suspende a conta mais rapido.
+    bounces: int = 0
+    reclamacoes: int = 0
+    taxa_reclamacao: float = 0.0
     amostra_suficiente: bool = False
+    #: True se a taxa COMBINADA ou a de RECLAMACAO estourou o respectivo teto.
     acima_do_teto: bool = False
+    reclamacao_acima_do_teto: bool = False
 
     def to_dict(self) -> dict:
         return {
             "enviadas": self.enviadas,
             "retornos": self.retornos,
             "taxa": round(self.taxa, 4),
+            "bounces": self.bounces,
+            "reclamacoes": self.reclamacoes,
+            "taxa_reclamacao": round(self.taxa_reclamacao, 4),
             "amostra_suficiente": self.amostra_suficiente,
             "acima_do_teto": self.acima_do_teto,
+            "reclamacao_acima_do_teto": self.reclamacao_acima_do_teto,
         }
 
 
@@ -226,19 +252,41 @@ class ServicoDeEntregabilidade:
                 )
             ).scalar_one()
         )
-        retornos = int(
+        bounces = self._contar_retornos(campaign_id, TipoRetorno.PERMANENTE)
+        reclamacoes = self._contar_retornos(campaign_id, TipoRetorno.RECLAMACAO)
+        retornos = bounces + reclamacoes
+        rep = Reputacao(
+            enviadas=enviadas,
+            retornos=retornos,
+            bounces=bounces,
+            reclamacoes=reclamacoes,
+        )
+        rep.taxa = (retornos / enviadas) if enviadas else 0.0
+        rep.taxa_reclamacao = (reclamacoes / enviadas) if enviadas else 0.0
+        rep.amostra_suficiente = enviadas >= self.settings.bounce_amostra_minima
+        # A reclamacao tem teto proprio, bem mais baixo (ver RECLAMACAO_TAXA_MAXIMA):
+        # e ela que suspende a conta mais rapido.
+        rep.reclamacao_acima_do_teto = (
+            rep.amostra_suficiente and rep.taxa_reclamacao > RECLAMACAO_TAXA_MAXIMA
+        )
+        combinada_acima_do_teto = (
+            rep.amostra_suficiente and rep.taxa > self.settings.bounce_taxa_maxima
+        )
+        # Pausa se a taxa COMBINADA estourar (como antes) OU se a de RECLAMACAO,
+        # sozinha, passar do teto de spam. So ADICIONA pausa: nunca deixa de pausar
+        # o que ja pausava.
+        rep.acima_do_teto = combinada_acima_do_teto or rep.reclamacao_acima_do_teto
+        return rep
+
+    def _contar_retornos(self, campaign_id: uuid.UUID, tipo: TipoRetorno) -> int:
+        return int(
             self.session.execute(
                 select(func.count(Message.id)).where(
                     Message.campaign_id == campaign_id,
-                    Message.retorno.in_([t.value for t in SUPRIMEM]),
+                    Message.retorno == tipo.value,
                 )
             ).scalar_one()
         )
-        rep = Reputacao(enviadas=enviadas, retornos=retornos)
-        rep.taxa = (retornos / enviadas) if enviadas else 0.0
-        rep.amostra_suficiente = enviadas >= self.settings.bounce_amostra_minima
-        rep.acima_do_teto = rep.amostra_suficiente and rep.taxa > self.settings.bounce_taxa_maxima
-        return rep
 
     # -- internos -------------------------------------------------------------
     def _suprimir(
@@ -350,6 +398,13 @@ class ServicoDeEntregabilidade:
         atual = campanha.status
         campanha.status = StatusCampanha.PAUSADA
         self.session.flush()
+        # A reclamacao de spam tem teto proprio: quando e ela que estoura, o motivo
+        # registrado diz isso, para o humano que revisa saber o que aconteceu.
+        motivo = (
+            "taxa de reclamacao de spam acima do teto"
+            if rep.reclamacao_acima_do_teto
+            else "taxa de retorno acima do teto"
+        )
         self.audit.registrar(
             evento=TipoEvento.CAMPANHA_TRANSICAO,
             entidade_tipo="campanha",
@@ -357,7 +412,7 @@ class ServicoDeEntregabilidade:
             dados={
                 "de": atual.value,
                 "para": StatusCampanha.PAUSADA.value,
-                "motivo": "taxa de retorno acima do teto",
+                "motivo": motivo,
                 **rep.to_dict(),
             },
             ator=Ator.SISTEMA,
@@ -366,6 +421,7 @@ class ServicoDeEntregabilidade:
         log.warning(
             "campanha_pausada_por_reputacao",
             campanha=str(campanha.id),
+            motivo=motivo,
             **rep.to_dict(),
         )
         return True

@@ -26,9 +26,95 @@
 > `personalizacao.py`, `entregabilidade.py`,
 > `backend/app/adapters/real/ses_email.py` e os testes correspondentes.
 
-**Última execução:** 2026-09-20 · campanha PARADA (pausada por reputação/conta ou
-falhou) deixou de despachar abordagem fria nova — a pausa por reputação virou
-freio de verdade, não enfeite.
+**Última execução:** 2026-09-20 · a taxa de RECLAMAÇÃO de spam ganhou teto
+próprio, bem mais baixo que o de bounce — a campanha pausa por spam antes de a
+conta ser suspensa, e não depois.
+
+---
+
+## 2026-09-20 (2) — reclamação de spam ganhou teto próprio (não divide mais o de bounce)
+
+### O que corrigi (com teste)
+
+**A taxa de reclamação de spam deixou de dividir o mesmo teto do bounce
+(`bounce_taxa_maxima`, 2%) e passou a ter freio próprio, muito mais baixo
+(`RECLAMACAO_TAXA_MAXIMA` = 0,3%).** A campanha agora pausa se a taxa **combinada**
+estourar (como antes) **ou** se a de **reclamação**, sozinha, passar do teto de
+spam.
+
+Por que este é o maior risco de envio que fechava inteiro no meu escopo: a pausa
+automática por reputação (`_pausar_se_preciso`) é a principal defesa do domínio —
+o ativo mais frágil do produto — com SES real. Só que ela media bounce e
+reclamação na **mesma régua de 2%**, e os provedores **não** os tratam assim: o
+SES põe a conta em revisão perto de **0,1%** e a suspende perto de **0,5%** de
+reclamação, contra ~5–10% de bounce; a regra de remetente em massa do Gmail
+(02/2024) manda ficar abaixo de **0,3%**. Com o teto único de 2%, uma conta a
+0,5% de reclamação (bem abaixo dos 2% combinados se o bounce for baixo) seria
+**suspensa pela AWS antes de a campanha pausar** — o domínio morre exatamente
+pelo sinal que este módulo existe para vigiar. A defesa disparava tarde demais
+justamente no retorno mais perigoso.
+
+**Decisão de desenho, resolvida:** o freio novo só **adiciona** pausa, nunca
+remove. `acima_do_teto` = combinada acima de 2% **ou** reclamação acima de 0,3% —
+então tudo que já pausava continua pausando, e o que muda é pausar **mais cedo**
+quando o problema é spam. O teto de bounce continua em `bounce_taxa_maxima`
+(configurável); a reclamação virou **constante do módulo** de propósito, porque
+promovê-la a `Settings` tocaria `config.py`, que é de outro dono — quando alguém
+mexer em `config.py`, é forte candidata a virar setting.
+
+Como ficou, tudo em `entregabilidade.py` (só meu):
+
+- `RECLAMACAO_TAXA_MAXIMA = 0.003` — teto separado, documentado com o porquê.
+- `reputacao()` agora conta **bounce** e **reclamação** em separado (`_contar_retornos`),
+  calcula `taxa_reclamacao` além da combinada, e liga `reclamacao_acima_do_teto`.
+- `Reputacao` ganhou campos **aditivos** (`bounces`, `reclamacoes`,
+  `taxa_reclamacao`, `reclamacao_acima_do_teto`); `to_dict()` mantém byte a byte
+  as chaves antigas (`enviadas`, `retornos`, `taxa`, `amostra_suficiente`,
+  `acima_do_teto`), então a rota `GET /campanhas/{id}/reputacao` e o painel não
+  quebram — só recebem mais informação.
+- `_pausar_se_preciso` registra na auditoria o motivo **específico** (reclamação
+  vs. taxa combinada), para o humano que revisa a pausa saber o que aconteceu.
+
+`SendService` segue o único caminho de saída e opt-out segue terminal: esta
+mudança só **antecipa** um bloqueio automático, nunca abre exceção.
+
+Testes: 2 novos em `test_motor5_cadencia.py` — 1 reclamação em 100 envios (1%,
+abaixo do teto combinado de 2%, acima do de reclamação de 0,3%) **pausa** a
+campanha (falha antes, passa depois); e o par que fixa a assimetria: 1 bounce em
+100 (1%) **não** pausa, porque a régua estrita é só da reclamação. **466 passed,
+3 skipped; `ruff` limpo.**
+
+### O que achei e NÃO corrigi (uma coisa por execução)
+
+1. **🔴 O "descadastro de 1 clique" NÃO é o one-click do RFC 8058** (herdado, segue
+   aberto). Falta `List-Unsubscribe-Post: List-Unsubscribe=One-Click` **e** a rota
+   `/descadastro/{token}` aceitar POST (arquivo de outro dono). Pôr só o header
+   agora seria pior (POST one-click → 405). Continua candidato assim que a rota
+   aceitar POST. Ver "O que depende de outros".
+2. **`bounce_amostra_minima` (20) vale para os dois tetos.** Com 20 envios, 1
+   reclamação já é 5% — bem acima de 0,3% —, então na prática, passada a amostra
+   mínima, **qualquer** reclamação pausa a campanha. É conservador de propósito:
+   uma conta suspensa por spam derruba o e-mail com que o cliente fatura, e a
+   pausa é trivial de retomar por um humano. Se o volume mostrar que isso é
+   sensível demais, a saída é uma amostra mínima **própria** para reclamação —
+   mas isso mora em `config.py` (outro dono), então não fechava aqui.
+3. **A supressão por endereço morto grava o e-mail cru** (herdado). Minimizar
+   para hash exige a **consulta** de opt-out por hash (`repositories/misc.py`),
+   fora do meu escopo. Registrado para casar com Compliance.
+4. **Bounce `Undetermined` → `transitorio` (não suprime).** Escolha conservadora
+   e reversível, herdada; confirmar com produto/ops se o volume for alto.
+
+### O que depende de outros
+
+- **Promover `RECLAMACAO_TAXA_MAXIMA` (e uma amostra mínima de reclamação) a
+  `Settings`** — mora em `config.py`, de outro dono. Hoje são constante de módulo,
+  o que resolve o risco; virar setting é conforto de operação, não pré-requisito.
+- **One-click do RFC 8058** (Envio ↔ dono das rotas): o header é meu e trivial; o
+  endpoint POST em `api/routes/compliance.py` não é. Sobem **juntos**, senão o
+  descadastro quebra (405). Sem mudança nesta execução.
+- **Retorno assíncrono do SNS** (item 8) segue testado por contrato e sem rota que
+  o chame (verificar assinatura X.509 do SNS + confirmar inscrição, em
+  `api/routes/entregabilidade.py`) — sem mudança nesta execução.
 
 ---
 

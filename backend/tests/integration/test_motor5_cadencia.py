@@ -33,7 +33,11 @@ from app.models.lead import Lead
 from app.models.message import Message
 from app.models.opt_out import OptOut
 from app.services.cadencia import ServicoDeCadencia
-from app.services.entregabilidade import ServicoDeEntregabilidade, TipoRetorno
+from app.services.entregabilidade import (
+    RECLAMACAO_TAXA_MAXIMA,
+    ServicoDeEntregabilidade,
+    TipoRetorno,
+)
 
 
 def _campanha(session, usuario, nivel: NivelAutonomia) -> Campaign:
@@ -443,6 +447,60 @@ def test_taxa_de_retorno_alta_pausa_a_campanha(session, usuario, portas_db) -> N
 
     assert pausada is True, "3 retornos em 30 envios = 10%, muito acima do teto de 2%"
     assert campanha.status is StatusCampanha.PAUSADA
+
+
+def _lote_enviado(session, usuario, campanha, quantidade: int) -> None:
+    """`quantidade` primeiros toques ja ENVIADOS — o denominador da reputacao."""
+    for i in range(quantidade):
+        alvo = _lead(
+            session, usuario, campanha,
+            email=f"destino{i}@exemplo.com.br",
+            place_id=f"p{i}",
+        )
+        _primeiro_toque(
+            session, usuario, campanha, alvo, idempotency_key=f"{campanha.id}:{alvo.id}:email"
+        )
+    session.flush()
+
+
+def test_reclamacao_de_spam_pausa_abaixo_do_teto_combinado(session, usuario, portas_db) -> None:
+    """Uma reclamacao sozinha, com a taxa combinada AINDA abaixo do teto de bounce.
+
+    Bounce e reclamacao nao se medem na mesma regua: o SES/Gmail toleram varios
+    por cento de bounce, mas suspendem a conta perto de 0,5% de RECLAMACAO. Com
+    reclamacao dividindo o teto combinado de 2%, a conta seria suspensa por spam
+    ANTES de a campanha pausar. 1 reclamacao em 100 envios = 1%: abaixo do teto
+    combinado (2%), mas acima do teto de reclamacao (0,3%) -> tem que pausar.
+    """
+    campanha = _campanha(session, usuario, NivelAutonomia.AUTOMATICO)
+    _lote_enviado(session, usuario, campanha, 100)
+
+    resultado = ServicoDeEntregabilidade(session).registrar(
+        contato="destino0@exemplo.com.br", tipo=TipoRetorno.RECLAMACAO
+    )
+
+    rep = resultado.reputacao
+    assert rep.taxa < get_settings().bounce_taxa_maxima, "combinada abaixo do teto de bounce"
+    assert rep.taxa_reclamacao > RECLAMACAO_TAXA_MAXIMA, "reclamacao acima do teto proprio"
+    assert rep.reclamacao_acima_do_teto is True
+    assert resultado.campanha_pausada is True
+    assert campanha.status is StatusCampanha.PAUSADA
+
+
+def test_bounce_isolado_nao_pausa_no_teto_de_reclamacao(session, usuario, portas_db) -> None:
+    """A regua estrita e SO da reclamacao: 1 bounce em 100 (1%) segue abaixo do
+    teto de bounce (2%) e NAO pausa. Sem isso, o teto de reclamacao contaminaria
+    o bounce e uma campanha saudavel pararia por um unico endereco morto."""
+    campanha = _campanha(session, usuario, NivelAutonomia.AUTOMATICO)
+    _lote_enviado(session, usuario, campanha, 100)
+
+    resultado = ServicoDeEntregabilidade(session).registrar(
+        contato="destino0@exemplo.com.br", tipo=TipoRetorno.PERMANENTE
+    )
+
+    assert resultado.reputacao.reclamacao_acima_do_teto is False
+    assert resultado.campanha_pausada is False
+    assert campanha.status is StatusCampanha.EXECUTANDO
 
 
 def _sns_ses(notification_type: str, contato: str, **corpo) -> dict:
