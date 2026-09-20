@@ -45,7 +45,7 @@ Trocar mock ↔ real muda **uma variável de ambiente**. Nenhum arquivo de domí
 - `session.py` — engine, `session_scope()` e dependência do FastAPI.
 - `seed.py` — dados mínimos para tudo funcionar sem provedor real.
 
-### `models/` — 13 tabelas
+### `models/` — 14 tabelas
 Multi-tenant por `user_id` em toda tabela de dado do cliente.
 
 | Tabela | Papel | Destaques |
@@ -62,6 +62,7 @@ Multi-tenant por `user_id` em toda tabela de dado do cliente.
 | `score_weights` | pesos do score por tenant | saída do loop de aprendizado, com estatísticas |
 | `ramo_weights` | fator de mira por (tenant, CNAE) | Etapa 7: a intenção da resposta inclina a busca e **multiplica** o peso do Cérebro (piso 0,5 / teto 1,5) |
 | `privacy_requests` | direitos do titular | tipo, protocolo, prazo de 15 dias, desfecho |
+| `tentativas_acesso` | login e cadastro | Etapa segurança (migration 0012): rate limit por e-mail/IP e o registro de acesso do Marco Civil (6 meses) |
 
 ### `repositories/`
 Repository pattern sobre SQLAlchemy. **Nenhuma rota escreve SQL.** Toda listagem
@@ -160,6 +161,6 @@ recebe a mesma empresa duas vezes.
 | Item | Onde | Vira o quê |
 |---|---|---|
 | ~~auth por header `X-User-Email`~~ | `services/auth.py` | ✅ pago na Etapa 8: JWT com acesso de 30 min e renovação de 14 dias |
-| `/billing/confirmar` credita | `api/routes/billing.py` | webhook assinado do Stripe |
-| `/v1/margem/consolidado` aberto | `api/routes/system.py` | restringir a papel de admin |
+| ~~`/billing/confirmar` credita sem pagamento~~ | `api/routes/billing.py` | ✅ pago na segurança de 18/09: crédito só entra pelo que `BillingPort.consultar()` confirma, idempotente por `checkout_id`, plano pago fora do dev responde 402. Falta ainda a **verificação da assinatura** do webhook do Stripe real (Fase 7) |
+| ~~`/v1/margem/consolidado` aberto~~ | `api/routes/system.py` | ✅ restringido em 18/09: `Depends(usuario_admin)`, 404 para quem não está em `ADMIN_EMAILS` |
 | Receita em memória | `adapters/mock/receita_local.py` | tabela indexada no Postgres com o dump completo |

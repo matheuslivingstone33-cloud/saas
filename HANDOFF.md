@@ -8,28 +8,42 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-18 · segurança (cobrança, painel de admin,
-limite de login, APP_SECRET obrigatório) e preparação para o Vercel — 453 testes,
-14 tabelas (`tentativas_acesso`, migration 0012). Passo a passo do dono em
-[docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
+**Última atualização:** 2026-09-20 · consolidação — docs reconferidos contra o
+código (**463 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas
+(`tentativas_acesso`, migration 0012), quatro correções novas integradas
+(campanha pausada não despacha, opt-out por caractere invisível, Places sem
+resultados, link na resposta da IA). Segurança (cobrança, painel de admin, limite
+de login, APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do
+dono em [docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
-**Estado em 18/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
-integradas ao `main`**. **428 testes verdes** (3 pulados) e `ruff` limpo,
-reconferidos nesta consolidação; nenhuma migration nova desde 16/09 (segue em
-`0011`), então `upgrade`/`downgrade` nos dois dialetos e o `tsc --noEmit`/build de
-frontend continuam valendo da última verificação com código (as mudanças de 16 a
-18/09 foram só de backend). Tudo publicado: `main` == `origin/main`. Nenhuma chave
-de API — o sistema inteiro roda em mock.
+**Estado em 20/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
+integradas ao `main`**. **463 testes verdes** (3 pulados) e `ruff` limpo,
+reconferidos nesta consolidação; **migration head em `0012`** (`tentativas_acesso`,
+da segurança de 18/09) — `upgrade`/`downgrade` nos dois dialetos continuam valendo
+da última verificação com código. A segurança/Vercel de 18/09 mexeu em backend e
+acrescentou só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as
+quatro correções de 20/09 foram todas de backend — então o `tsc --noEmit`/build de
+frontend segue valendo. Tudo publicado: `main` == `origin/main`. Nenhuma chave de
+API — o sistema inteiro roda em mock.
 
-> Os "340 testes" de 31/08 (Etapas 0–8) viraram 428 com as correções das rotinas
-> de setembro — Places, custo, Motor 3/4, retenção, o vazamento entre clientes e o
-> endurecimento de 16–18/09 (falha síncrona do SES por escopo, link no corpo,
-> quoted-printable + HTML, raio do Places, custo-fantasma dos dois lados,
-> expurgo de contato sem `@`). Contagem reconferida com `pytest` em 18/09.
+> Os "340 testes" de 31/08 (Etapas 0–8) viraram 428 com as correções de setembro,
+> 453 com a segurança/Vercel de 18/09, e **463** com as quatro rotinas de 20/09
+> (campanha pausada, caractere invisível, Places sem resultados, link na resposta
+> da IA). As rotinas partem de bases diferentes, então o número de cada radar é o
+> da hora dela; o total integrado no `main` é o que vale. Contagem reconferida com
+> `pytest` em 20/09.
+
+> **20/09 — quatro correções de backend integradas, todas de rotina.** Envio
+> (campanha `PAUSADA`/`FALHOU` não despacha mais abordagem fria nova — fecha o
+> achado que estava aberto desde 16/09), Motor 4 (opt-out escondido por caractere
+> de largura-zero volta a ser reconhecido; e a **resposta automática da IA** passa
+> a levar o link de descadastro assinado que funciona — antes ia com domínio de
+> teste e id cru), e Descoberta (`"places": null` no topo da resposta não derruba
+> mais a rodada). Nenhuma migration nova, nenhuma decisão de produto.
 
 > **18/09 — a concorrência das rotinas se repetiu e se resolveu sozinha.** Cinco
 > rotinas rodaram juntas ao abrir o app (Descoberta, Motor 3, Compliance, Motor 4,
@@ -236,6 +250,7 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 | **Bounce deve ensinar pelo desfecho?** | hoje polui o eixo de componentes. Trocar muda como o produto aprende |
 | **Fase 7 — ligar provedores reais** | exige chaves e cartão |
 | **Teto de gasto da paginação do Places** | hoje a busca lê só a 1ª página (20 empresas) e ignora `nextPageToken`. Encadear páginas é fácil, mas **cada página é cobrada pelo Google**: quantas páginas por consulta, e quanto uma campanha pode gastar, é preço |
+| **Descadastro "1 clique" (RFC 8058) e o GET que descadastra sozinho** | Gmail/Yahoo exigem one-click de quem manda em volume; falta o header `List-Unsubscribe-Post` **e** a rota `/descadastro/{token}` aceitar POST (ver §0.3, dependência 6). A implementação é técnica, mas há uma decisão: hoje o **GET** já efetiva a saída, então um antivírus corporativo que abre links para checar pode descadastrar um lead sozinho. Manter o GET assim (favorece o titular, some com leads em silêncio) ou exigir POST é **produto/jurídica** |
 | **Conferir quem pede um direito do titular** | o formulário público atende na hora, sem confirmar que quem pede é o dono do e-mail — um impostor pode pedir a exclusão dos dados de outra pessoa. Como confirmar (link no e-mail, prazo) é produto e pede **revisão jurídica** |
 | **Aprovar os textos jurídicos novos** (18/09) | rascunhos completos em [docs/juridico-rascunho/](docs/juridico-rascunho/) — política, termos de uso, acordo de tratamento de dados, declaração de IA — e o roteiro do dono em `REVISAO-JURIDICA.md` (o que preencher, o que decidir, o que exige advogado). **Os publicados em `docs/` seguem os antigos até a aprovação**; a rotina de Compliance não deve reescrever os rascunhos |
 | **Falha parcial na descoberta: entregar o que achou ou falhar a rodada?** | a robustez técnica já está feita (uma consulta recusada não derruba a rodada), mas o que o usuário **vê** — leads parciais com aviso, ou "tente de novo" — é UX/produto (radar Descoberta) |
@@ -253,14 +268,14 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 3. **WhatsApp como canal** (§9 de `docs/IDEIAS.md`) — a maior, e a que mais
    depende do resto estável.
 
-### Branches fora do `main` (verificadas em 18/09)
+### Branches fora do `main` (verificadas em 20/09)
 
 `git branch -r` mostra **só `origin/main`** (e o ponteiro `origin/HEAD`). **Nada a
-integrar à mão.** As cinco rotinas de 18/09 (Descoberta, Motor 3, Compliance,
-Motor 4, Custo) integraram cada commit direto no `main` por rebase e não deixaram
-branch para trás. As duas `origin/claude/*` antigas — cujo conteúdo já estava no
-`main` — foram apagadas do GitHub em 16/09 (registro abaixo). Nenhuma
-`origin/pendente/*`.
+integrar à mão.** As rotinas de 18/09 e 20/09 integraram cada commit direto no
+`main` por rebase e não deixaram branch para trás. As duas `origin/claude/*`
+antigas — cujo conteúdo já estava no `main` — foram apagadas do GitHub em 16/09
+(registro abaixo). Nenhuma `origin/pendente/*`. (A branch `claude/*` desta
+consolidação é local e nunca vai para o `origin`.)
 
 | Branch (apagada em 16/09) | Commits que ficaram fora do `main` | Situação |
 |---|---|---|
@@ -292,15 +307,21 @@ branch para trás. As duas `origin/claude/*` antigas — cujo conteúdo já esta
    mesmo 🔴. Risco de compliance junto: sem verificar a assinatura do SNS, um
    bounce forjado apaga a base de um concorrente com um laço de `curl`.
 
-2. ✅ **Link de descadastro no corpo do e-mail — FECHADO em 18/09.** Era a
-   dependência mais delicada entre três rotinas, e as três peças casaram: Envio
-   pôs o link **visível no corpo com rótulo e link na mesma linha** (item 7, commit
-   `186f018`); Motor 4 já removia a linha do `/descadastro/` antes de varrer opt-out
-   e agora **decodifica quoted-printable (16/09) e HTML (18/09) antes** — então um
-   link partido por soft break do SES é remontado numa linha só antes da varredura.
-   Ponta a ponta: um "tenho interesse" que cite nossa mensagem **não** vira mais
-   opt-out terminal. *(Ainda aberto o análogo na resposta manual — ver "Achados
-   técnicos".)*
+2. ✅ **Link de descadastro no corpo do e-mail — FECHADO (abordagem e resposta da
+   IA).** Era a dependência mais delicada entre três rotinas, e as peças casaram:
+   Envio pôs o link **visível no corpo com rótulo e link na mesma linha** na
+   abordagem (item 7, `186f018`, 18/09); Motor 4 já removia a linha do
+   `/descadastro/` antes de varrer opt-out e **decodifica quoted-printable (16/09),
+   HTML (18/09) e remove caractere de largura-zero (20/09) antes** — então um link
+   partido por soft break, entidade HTML ou `U+200B` é remontado numa linha só
+   antes da varredura. **20/09 fechou o último buraco da IA:** a **resposta
+   automática** do Motor 4 saía com link montado à mão (domínio de teste + id cru,
+   que a página recusava) e sem link no corpo; agora usa o mesmo `compliance.link_para`
+   assinado, no cabeçalho e no corpo (`e6843b3`). Ponta a ponta: um "tenho
+   interesse" que cite nossa mensagem **não** vira mais opt-out terminal, e toda
+   mensagem da IA leva link que funciona.
+   *(Ainda aberto só o análogo na resposta **manual** — `responder_manualmente` põe
+   o link no cabeçalho mas não no corpo digitado; ver "Achados técnicos".)*
 
 3. **Supressão por hash (minimização LGPD)** *(Compliance ↔ Envio/opt-out)*. A
    eliminação guarda o **e-mail cru** na lista de supressão, contrariando o próprio
@@ -323,25 +344,45 @@ branch para trás. As duas `origin/claude/*` antigas — cujo conteúdo já esta
    como já se faz com `JWT_SECRET` — mora na validação de startup em `config.py`,
    fora do escopo de Custo.
 
+6. **Descadastro "1 clique" de verdade (RFC 8058)** *(Envio ↔ dono das rotas,
+   nova em 20/09)*. O radar de Envio achou que o `List-Unsubscribe` sozinho **não
+   é** o one-click que Gmail e Yahoo exigem de quem manda em volume desde 02/2024 —
+   e o docstring do `ses_email.py` **afirma que já é** (documentação que virou
+   mentira, no arquivo de outro dono). Faltam **duas peças que têm de subir
+   juntas**: o header `List-Unsubscribe-Post: List-Unsubscribe=One-Click` (peça do
+   Envio, trivial) **e** a rota `/descadastro/{token}` aceitar **POST** com corpo
+   `List-Unsubscribe=One-Click` (peça de `api/routes/compliance.py`, hoje só GET —
+   um POST levaria 405, um descadastro quebrado que o Google detecta). Pôr só o
+   header agora seria **pior**. Por isso o Envio não fechou sozinho. O radar de
+   deploy aponta o mesmo (item 9). A decisão sobre o **GET que descadastra sozinho**
+   (antivírus corporativo que abre links some com leads) é de produto/jurídica → 0.2.
+
 ### O radar de deploy (novo, 16/09): o que ele achou em código de OUTROS donos
 
-A rotina "Preparação para Colocar no Ar" agora tem `docs/radar/deploy.md` e criou
+A rotina "Preparação para Colocar no Ar" tem `docs/radar/deploy.md` e criou
 `docs/COLOCAR-NO-AR.md`. Ela cuida só do compose/Dockerfiles/guias, mas — por olhar
 o sistema **rodando de verdade** — enxergou defeitos no código dos outros que
 nenhum teste pega e que **quebram no dia da Fase 7**. Reunidos aqui porque são
-invisíveis para as rotinas donas dos arquivos. Conferi os dois de maior peso no
-código (billing e catálogo); os demais são o retrato do próprio radar.
+invisíveis para as rotinas donas dos arquivos.
 
-| 🔴 | Achado | Onde / dono provável |
+> **Atenção (20/09): o radar de deploy não roda desde 18/09 e a segurança/Vercel
+> passou por cima de vários itens dele.** Reconferi no código: a **cobrança
+> burlável** foi travada, o **`/margem/consolidado`** virou admin, o **catálogo de
+> ramos** passou a ser carregado no deploy Vercel e o **`APP_SECRET`** entrou na
+> trava de produção. A tabela abaixo já reflete o estado real, não o do radar.
+> Surgiu também um 🔴 novo que o deploy achou e ninguém fechou: o SDK da Anthropic.
+
+| Estado | Achado | Onde / dono provável |
 |---|---|---|
-| 🔴 | **Catálogo de ramos vazio em produção.** `ramos_cnae` só é carregado por `db/seed.py`, e produção roda `SEED_ON_START=false` (conferido: default `True`, mas o compose de produção fixa `false`). Sem catálogo, `ExpansorDeServico` devolve **0 ramos** — a busca perde o "quem consome" e a exclusão de concorrente. Separar a carga do catálogo (idempotente) do resto do seed | `db/seed.py`, `services/cerebro.py` — Descoberta/Cérebro |
+| 🔴 **novo** | **SDK da Anthropic fixado recusa a chamada dos adaptadores.** `requirements-prod.txt` fixa `anthropic==0.69.0`, que **não tem** o kwarg `output_config` que `anthropic_llm.py` (`:119`, `:199`) e `anthropic_search.py` passam. Com `LLM_MODE`/`SEARCH_MODE=real`, **nenhuma** função de IA sobe (onboarding, Cérebro, personalização, Motor 4, busca). Confirmado no código em 20/09 (versão ainda `0.69.0`, kwarg ainda passado). Corrigir: subir o SDK para uma versão com `output_config` ou mandar por `extra_body`. `smoke.py llm` avisa o erro exato | `requirements-prod.txt`, `adapters/real/anthropic_*` — Custo/Cérebro |
+| ✅ 20/09 | ~~**Catálogo de ramos vazio em produção.**~~ Resolvido no caminho Vercel: `carregar_catalogo()` foi separado do `semear()` (idempotente) e o `scripts/vercel_build.py` roda `alembic upgrade head` **e** `carregar_catalogo` no deploy. (No caminho compose antigo, `SEED_ON_START=false` ainda não carregaria o catálogo no start — só relevante se voltar ao Docker) | `db/seed.py`, `scripts/vercel_build.py` |
 | 🔴 | **Vetores do catálogo sempre do mock.** O seed vetoriza com `FakeLLM` mesmo com `LLM_MODE=real` → o serviço, vetorizado pela OpenAI, é comparado com vetores de outro espaço. Revetorizar com o provedor ativo | `db/seed.py`, `services/cerebro.py` — Descoberta/Cérebro |
 | 🔴 | **Sem base da Receita, nenhum e-mail sai.** O compose aponta para `cnpj_full.csv`, que não existe e não tem importador; `ReceitaLocal` carrega tudo em memória (inviável com o dump de 4 GB). **Nunca** apontar para `cnpj_sample.csv` em produção (e-mails com cara de reais) | `adapters/mock/receita_local.py` — Descoberta |
-| ✅ 18/09 | ~~**Cobrança burlável — trava para o dia do Stripe real.**~~ Fechada: `BillingPort.consultar()` devolve o que o provedor diz que foi pago (mock assina o id com o APP_SECRET; Stripe lê o metadata), crédito entra uma vez (índice único parcial em `credit_ledger`), plano pago fora do dev responde 402. Antes: Conferido em `api/routes/billing.py`: `POST /v1/billing/plano` troca de plano e **recarrega créditos sem pagamento**; `POST /v1/billing/confirmar` credita o `pacote` **do corpo** (não o do checkout), após um `confirmar()` que no mock sempre passa, e **não é idempotente** por `checkout_id` — o mesmo checkout credita de novo. Travar **antes** de `STRIPE_SECRET_KEY` real | `api/routes/billing.py` — Custo/Crédito + rotas |
-| 🟡 | **Política e declaração de IA dão 404 em produção** — a imagem do backend não leva `docs/`. A correção do compose é do deploy, mas **publica texto que Compliance marca como pendente de revisão jurídica** → espera a decisão do dono (§0.2) | `api/routes/compliance.py` + compose |
-| 🟡 | **Trava de produção só olha o `JWT_SECRET`** — `APP_SECRET` (assina o token de descadastro) e `WEBHOOK_SECRET` fracos passam; `URL_PUBLICA`/`ENCARREGADO_EMAIL` com `.local` também | `services/auth.py`, `config.py` — Autenticação/config |
+| ✅ 18/09 | ~~**Cobrança burlável.**~~ Fechada e reconferida no código (20/09): `confirmar` chama `BillingPort.consultar(checkout_id)`, responde **402** se não foi pago, credita **uma vez** (idempotente por `referencia_do_checkout`); `trocar_plano` responde 402 no plano pago fora do dev. Não credita mais pelo `pacote` do corpo | `api/routes/billing.py` — Custo/Crédito + rotas |
+| 🟡 | **Política e declaração de IA dão 404 em produção** — a imagem do backend não leva `docs/`. A correção é do deploy, mas **publica texto que Compliance marca como pendente de revisão jurídica** → espera a decisão do dono (§0.2) | `api/routes/compliance.py` + compose |
+| 🟡 **parcial** | **Trava de produção agora olha `JWT_SECRET` E `APP_SECRET`** (fechado em 18/09: `verificar_segredo_de_producao` recusa subir com qualquer um fraco/curto). **Sobra:** `WEBHOOK_SECRET` fraco ainda passa, e `URL_PUBLICA`/`ENCARREGADO_EMAIL` com `.local` também | `services/auth.py`, `config.py` — Autenticação/config |
 | 🟡 | **Retorno do Stripe cai na landing** — `success_url = URL_PUBLICA/creditos?...`, mas o frontend roteia por hash (`#/creditos`) | `adapters/real/stripe_billing.py` — Custo + frontend |
-| 🟢 | `/v1/margem/consolidado`, `/docs`, `/redoc`, `/openapi.json` abertos a qualquer conta/visitante em produção | `api/routes/system.py`, `main.py` — rotas |
+| ✅ 18/09 / 🟢 | **`/v1/margem/consolidado`** virou admin (`Depends(usuario_admin)`, 404 fora de `ADMIN_EMAILS`). Seguem abertos `/docs`, `/redoc`, `/openapi.json` a qualquer visitante em produção (🟢, baixo risco) | `api/routes/system.py`, `main.py` — rotas |
 
 > **No próprio arquivo do deploy** (fila da rotina, não é minha): o `.env.example`
 > traz placeholders **não vazios** (`app.prospector.local`) e limites de envio
@@ -362,31 +403,38 @@ código (billing e catálogo); os demais são o retrato do próprio radar.
 ### Código pronto sem quem o chame
 
 - **Expurgo por retenção não roda** *(Compliance aponta ↔ worker)*. `executar_retencao()`
-  existe em `workers/tasks.py` e **nada o agenda** (reconferido 16/09: nenhuma
-  chamada, nenhum agendamento, embora o worker suba com `with_scheduler=True`).
+  existe em `workers/tasks.py:35` e **nada o agenda** (reconferido 20/09: nenhuma
+  chamada, nenhum `enqueue_at`, embora o worker suba com `with_scheduler=True`).
   **= 0.1 item 5.** A Política de Privacidade §7 e o docstring dizem que o expurgo
   "roda automaticamente" — **texto público prometendo o que o sistema não faz**. O
   radar Compliance recomenda **fazer rodar**, não enfraquecer o texto; enquanto
-  isso, a salvaguarda de retenção da LIA fica parcialmente aspiracional.
+  isso, a salvaguarda de retenção da LIA fica parcialmente aspiracional. *(No
+  caminho Vercel, serverless, não há worker RQ — o expurgo precisaria de um cron
+  externo chamando a tarefa; hoje o `COLOCAR-NO-VERCEL` não o agenda.)*
 
 ### Achados técnicos ainda abertos (uma rotina só, sem decisão de fora)
 
-- **Descoberta** *(raio grampeado em 18/09; sync do Places já robusto)*:
-  `includedType` inválido ainda derruba a consulta inteira (400 do Places) —
-  precisa da lista de tipos válidos da Google. Dedup enfraquece para resultado sem
-  `id` (trade-off de qualidade, sem crash desde 16/09). `"places": null` no topo da
-  resposta ainda estouraria `TypeError` (baixo: a doc diz que vazio vem como `{}`).
-  Nomes sujos degradam o match na Receita (medir antes de mexer).
-- **Envio** *(falha síncrona já tratada por escopo em 16/09)*: `aprovar()` numa
-  conta quebrada **pausa** a campanha mas **não freia o próximo clique manual** —
-  `checar_bloqueios` não olha `campanha.status`. Um guardrail "campanha pausada não
-  despacha" fecharia isso, mas muda também o comportamento de campanhas pausadas
-  por reputação → é decisão de desenho, candidato à próxima execução do Envio.
-- **Conversa** *(quoted-printable e HTML já decodificados)*: assinatura/rodapé
-  corporativo e bottom-posting ainda degradam a classificação de negócio (baixo
-  risco — o opt-out segue varrendo o texto inteiro). A resposta **manual** (Etapa 5)
-  leva o link só no cabeçalho: quando for para o corpo, vale a mesma regra do item 2
-  acima (rótulo e link na mesma linha) — mora em `conversa.py`.
+- **Descoberta** *(`"places": null` fechado em 20/09; raio grampeado em 18/09)*:
+  o crash por `"places": null` no topo da resposta foi resolvido (`ca9450e`:
+  `for p in (dados.get("places") or [])`) — **os buracos de crash da conversão do
+  Places estão esgotados**. Sobram, sem crash: `includedType` inválido derruba a
+  consulta (400 do Places) — precisa da lista de tipos válidos da Google; dedup
+  enfraquece para resultado sem `id` (trade-off de qualidade); nomes sujos degradam
+  o match na Receita (medir antes de mexer).
+- **Envio** *(campanha parada fechada em 20/09)*: o buraco "`aprovar()` numa conta
+  quebrada pausa mas não freia o próximo clique" **foi fechado** (`5dd97b1`):
+  campanha `PAUSADA`/`FALHOU` não despacha mais **abordagem fria** nova — nem por
+  `aprovar` humano, nem pelo worker. A decisão de desenho ficou registrada: a trava
+  vale só para abordagem fria; **resposta a quem já escreveu (Motor 4 auto e manual)
+  não é barrada** (é solicitada, não ameaça reputação).
+- **Conversa** *(caractere invisível fechado em 20/09)*: o último buraco de opt-out
+  escondido foi resolvido (`e81f530`, `remover_invisiveis`: largura-zero, hífen
+  suave, BOM, inclusive vindo como entidade `&#8203;`). Sobram, de baixo risco:
+  assinatura/rodapé corporativo e bottom-posting ainda poluem a classificação de
+  negócio (opt-out segue varrendo o texto inteiro); e o `<blockquote>` sem linha de
+  atribuição não é fronteira de citação. **A resposta manual (`responder_manualmente`)
+  leva o link só no cabeçalho** — quando for para o corpo, vale a regra do item 2
+  (rótulo e link na mesma linha); mora em `conversa.py`.
 
 ### Bloqueado até a Fase 7 (depende do formato do payload real)
 
@@ -520,7 +568,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**428 testes verdes (3 pulados) · lint limpo.**
+**463 testes verdes (3 pulados) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 

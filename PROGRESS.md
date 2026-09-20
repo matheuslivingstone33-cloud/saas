@@ -15,12 +15,19 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta consolidação (18/09):** 428 testes verdes (3 pulados) ·
-`ruff` limpo. Migrations seguem em `0011` (nenhuma nova desde 16/09), então
-`upgrade head` / `downgrade base`, frontend `npm run build` e o fluxo completo
-pela interface continuam valendo da última verificação com código — as mudanças
-de 16 a 18/09 foram todas de backend (Motor 3/4, Descoberta, Custo, Compliance),
-sem frontend nem migration nova.
+**Verificado nesta consolidação (20/09):** **463 testes verdes (3 pulados)** ·
+`ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da segurança de
+18/09) — **14 tabelas** no total. `upgrade head` / `downgrade base` e o fluxo
+completo pela interface continuam valendo da última verificação com código; a
+segurança/Vercel de 18/09 mexeu em backend e acrescentou só `frontend/vercel.json`
+(nenhuma mudança em `frontend/src`, então o `npm run build` da última verificação
+segue valendo). As correções de 20/09 (campanha pausada não despacha, opt-out por
+caractere invisível, Places sem resultados, link na resposta da IA) foram todas de
+backend.
+
+> O número já foi `428` (consolidação de 18/09) e `453` (após a segurança/Vercel);
+> as quatro rotinas que rodaram em 20/09 partiram de bases diferentes e, integradas
+> ao `main`, somam **463**. Contagem reconferida com `pytest` nesta consolidação.
 
 ---
 
@@ -125,11 +132,12 @@ sem frontend nem migration nova.
 | Item | Por quê |
 |---|---|
 | **Preencher as chaves e virar os flags** | Não há chave neste ambiente; a virada é o runbook da Fase 7 |
-| **`docker compose up` executado** | Docker não está instalado nesta máquina — compose e Dockerfiles escritos e validados como YAML, mas não executados |
-| **Autenticação real (JWT)** | Hoje o usuário vem do header `X-User-Email` (dev-only, documentado) |
-| **Webhook assinado do Stripe** | Creditar por `/billing/confirmar` permitiria auto-crédito |
-| **SNS de bounce/complaint do SES** | Fecha o ciclo de supressão automática |
-| **Papel de admin em `/v1/margem/consolidado`** | Hoje qualquer usuário autenticado vê o consolidado |
+| **SDK da Anthropic aceitar `output_config`** | 🔴 `requirements-prod.txt` fixa `anthropic==0.69.0`, que **não tem** o kwarg `output_config` que os adaptadores passam — com `LLM_MODE=real` nenhuma função de IA sobe. Ver HANDOFF §0.3 (radar de deploy, item 14) |
+| **`docker compose up` executado** | Docker não está instalado nesta máquina — compose e Dockerfiles escritos e validados como YAML, mas não executados. (O deploy hoje tem também um caminho Vercel — `backend/vercel.json` + `vercel_build.py`) |
+| ~~**Autenticação real (JWT)**~~ | ✅ feito na Etapa 8: JWT com acesso de 30 min e renovação de 14 dias; `X-User-Email` não autentica mais nada |
+| **Assinatura do webhook do Stripe** | O auto-crédito já foi travado (crédito só pelo que o provedor confirma, idempotente); falta **verificar a assinatura** do webhook do Stripe real |
+| **SNS de bounce/complaint do SES** | Fecha o ciclo de supressão automática (tradutor pronto, falta a rota — HANDOFF §0.1 item 8) |
+| ~~**Papel de admin em `/v1/margem/consolidado`**~~ | ✅ feito em 18/09: `Depends(usuario_admin)`, 404 fora de `ADMIN_EMAILS` |
 | **Dump completo da Receita** | A amostra tem 19 CNPJs; em produção, tabela indexada |
 
 ---
