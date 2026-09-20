@@ -9,13 +9,15 @@
 > ar de confiança.
 
 **Última atualização:** 2026-09-20 (2ª consolidação do dia) · docs reconferidos
-contra o código (**473 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas,
+contra o código (**474 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas,
 migration head `0012` (sem migration nova). Depois da 1ª consolidação (seis
-rotinas, 465 testes) rodaram **mais três rotinas de backend**, todas integradas ao
+rotinas, 465 testes) rodaram **mais quatro rotinas de backend**, todas integradas ao
 `main` por rebase: Envio (reclamação de spam com teto próprio, separado do bounce),
 Conversa (acento decomposto/NFD recomposto — mais um opt-out escondido que volta a
-ser visto) e Compliance (eliminação alcança também as mensagens do titular).
-Nenhuma decisão de produto. Segurança (cobrança, painel de admin, limite de login,
+ser visto), Compliance (eliminação alcança também as mensagens do titular) e Margem
+(receita por campanha soma envio e IA, não só revelação). A de Margem entrou no
+`main` enquanto esta consolidação rodava; o rebase a absorveu. Nenhuma decisão de
+produto. Segurança (cobrança, painel de admin, limite de login,
 APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
 [docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
@@ -24,7 +26,7 @@ APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
 **Estado em 20/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
-integradas ao `main`**. **473 testes verdes** (3 pulados) e `ruff` limpo,
+integradas ao `main`**. **474 testes verdes** (3 pulados) e `ruff` limpo,
 reconferidos nesta 2ª consolidação; **migration head em `0012`** (`tentativas_acesso`,
 da segurança de 18/09; sem migration nova) — `upgrade`/`downgrade` nos dois dialetos
 continuam valendo da última verificação com código. A segurança/Vercel de 18/09
@@ -37,10 +39,10 @@ mexeu em backend e acrescentou só `frontend/vercel.json` (nenhuma mudança em
 > 453 com a segurança/Vercel de 18/09, **465** com as seis rotinas da 1ª
 > consolidação de 20/09 (campanha pausada, caractere invisível, Places sem
 > resultados, link na resposta da IA, anonimização de reidentificadores, crédito de
-> overage) e **473** com as três rotinas que rodaram depois dela (Envio, Conversa,
-> Compliance — detalhe na nota abaixo). As rotinas partem de bases diferentes, então
-> o número de cada radar é o da hora dela; o total integrado no `main` é o que vale.
-> Contagem reconferida com `pytest` nesta 2ª passada.
+> overage) e **474** com as quatro rotinas que rodaram depois dela (Envio, Conversa,
+> Compliance, Margem — detalhe na nota abaixo). As rotinas partem de bases diferentes,
+> então o número de cada radar é o da hora dela; o total integrado no `main` é o que
+> vale. Contagem reconferida com `pytest` nesta 2ª passada.
 
 > **20/09 (2ª leva) — mais três correções de backend, todas de rotina.** Depois da
 > consolidação das seis abaixo, rodaram e integraram ao `main`: **Envio** (a
@@ -53,9 +55,14 @@ mexeu em backend e acrescentou só `frontend/vercel.json` (nenhuma mudança em
 > marca do classificador estão cobertos); **Compliance** (a eliminação a pedido do
 > titular passou a expurgar também as **mensagens** trocadas com ele — corpo/assunto
 > fora, os dois endereços mascarados —, fechando a assimetria com o relatório de
-> acesso, que já as devolvia como dado do titular). Sem migration, sem decisão de
-> produto. Conversa deixou **um achado novo aberto** (frases de opt-out que não
-> casam com sinal lexical — ver §0.3, achados técnicos).
+> acesso, que já as devolvia como dado do titular); **Margem** (a margem **por
+> campanha** contava o custo inteiro mas só a receita de revelação — o filtro casava
+> só id de lead, e envio/sinal-de-intenção são debitados referenciando a mensagem;
+> agora aceita lead **ou** mensagem da campanha, e a receita por campanha bate com a
+> do usuário. Não é decisão de preço: soma receita já reconhecida no escopo certo).
+> Sem migration, sem decisão de produto. Duas rotinas deixaram **achado novo aberto**:
+> Conversa (frases de opt-out que não casam com sinal lexical) e Margem/Custo (débito
+> que atravessa o zero vira 100% overage) — ambos em §0.3, achados técnicos.
 
 > **20/09 (1ª leva) — seis correções de backend integradas, todas de rotina.** Envio
 > (campanha `PAUSADA`/`FALHOU` não despacha mais abordagem fria nova — fecha o
@@ -480,6 +487,21 @@ invisíveis para as rotinas donas dos arquivos.
   `<blockquote>` sem linha de atribuição não é fronteira de citação. **A resposta
   manual (`responder_manualmente`) leva o link só no cabeçalho** — quando for para o
   corpo, vale a regra da dependência 2 (rótulo e link na mesma linha).
+- **Custo/Margem** *(margem por campanha corrigida em 20/09, 2ª leva)*: a margem
+  **por campanha** contava o custo inteiro mas só a receita de revelação, porque o
+  filtro casava só `referencia_id` de lead e o envio/sinal-de-intenção referenciam a
+  mensagem (`69f40e7`, `margem.py::_creditos_consumidos` passou a aceitar lead **ou**
+  mensagem da campanha; escopo de usuário inalterado; não mexe no eixo de cobrança,
+  que segue sendo o contato revelado). **Achado novo, aberto (20/09, 2ª leva):** um
+  débito que **atravessa o zero** é marcado 100% como `OVERAGE` (`creditos.py::debitar`
+  faz `overage = creditos < custo` para o lançamento inteiro) — com saldo 1 e uma
+  operação de custo 2 (só `sinal_intencao`), o crédito-base que ainda existia é
+  valorizado ao preço de overage, superestimando um tico a receita/margem. Cenário
+  raro (exige saldo == 1 e op de custo 2) e o certo (1 base + 1 overage num só débito)
+  mexe na **estrutura do ledger** — candidato futuro, com cuidado contábil; uma rotina
+  só (Custo), sem decisão de fora. Baixo risco: `latencia_ms` só no evento de entrada.
+  A tabela de preços de LLM foi reconferida contra a fonte e está atual (Opus 5, Sonnet
+  5, Haiku 4.5).
 
 ### Bloqueado até a Fase 7 (depende do formato do payload real)
 
@@ -613,7 +635,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**473 testes verdes (3 pulados) · lint limpo.**
+**474 testes verdes (3 pulados) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 

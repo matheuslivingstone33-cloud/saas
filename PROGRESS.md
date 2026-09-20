@@ -15,22 +15,22 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta consolidação (20/09, 2ª passada):** **473 testes verdes
+**Verificado nesta consolidação (20/09, 2ª passada):** **474 testes verdes
 (3 pulados)** · `ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da
 segurança de 18/09) — **14 tabelas** no total, sem migration nova. `upgrade head` /
 `downgrade base` e o fluxo completo pela interface continuam valendo da última
 verificação com código; a segurança/Vercel de 18/09 mexeu em backend e acrescentou
-só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as três correções
+só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as quatro correções
 desta passada foram todas de backend — então o `npm run build` da última verificação
-segue valendo. As três correções novas de 20/09 (Envio: reclamação de spam com teto
+segue valendo. As quatro correções novas de 20/09 (Envio: reclamação de spam com teto
 próprio, separado do bounce; Conversa: acento decomposto/NFD recomposto; Compliance:
-eliminação alcança também as mensagens do titular) não têm migration nem decisão de
-produto.
+eliminação alcança também as mensagens do titular; Margem: receita por campanha soma
+envio e IA, não só revelação) não têm migration nem decisão de produto.
 
 > O número já foi `428` (consolidação de 18/09), `453` (após a segurança/Vercel) e
-> `465` (1ª consolidação de 20/09, seis rotinas). As três rotinas que rodaram
-> **depois** dela (Envio, Conversa, Compliance) integraram ao `main` por rebase e
-> levaram a contagem a **473**, reconferida com `pytest` nesta 2ª passada. As
+> `465` (1ª consolidação de 20/09, seis rotinas). As quatro rotinas que rodaram
+> **depois** dela (Envio, Conversa, Compliance, Margem) integraram ao `main` por
+> rebase e levaram a contagem a **474**, reconferida com `pytest` nesta 2ª passada. As
 > rotinas partem de bases diferentes; o total integrado no `main` é o que vale.
 
 ---
