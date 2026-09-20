@@ -38,6 +38,70 @@
 
 ---
 
+## Execução 2026-09-20 — eliminação (art. 18, IV) alcança as mensagens do titular
+
+> Parti de `origin/main` (`bec3f86`). Reconferi o `HANDOFF` §0/§0.3 e a fila: as
+> correções de retenção de setembro, a anonimização dos reidentificadores
+> (execução anterior, já no `main`) e o filtro de tenant em `/solicitacoes`
+> (§0.3, fora do meu escopo) já estão integrados. Não refiz nada disso.
+
+### O que corrigi (com teste)
+
+**A eliminação a pedido do titular anonimizava os leads mas deixava as mensagens
+trocadas com ele de pé — o e-mail dele e o texto que ele mesmo escreveu
+sobreviviam na tabela `messages` até o prazo de retenção (365 dias).**
+`services/compliance.py` · `PrivacyService.eliminar`
+
+O direito de eliminação (art. 18, IV) tem que alcançar **todo** o dado pessoal do
+titular. E o relatório de **acesso** (art. 18, II) já reconhece as mensagens como
+dado dele: desde 16/09, `relatorio()` devolve os dois lados (`destinatario` **ou**
+`remetente`), porque numa mensagem de entrada o e-mail do titular está no
+`remetente`. Mas `eliminar()` só chamava `_anonimizar` nos **leads** — as
+mensagens ficavam intactas. Resultado: o acesso enxergava os dois lados, a
+eliminação apagava só um. O endereço real do titular (nos dois lados) e o corpo
+que ele escreveu ficavam vivos até o expurgo por prazo levá-los, 365 dias depois.
+A própria Política §8 promete que, ao pedir eliminação, guardamos "apenas o
+registro de descadastro" — o que o código antigo **contrariava**.
+
+Agora `eliminar()` também expurga as mensagens do contato, com o **mesmo
+tratamento da retenção**, só que imediato e restrito ao titular: corpo vira
+`CORPO_EXPURGADO`, assunto some, e os **dois** endereços são mascarados. A busca
+cobre os dois lados (igual ao acesso) e pula o que já saiu (`corpo != CORPO_EXPURGADO`,
+idempotente). Entra na trilha um evento `DADO_ANONIMIZADO` de resumo
+(`entidade_tipo="mensagens"`), cumprindo a Política §7 ("cada remoção é
+registrada"). Extraí o tratamento de campo para `_expurgar_conteudo_mensagem`,
+usado agora **pela retenção e pela eliminação** — um só lugar, para nunca
+divergirem (a retenção seguiu idêntica; os testes dela continuam verdes).
+
+Teste novo `test_eliminacao_expurga_as_mensagens_trocadas_com_o_titular` — falha
+antes (`KeyError: 'mensagens_expurgadas'`; as mensagens sobreviviam) e passa
+depois; fixa também que o acesso, **após** a eliminação, não acha mais mensagem
+pelo contato (a simetria acesso↔eliminação). `pytest` (473 passed, 3 skipped) e
+`ruff` verdes.
+
+### O que achei e NÃO corrigi
+
+Nada novo fora da fila abaixo. Esta correção fecha a assimetria **acesso↔eliminação**
+para as mensagens; ela **não** resolve o item 5 (a supressão ainda grava o e-mail
+cru, não o hash — coisa diferente: é o que a lista de supressão **guarda**, não o
+que a eliminação **apaga**). Fica uma dúvida de **margem** para a caneta jurídica:
+mascarar os dois endereços apaga também o **nosso** endereço na linha da mensagem
+— escolhi manter idêntico ao expurgo por prazo (que já faz isso e nenhum é dado de
+terceiro: cada mensagem é 1:1 entre nós e um lead), mas confirmar o limite exato é
+**[revisão jurídica]**. Não mexi nos itens 1–4 e 6–10; nenhum coincide com esta
+correção.
+
+### O que depende de outra rotina ou de decisão humana
+
+Esta correção vive inteira em `compliance.py` — não cria dependência nova. As
+pendências seguem as da tabela ao fim do radar (rotas, worker, opt-out/envio,
+domínio real). O que **trava de verdade** para o dia da Fase 7 continua sendo os
+🔴 itens 1 e 2 (verificação de identidade do titular e — já resolvido no `main` —
+filtro de tenant em `/solicitacoes`), ambos em `api/routes/compliance.py`, fora do
+meu escopo.
+
+---
+
 ## Execução 2026-09-20
 
 > Parti de `origin/main` (`e81f530`). Reconferi o `HANDOFF` §0/§0.3 e a fila
@@ -422,9 +486,14 @@ Conferido nesta leitura, após a consolidação:
 - **Opt-out de 1 clique:** token assinado por HMAC (não expõe o id, não se
   forja), idempotente, imediato, terminal para o lead, auditado; a supressão
   sobrevive à eliminação.
-- **Direitos do titular:** acesso, eliminação (anonimiza + mantém supressão),
-  oposição e portabilidade atendidos; correção vai para análise humana. Prazo
-  gravado por pedido (ressalva: ninguém vigia o vencimento — item 4).
+- **Direitos do titular:** acesso, eliminação e oposição e portabilidade
+  atendidos; correção vai para análise humana. Prazo gravado por pedido
+  (ressalva: ninguém vigia o vencimento — item 4). **Eliminação simétrica ao
+  acesso (20/09):** o que o acesso devolve como dado do titular — leads **e**
+  mensagens (os dois lados) — a eliminação agora remove. Anonimiza os leads,
+  expurga corpo/assunto e mascara os dois endereços das mensagens (mesmo
+  tratamento da retenção, via `_expurgar_conteudo_mensagem`), imediato, e mantém
+  a supressão. Antes as mensagens ficavam vivas até o expurgo por prazo (365 d).
 - **LIA** gerada dos dados reais do controlador (fontes e campos vêm do banco),
   com hash, evento de auditoria e as nove seções. Ressalva: a salvaguarda de
   retenção depende do expurgo rodar (item 7).

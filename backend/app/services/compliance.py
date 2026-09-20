@@ -538,7 +538,15 @@ class PrivacyService:
         }
 
     def eliminar(self, contato: str, user_id: uuid.UUID | None = None) -> dict:
-        """Elimina o dado pessoal e mantem a supressao (senao o lead volta)."""
+        """Elimina o dado pessoal e mantem a supressao (senao o lead volta).
+
+        Alcanca os leads E as mensagens trocadas com o titular. O relatorio de
+        acesso (art. 18, II) devolve as duas coisas como dado pessoal dele, entao
+        a eliminacao (art. 18, IV) tem que remover as duas: anonimizar so os leads
+        deixava o e-mail do titular e o texto que ele mesmo escreveu vivos na
+        tabela `messages` ate o prazo de retencao (365 dias). Os metadados e a
+        trilha de auditoria sobrevivem para prestacao de contas.
+        """
         leads = (
             self.session.execute(
                 select(Lead).where(
@@ -561,6 +569,37 @@ class PrivacyService:
                 user_id=lead.user_id,
             )
 
+        # As mensagens trocadas com o titular tambem sao dado pessoal dele — o
+        # acesso as devolve como tal. Expurgamos agora, com o mesmo tratamento da
+        # retencao, mas restrito ao contato e imediato — sem esperar os 365 dias
+        # do expurgo por prazo. A busca cobre os dois lados (remetente OU
+        # destinatario), como o relatorio de acesso, e pula o que ja saiu.
+        mensagens = (
+            self.session.execute(
+                select(Message).where(
+                    or_(Message.destinatario == contato, Message.remetente == contato),
+                    Message.corpo != CORPO_EXPURGADO,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        mensagens_expurgadas = 0
+        for mensagem in mensagens:
+            _expurgar_conteudo_mensagem(mensagem)
+            mensagens_expurgadas += 1
+        if mensagens_expurgadas:
+            self.audit.registrar(
+                evento=TipoEvento.DADO_ANONIMIZADO,
+                entidade_tipo="mensagens",
+                dados={
+                    "motivo": "eliminacao_solicitada_pelo_titular",
+                    "quantidade": mensagens_expurgadas,
+                },
+                ator=Ator.SISTEMA,
+                user_id=user_id,
+            )
+
         # A supressao PRECISA sobreviver a eliminacao, senao a proxima campanha
         # descobre o mesmo contato de novo. Guardamos so o hash do contato.
         OptOutService(self.session, self.audit, self.settings).registrar(
@@ -571,7 +610,11 @@ class PrivacyService:
             global_=True,
         )
         self.session.flush()
-        return {"leads_anonimizados": anonimizados, "supressao_mantida": True}
+        return {
+            "leads_anonimizados": anonimizados,
+            "mensagens_expurgadas": mensagens_expurgadas,
+            "supressao_mantida": True,
+        }
 
 
 # =============================================================================
@@ -672,24 +715,10 @@ class RetencaoService:
         )
         for mensagem in antigas:
             if not dry_run:
-                mensagem.corpo = CORPO_EXPURGADO
-                # O assunto tambem e conteudo, e na abordagem de saida ele carrega
-                # a identidade do alvo: `_assunto` monta "<servico> para <nome da
-                # empresa>" (services/personalizacao.py). Expurgar o corpo e deixar
-                # o assunto de pe fazia o nome da empresa-alvo sobreviver ao prazo
-                # de retencao — o dado que o expurgo existe para remover. Some junto
-                # com o corpo; e nullable, entao nao precisa de marca-sentinela (a
-                # deteccao de "ja expurgada" ja e feita pelo `corpo`).
-                mensagem.assunto = None
-                # Numa resposta do lead (direcao=ENTRADA) quem responde esta em
-                # `remetente`, nao em `destinatario` — e o `remetente` que carrega
-                # o e-mail real do titular (ver models/message.py). Mascarar so o
-                # `destinatario` deixava esse dado pessoal sobreviver ao prazo de
-                # retencao em toda mensagem de entrada. Mascaramos os dois: apos o
-                # expurgo nenhum endereco precisa ficar na linha da mensagem — a
-                # auditoria vive nos metadados e no audit_log encadeado por hash.
-                mensagem.destinatario = _mascarar(mensagem.destinatario)
-                mensagem.remetente = _mascarar(mensagem.remetente)
+                # Mesmo expurgo aplicado na eliminacao a pedido do titular
+                # (PrivacyService.eliminar) — o porque de cada um dos quatro
+                # campos esta no docstring de `_expurgar_conteudo_mensagem`.
+                _expurgar_conteudo_mensagem(mensagem)
             resultado.mensagens_expurgadas += 1
 
         # A remocao do dado pessoal da mensagem tambem entra na trilha. A
@@ -805,6 +834,32 @@ def _anonimizar(lead: Lead) -> None:
     prov["anonimizado_em"] = now().isoformat()
     lead.provenance = prov
     lead.deleted_at = now()
+
+
+def _expurgar_conteudo_mensagem(mensagem: Message) -> None:
+    """Tira o dado pessoal do conteudo de uma mensagem, preservando a linha e os
+    metadados para a trilha de auditoria.
+
+    Um so tratamento, em dois caminhos, para que nunca divirjam: o expurgo por
+    prazo (`RetencaoService.executar`) e a eliminacao a pedido do titular
+    (`PrivacyService.eliminar`, art. 18, IV).
+
+    - `corpo` vira `CORPO_EXPURGADO`, que tambem sinaliza "ja expurgada" e garante
+      idempotencia entre execucoes (como `messages.corpo` e NOT NULL, comparar com
+      a marca e o jeito seguro de nao reprocessar a mesma linha).
+    - `assunto` sai: na abordagem de saida ele carrega a identidade do alvo
+      (`_assunto` monta "<servico> para <empresa>", em services/personalizacao.py);
+      e nullable, entao nao precisa de marca-sentinela.
+    - os DOIS enderecos sao mascarados: numa mensagem de ENTRADA o e-mail real do
+      titular esta no `remetente`, nao no `destinatario` (ver models/message.py),
+      entao mascarar so um lado deixava o dado pessoal sobreviver. Depois do
+      expurgo nenhum endereco precisa ficar na linha — a auditoria vive nos
+      metadados e no audit_log encadeado por hash.
+    """
+    mensagem.corpo = CORPO_EXPURGADO
+    mensagem.assunto = None
+    mensagem.destinatario = _mascarar(mensagem.destinatario)
+    mensagem.remetente = _mascarar(mensagem.remetente)
 
 
 def _mascarar(contato: str | None) -> str | None:

@@ -280,6 +280,79 @@ def test_eliminacao_anonimiza_mas_mantem_supressao(session, usuario, portas_db) 
     assert OptOutRepository(session).existe(email.lower())
 
 
+def test_eliminacao_expurga_as_mensagens_trocadas_com_o_titular(session, usuario) -> None:
+    """Eliminar (art. 18, IV) tem que alcancar TODO dado pessoal do titular —
+    inclusive as mensagens que o relatorio de acesso (art. 18, II) ja devolve
+    como dele.
+
+    Anonimizar so os leads deixava o e-mail do titular e o texto que ele mesmo
+    escreveu vivos na tabela `messages` ate o prazo de retencao (365 dias): o
+    acesso enxergava os dois lados, mas a eliminacao apagava so um. E a Politica
+    §8 promete que, ao pedir eliminacao, guardamos "apenas o registro de
+    descadastro" — o que o codigo antigo contrariava. Agora aplicamos o mesmo
+    expurgo da retencao, imediato e restrito ao contato: corpo e assunto saem, os
+    dois enderecos sao mascarados; os metadados ficam para a trilha.
+    """
+    from app.models.audit_log import AuditLog
+    from app.models.enums import Canal, Direcao, StatusMensagem
+    from app.services.compliance import CORPO_EXPURGADO
+
+    contato = "titular-a-eliminar@empresa.com.br"
+    saida = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.SAIDA,
+        status=StatusMensagem.ENVIADA,
+        destinatario=contato,
+        remetente="prospector@nosso-dominio.com.br",
+        assunto="ar condicionado para Empresa Alvo Ltda",
+        corpo="Ola, temos uma oferta para a sua empresa...",
+    )
+    entrada = Message(
+        user_id=usuario.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.ENTRADA,
+        status=StatusMensagem.RESPONDIDA,
+        remetente=contato,
+        destinatario="prospector@nosso-dominio.com.br",
+        corpo="Tenho interesse, meu telefone e 8599999-0000.",
+    )
+    session.add_all([saida, entrada])
+    session.flush()
+
+    servico = PrivacyService(session)
+    pedido = servico.abrir(contato=contato, tipo=TipoSolicitacao.ELIMINACAO, user_id=usuario.id)
+    resultado = servico.atender(pedido)
+
+    assert resultado["mensagens_expurgadas"] >= 2, "as duas mensagens do titular saem"
+    session.refresh(saida)
+    session.refresh(entrada)
+
+    # o e-mail do titular nao pode sobreviver em nenhum dos dois lados.
+    assert contato not in (saida.destinatario or "")
+    assert contato not in (entrada.remetente or "")
+    assert saida.destinatario == "ti***@empresa.com.br"
+    assert entrada.remetente == "ti***@empresa.com.br"
+
+    # o conteudo que o titular escreveu sai; o assunto (nome da empresa) tambem.
+    assert entrada.corpo == CORPO_EXPURGADO
+    assert saida.corpo == CORPO_EXPURGADO
+    assert saida.assunto is None
+
+    # simetria com o acesso: depois de eliminar, o relatorio nao acha mais nada.
+    relatorio = servico.relatorio(contato)
+    assert relatorio["mensagens"] == []
+
+    # a remocao entra na trilha (Politica §7: "cada remocao e registrada").
+    eventos = session.execute(
+        select(AuditLog).where(
+            AuditLog.evento == TipoEvento.DADO_ANONIMIZADO,
+            AuditLog.entidade_tipo == "mensagens",
+        )
+    ).scalars().all()
+    assert eventos and eventos[-1].dados["quantidade"] >= 2
+
+
 def test_solicitacao_publica_pela_api(client, session, usuario, portas_db) -> None:
     campanha = _rodar(session, usuario, portas_db, nome="Publico")
     lead = session.execute(
