@@ -125,7 +125,14 @@ class GooglePlacesAdapter:
             ),
         )
         dados = resposta.json or {}
-        itens = [self._para_dto(p) for p in dados.get("places", [])]
+        # `"places": null` no topo (chave PRESENTE com valor nulo, formato real)
+        # faria `list(None)` no comprehension -> TypeError, que `executar_plano`
+        # nao intercepta: sobe e ABORTA a rodada, perdendo os leads ja achados e o
+        # SKU ja gasto. `.get("places", [])` so cai no default com a chave AUSENTE;
+        # o `... or []` cobre tambem o `null`, mesmo padrao que `_para_dto` ja usa
+        # nos campos internos. `nextPageToken` (linha abaixo) ja e tolerante: `null`
+        # vira `None`, que e "sem proxima pagina".
+        itens = [self._para_dto(p) for p in (dados.get("places") or [])]
         itens = [i for i in itens if not self._excluido(i, query)]
         log.info(
             "places_busca_real",

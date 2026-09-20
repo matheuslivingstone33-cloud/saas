@@ -32,6 +32,47 @@
 
 ## Histórico de execuções
 
+### 2026-09-20 — `"places": null` no topo da resposta ainda derrubava a rodada
+
+**Corrigido.** Em `google_places.py`, `buscar` fazia
+`itens = [self._para_dto(p) for p in dados.get("places", [])]`. O default `[]` do
+`.get` só vale quando a chave está **ausente**; o Places real pode mandar a chave
+**presente com valor `null`**, e aí `dados.get("places", [])` devolve `None`.
+`for p in None` estoura `TypeError` no list comprehension — o mesmo formato "chave
+presente com valor null" que já derrubava os campos internos (`types`/`id`/
+`displayName`), corrigido em 16/09, só que um nível acima, na própria `buscar`.
+
+Por que importa na virada: esse `TypeError` **não** é nenhum dos que
+`executar_plano` intercepta (`RateLimited`/`UpstreamError`/`CircuitOpen`), então
+sobe, **aborta a rodada inteira** e leva junto os leads já achados nas consultas
+anteriores mais o SKU já gasto. No mock nunca aparece — ele devolve tudo de uma
+vez e nunca manda `null`. Era o **item 5** desta fila: o último buraco de crash da
+conversão que dava para fechar sem decisão nem dependência.
+
+A correção é o mesmo padrão `... or []` que `_para_dto` já usa nos campos
+internos: `for p in (dados.get("places") or [])`. `nextPageToken` já era tolerante
+(`null` vira `None` = "sem próxima página"), então não precisou mexer.
+
+Um teste novo em `test_fase7_adaptadores_reais.py`
+(`test_places_nulo_no_topo_da_resposta_nao_derruba_a_rodada`): resposta com
+`"places": null`, que falhava com `TypeError` antes e agora devolve zero leads e
+`proximo_token=None`, sem crash. `pytest` (453 passa, 3 skip) e `ruff` verdes.
+Commit + push feitos.
+
+**O que achei e não corrigi (uma por execução):** os itens 2 (dedup fraco no caso
+órfão — sem `id` **e** sem telefone/domínio/CNPJ), 3 (`includedType` inválido →
+400) e 4 (nomes sujos degradam o match na Receita) seguem abertos na fila abaixo,
+nesta ordem. Com o item 5 fechado, **os buracos de crash da conversão do Places
+estão esgotados nos meus arquivos** — o único que resta (item 3) é crash, mas
+depende da lista fechada de tipos válidos da Google; o 2 e o 4 são trade-offs de
+qualidade de dado, não quebra.
+
+**O que depende de decisão humana:** nada novo nesta execução — a paginação
+(quantas páginas × custo) e a falha parcial (entregar o que achou × falhar a
+rodada) continuam nas seções de decisão abaixo, sem mudança.
+
+---
+
 ### 2026-09-18 — o raio da busca não tinha teto e derrubava a consulta no real
 
 **Corrigido.** Em `google_places.py`, o `buscar` monta o `locationBias` com
@@ -170,16 +211,11 @@ sufixo de unidade. A tokenização já normaliza bastante, então o risco é de
 **qualidade** do casamento, não de quebra. Observação, não urgência — medir
 antes de mexer.
 
-### 5. `places` no topo da resposta com valor `null` — `google_places.py` (baixa)
-`dados.get("places", [])` em `buscar` cai no default `[]` só quando a chave está
-**ausente**. É exatamente o padrão "chave presente com valor `null`" que já
-derrubava os campos internos (corrigido em 16/09 com `... or <default>`): se o
-Google mandar `"places": null`, `list()` sobre `None` no list comprehension
-estoura `TypeError` e aborta a rodada. **Não corrigido nesta execução (uma por
-vez).** Severidade baixa: a doc do Text Search (New) diz que resultado vazio vem
-como `{}` (chave omitida), não `null` — então é seguro por hoje, mas frágil pela
-mesma razão dos campos internos. Fecha trocando por `dados.get("places") or []`
-(e o mesmo para `nextPageToken`, já tolerante). Sem decisão, sem dependência.
+### 5. ~~`places` no topo da resposta com valor `null`~~ — CORRIGIDO em 20/09
+`buscar` agora faz `for p in (dados.get("places") or [])`: uma resposta com
+`"places": null` vira zero leads em vez de `TypeError` que abortava a rodada (ver
+o histórico de 20/09). `nextPageToken` já era tolerante, não precisou mexer.
+**Não refazer.**
 
 ---
 

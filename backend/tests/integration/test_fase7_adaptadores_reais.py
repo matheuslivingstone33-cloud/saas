@@ -213,6 +213,30 @@ def test_places_place_sem_id_nem_nome_nao_quebra_a_conversao() -> None:
     assert itens[0].tipos == []
 
 
+def test_places_nulo_no_topo_da_resposta_nao_derruba_a_rodada() -> None:
+    """`"places": null` no topo da resposta nao pode virar `list(None)`.
+
+    E o mesmo formato "chave presente com valor null" que ja derrubava os campos
+    internos (corrigido em 16/09 com `... or <default>`), so que um nivel acima,
+    em `buscar`. `dados.get("places", [])` so cai no default `[]` quando a chave
+    esta AUSENTE; com valor `null` devolve `None`, e o list comprehension estoura
+    `TypeError`. Esse erro nao e nenhum dos que `executar_plano` intercepta
+    (RateLimited/Upstream/Circuit), entao sobe e ABORTA a rodada, perdendo os
+    leads ja achados nas consultas anteriores e o SKU ja gasto. Uma resposta sem
+    resultado tem que virar zero leads, nao um crash — e a doc do Text Search diz
+    que vazio costuma vir como `{}`, mas o formato `null` nao pode custar a rodada."""
+    resposta = {"places": None, "nextPageToken": None}
+    sink = MemoryCostSink()
+    adaptador = GooglePlacesAdapter(
+        _http(lambda _r: httpx.Response(200, json=resposta), sink, "places"),
+        CostRecorder(sink),
+        _settings(),
+    )
+    resultado = adaptador.buscar(PlacesQuery(termo="hotel", regiao="Fortaleza"))
+    assert resultado.itens == []
+    assert resultado.proximo_token is None
+
+
 def test_places_grampeia_raio_no_maximo_da_api() -> None:
     """Raio acima de 50 km responde 400 (INVALID_ARGUMENT) e derruba a consulta.
 
