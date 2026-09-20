@@ -392,6 +392,70 @@ def test_falha_transitoria_so_marca_falhou(session, usuario, portas_db) -> None:
     assert not OptOutRepository(session).existe(lead.email.strip().lower(), user_id=usuario.id)
 
 
+# --- Campanha parada nao despacha abordagem fria -----------------------------
+def test_campanha_pausada_barra_aprovacao_de_abordagem_fria(
+    session, usuario, portas_db, settings
+) -> None:
+    """A pausa por reputacao/conta so protege o dominio se PARAR de fato.
+
+    Antes desta trava, a leva parava na falha mas um `aprovar` humano seguinte
+    ainda despachava cold mail para a MESMA campanha que estourou o limite — a
+    pausa virava enfeite. Agora aprovar uma abordagem fria de campanha parada e
+    bloqueado, e nada sai.
+    """
+    campanha = _campanha(session, usuario, nome="Pausada", nivel=NivelAutonomia.ASSISTIDO)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    envio = SendService(session, portas_db)
+    lote = envio.preparar_lote(campanha, leads, expansao)
+    mensagem = lote.mensagens[0]
+
+    # A campanha e pausada DEPOIS de a mensagem ja estar aguardando aprovacao.
+    campanha.status = StatusCampanha.PAUSADA
+    session.flush()
+
+    antes = len(list(settings.outbox_path.glob("*.json")))
+    assert envio.aprovar(mensagem, usuario) is False
+    assert mensagem.status is StatusMensagem.BLOQUEADA
+    assert "campanha_parada" in (mensagem.erro or "")
+    depois = len(list(settings.outbox_path.glob("*.json")))
+    assert depois == antes, "nada pode sair de campanha parada"
+
+
+def test_campanha_pausada_nao_gera_lote_novo(session, usuario, portas_db) -> None:
+    """Campanha parada nem redige (custo de IA) nem dispara uma leva nova."""
+    campanha = _campanha(session, usuario, nome="Parada geracao", nivel=NivelAutonomia.AUTOMATICO)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    campanha.status = StatusCampanha.PAUSADA
+    session.flush()
+
+    lote = SendService(session, portas_db).preparar_lote(campanha, leads, expansao)
+    assert lote.geradas == 0
+    assert lote.enviadas == 0
+
+
+def test_resposta_em_conversa_nao_e_barrada_por_campanha_pausada(
+    session, usuario, portas_db
+) -> None:
+    """A trava vale so para ABORDAGEM FRIA: responder a quem ja escreveu segue.
+
+    Uma resposta e solicitada e nao ameaca a reputacao — a camada de conversa a
+    despacha sem a flag `abordagem_fria`, entao a pausa da campanha nao a barra.
+    """
+    campanha = _campanha(session, usuario, nome="Pausada resposta")
+    lead = _lead_qualificado(session, usuario, campanha, "77")
+    campanha.status = StatusCampanha.PAUSADA
+    session.flush()
+    envio = SendService(session, portas_db)
+    destino = lead.email.strip().lower()
+
+    # Sem a flag (resposta em conversa): a pausa da campanha NUNCA e o motivo.
+    sem_flag = envio.checar_bloqueios(campanha, lead, destino)
+    assert sem_flag is None or sem_flag.motivo != "campanha_parada"
+    # Com a flag (abordagem fria): a pausa barra.
+    com_flag = envio.checar_bloqueios(campanha, lead, destino, abordagem_fria=True)
+    assert com_flag is not None and com_flag.motivo == "campanha_parada"
+
+
 # --- Limites e API -----------------------------------------------------------
 def test_limites_expostos_na_api(client, usuario, session, portas_db) -> None:
     campanha = _campanha(session, usuario, nome="API limites")

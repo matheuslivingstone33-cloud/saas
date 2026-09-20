@@ -26,7 +26,99 @@
 > `personalizacao.py`, `entregabilidade.py`,
 > `backend/app/adapters/real/ses_email.py` e os testes correspondentes.
 
-**Última execução:** 2026-09-18 · link de descadastro agora vai VISÍVEL no corpo do e-mail, com rótulo e link na mesma linha (proteção do Motor 4).
+**Última execução:** 2026-09-20 · campanha PARADA (pausada por reputação/conta ou
+falhou) deixou de despachar abordagem fria nova — a pausa por reputação virou
+freio de verdade, não enfeite.
+
+---
+
+## 2026-09-20 — a pausa por reputação agora PARA o envio (não só a leva)
+
+### O que corrigi (com teste)
+
+**Uma campanha `PAUSADA` ou `FALHOU` não despacha mais abordagem fria nova —
+nem por `aprovar` humano, nem pelo worker (`processar_pendentes`).** Fecha o item
+que estava aberto desde 16/09 e reapontado em 18/09 (“`aprovar()` numa conta
+quebrada pausa a campanha, mas não freia o próximo clique”).
+
+Por que isto é o maior risco de envio que fechava inteiro no meu escopo: com SES
+real, a **pausa automática por reputação** (`_pausar_se_preciso`, acima de 2% de
+retorno) é a principal defesa do domínio — o ativo mais frágil do produto —
+contra a espiral que mata o domínio. Só que essa defesa era **porosa**:
+`checar_bloqueios` nunca olhava `campanha.status`. A cadência já se recusava a
+tocar campanha parada (`cadencia.CAMPANHA_PARADA`), mas assim que a campanha
+pausava, um `aprovar` na fila de aprovação ou o worker drenando a fila
+continuavam mandando cold mail **justamente para a campanha que estourou o
+limite**. A pausa não parava o sangramento.
+
+**A decisão de desenho (a que o radar dizia “não decido sozinho”), resolvida:**
+a trava vale só para **abordagem fria** (primeiro contato + toques de cadência).
+**Resposta dentro de uma conversa em andamento não é barrada** — a do Motor 4
+(auto) e a manual. Uma resposta a quem já escreveu é *solicitada*: não ameaça a
+reputação, e bloqueá-la só perderia negócio no pior momento (lead engajado). A
+resposta manual (`conversa.py`, fora do meu escopo, não olha o status da
+campanha) continua sendo a saída para conversar com um lead engajado de campanha
+pausada. Ou seja: a automação de prospecção para; a conversa não.
+
+Como ficou, em **um único ponto de estrangulamento** (`envio.py`, só meu):
+
+- `CAMPANHA_PARADA = {PAUSADA, FALHOU}` — espelha a regra que a cadência já usa.
+- `checar_bloqueios(..., abordagem_fria=False)` — ganhou a flag. Quando `True` e a
+  campanha está parada, devolve `Bloqueio("campanha_parada", status)`. O padrão
+  `False` preserva **byte a byte** todos os chamadores externos (as respostas do
+  `conversa.py` e a cadência, que já barra antes).
+- `despachar` — o único caminho de saída — calcula `_e_abordagem_fria(mensagem)`
+  e passa a flag. Abordagem fria = a mensagem **não** é resposta de conversa
+  (`metadados["intencao"]` ausente) nem manual (`gerado_por != "humano"`). Assim
+  `aprovar`, `processar_pendentes` e o disparo automático do lote passam a
+  respeitar a pausa sem eu tocar em `cadencia.py` nem em `conversa.py`.
+- `preparar_lote` — porta da frente: campanha parada retorna lote vazio **sem
+  redigir** (não queima geração de IA numa campanha que não vai despachar).
+
+`SendService` segue o único caminho de saída e opt-out segue terminal: esta
+mudança só **adiciona** bloqueio, nunca abre exceção.
+
+Testes: 3 novos em `test_fase3_abordagem.py` — `aprovar` de abordagem fria em
+campanha pausada é bloqueado e nada sai do outbox; `preparar_lote` em campanha
+pausada não gera nada; e o teste que fixa a decisão de desenho (sem a flag, a
+pausa **nunca** é o motivo do bloqueio; com a flag, é). Verificado que falham
+antes e passam depois. **455 passed, 3 skipped; `ruff` limpo.**
+
+### O que achei e NÃO corrigi (uma coisa por execução)
+
+1. **🔴 O “descadastro de 1 clique” NÃO é o one-click do RFC 8058 — e o docstring
+   do SES afirma que é.** `ses_email.py` (linha 11) e os comentários dizem “1
+   clique … já implementado”, mas o e-mail leva só o header `List-Unsubscribe:
+   <https…>` — **falta `List-Unsubscribe-Post: List-Unsubscribe=One-Click`** — e a
+   rota `/descadastro/{token}` (`api/routes/compliance.py`) é **só GET**. Gmail e
+   Yahoo exigem one-click de verdade de quem manda em volume desde 02/2024: sem
+   ele, o botão de descadastro pode não aparecer, e quem não acha como sair marca
+   como spam — a reclamação é o que suspende a conta e queima o domínio. **Não
+   corrigi de propósito porque não fecha inteiro no meu escopo:** o one-click real
+   precisa que a rota **aceite POST** (arquivo de outro dono). Pôr só o header
+   agora seria **pior** — o provedor faria o POST one-click e levaria 405, um
+   descadastro quebrado que o Google detecta. Deixei como dependência cruzada (ver
+   abaixo); é forte candidato à próxima execução assim que a rota aceitar POST.
+2. **A supressão por endereço morto grava o e-mail cru** (herdado). Minimizar para
+   hash exige que a **consulta** de opt-out antes do envio (`repositories/misc.py`)
+   compare por hash — fora do meu escopo. Registrado para casar com Compliance.
+3. **Bounce `Undetermined` → `transitorio` (não suprime).** Escolha conservadora e
+   reversível, herdada; confirmar com produto/ops se o volume for alto.
+
+### O que depende de outros
+
+- **One-click do RFC 8058 (novo, dependência cruzada Envio ↔ dono das rotas).** A
+  peça de e-mail (o header `List-Unsubscribe-Post`) é minha e é trivial; a peça
+  que falta — `/descadastro/{token}` aceitar **POST** com corpo
+  `List-Unsubscribe=One-Click` e efetivar a supressão sem página — mora em
+  `api/routes/compliance.py`. As duas têm que subir **juntas**: header sem
+  endpoint POST = descadastro quebrado. Quando a rota aceitar POST, eu adiciono o
+  header no mesmo `headers=` onde já vai o `List-Unsubscribe` (`envio.py`,
+  `cadencia.py`, `conversa.py` — os três montam o mesmo header) e ajusto o
+  docstring do SES, que hoje afirma algo que ainda não é verdade.
+- **Retorno assíncrono do SNS** (item 8) segue testado por contrato e sem rota que
+  o chame (verificar assinatura X.509 do SNS + confirmar inscrição, em
+  `api/routes/entregabilidade.py`) — sem mudança nesta execução.
 
 ---
 

@@ -34,6 +34,7 @@ from app.models.enums import (
     Canal,
     Direcao,
     NivelAutonomia,
+    StatusCampanha,
     StatusLead,
     StatusMensagem,
     TipoEvento,
@@ -54,6 +55,18 @@ from app.services.personalizacao import PersonalizationService
 from app.services.revelacao import ServicoDeRevelacao
 
 log = get_logger("envio")
+
+#: Uma campanha PARADA nao dispara ABORDAGEM FRIA nova. E o mesmo estado em que a
+#: cadencia ja se recusa a tocar (`cadencia.CAMPANHA_PARADA`): PAUSADA cobre tanto
+#: a pausa por reputacao (taxa de retorno acima do teto) quanto a pausa por falha
+#: de conta; FALHOU e o fim de linha. Sem esta trava, a pausa por reputacao — a
+#: principal defesa automatica do dominio com SES real — vira letra morta: assim
+#: que a campanha para, um `aprovar` humano ou o worker (`processar_pendentes`)
+#: continuariam despachando cold mail justamente para a campanha que estourou o
+#: limite. Resposta DENTRO de uma conversa (Motor 4 ou manual) NAO entra aqui: e
+#: solicitada, nao ameaca a reputacao, e a camada de conversa a decide de proposito
+#: sem olhar o status da campanha.
+CAMPANHA_PARADA = frozenset({StatusCampanha.PAUSADA, StatusCampanha.FALHOU})
 
 
 @dataclass(slots=True)
@@ -140,6 +153,16 @@ class SendService:
         status_inicial = status_inicial_mensagem(nivel)
         remetente = self.usuarios.get(campanha.user_id)
         lote = Lote()
+        # Campanha parada nao comeca leva nova: nem redige (custo de IA) nem
+        # dispara. A cadencia ja se recusa a tocar campanha parada; aqui fechamos
+        # a porta da frente. Uma resposta em conversa nao passa por aqui.
+        if campanha.status in CAMPANHA_PARADA:
+            log.warning(
+                "lote_ignorado_campanha_parada",
+                campanha=str(campanha.id),
+                status=campanha.status.value,
+            )
+            return lote
         self.personalizacao.reiniciar_orcamento()
 
         for lead in leads:
@@ -220,7 +243,13 @@ class SendService:
         lead = self.session.get(Lead, mensagem.lead_id) if mensagem.lead_id else None
         destino = (mensagem.destinatario or "").strip().lower()
 
-        bloqueio = self.checar_bloqueios(campanha, lead, destino, canal=mensagem.canal)
+        bloqueio = self.checar_bloqueios(
+            campanha,
+            lead,
+            destino,
+            canal=mensagem.canal,
+            abordagem_fria=_e_abordagem_fria(mensagem),
+        )
         if bloqueio is not None:
             mensagem.status = StatusMensagem.BLOQUEADA
             mensagem.erro = f"{bloqueio.motivo}: {bloqueio.detalhe}".strip(": ")
@@ -322,7 +351,18 @@ class SendService:
         lead: Lead | None,
         destino: str,
         canal: Canal = Canal.EMAIL,
+        *,
+        abordagem_fria: bool = False,
     ) -> Bloqueio | None:
+        """Revalida os guardrails imediatamente antes do envio.
+
+        `abordagem_fria` liga a trava de campanha parada: uma abordagem proativa
+        (primeiro toque ou toque de cadencia) NAO sai de campanha PAUSADA/FALHOU.
+        O padrao e `False` de proposito — quem responde uma conversa em andamento
+        (Motor 4, resposta manual) chama sem a flag e segue valendo, porque essa
+        mensagem e solicitada e nao ameaca a reputacao do dominio. O unico chamador
+        que liga a flag e `despachar`, via `_e_abordagem_fria(mensagem)`.
+        """
         if not destino:
             return Bloqueio("sem_destinatario")
 
@@ -338,6 +378,11 @@ class SendService:
 
         if lead is not None and lead.status is StatusLead.OPT_OUT:
             return Bloqueio("opt_out", "lead marcado como opt-out")
+
+        # Depois do opt-out (que e terminal e sempre ganha ao ser reportado): uma
+        # campanha parada nao despacha ABORDAGEM FRIA nova. Ver CAMPANHA_PARADA.
+        if abordagem_fria and campanha is not None and campanha.status in CAMPANHA_PARADA:
+            return Bloqueio("campanha_parada", campanha.status.value)
 
         if self.settings.b2b_only and lead is not None and not _parece_pj(lead):
             return Bloqueio("nao_b2b", "MVP so prospecta pessoa juridica")
@@ -582,3 +627,18 @@ def _parece_pj(lead: Lead) -> bool:
     if lead.cnpj:
         return True
     return bool(lead.website or lead.dominio or lead.razao_social)
+
+
+def _e_abordagem_fria(mensagem: Message) -> bool:
+    """A mensagem e uma ABORDAGEM proativa (primeiro toque ou toque de cadencia)?
+
+    So a abordagem fria e barrada quando a campanha esta parada — e ela, em
+    volume, que queima a reputacao do dominio. Uma RESPOSTA dentro de uma conversa
+    ja em andamento nao e: a do Motor 4 carrega a `intencao` que a originou nos
+    metadados; a manual nasce com `gerado_por="humano"`. Qualquer outra saida
+    (primeiro contato, toque de cadencia) e abordagem fria.
+    """
+    metadados = mensagem.metadados or {}
+    if metadados.get("gerado_por") == "humano":
+        return False
+    return "intencao" not in metadados
