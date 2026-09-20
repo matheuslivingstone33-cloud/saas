@@ -34,7 +34,76 @@
 > marcado **[revisão jurídica]**; o que é decisão de produto/negócio está
 > marcado **[decisão de produto]**. Esses não devem ser tratados como resolvidos.
 
-**Última execução:** 2026-09-18
+**Última execução:** 2026-09-20
+
+---
+
+## Execução 2026-09-20
+
+> Parti de `origin/main` (`e81f530`). Reconferi o `HANDOFF` §0/§0.3 e a fila
+> deste radar: as correções de retenção de setembro (audita e não reconta,
+> mascara remetente, alcança `privacy_requests`, expurga assunto, `[expurgado]`
+> no contato sem `@`) e o buraco do `relatorio` (acesso enxerga a resposta do
+> titular) já estão no `main`. Não refiz nada disso. O item 2 (🔴 `/solicitacoes`
+> sem filtro de tenant) o `HANDOFF` §0.3 confirma **já corrigido** no `main` — e
+> mora fora do meu escopo de qualquer jeito.
+
+### O que corrigi (com teste)
+
+**A anonimização apagava o texto do endereço mas deixava a empresa
+reidentificável — sobreviviam CNPJ, `place_id`, lat/long exata, CEP e bairro.**
+`services/compliance.py` · `_anonimizar`
+
+Anonimizar (LGPD art. 5º, XI) é deixar o dado sem poder ser reassociado à empresa
+por meios razoáveis. `_anonimizar` zerava e-mail, telefone, site, `endereco` (em
+texto), `embedding`, `contexto` e `resumo`, e trocava a razão social por
+`[anonimizado]` — mas mantinha de pé **todos os reidentificadores estruturados**:
+
+- **`place_id`** — a chave estável do Google Places. Um `GET /places/{id}`
+  recompõe nome, endereço e telefone do estabelecimento: o dado "anonimizado"
+  volta inteiro. E ele sobrevivia em **dois** lugares — a coluna `place_id` **e**
+  a `provenance` (que guarda `{"place_id": ...}`, ver `services/leads.py`).
+  Zerar só a coluna deixaria a cópia na proveniência.
+- **`cnpj`** — identifica a pessoa jurídica direto na base da Receita.
+- **`latitude`/`longitude`** — `Numeric(9,6)`, precisão de ~0,1 m: reverse geocode
+  devolve o endereço exato.
+- **`cep`** (8 dígitos) e **`bairro`** — localização de precisão; incoerente
+  apagar o `endereco` em texto e manter a versão estruturada da mesma coisa.
+
+Agora `_anonimizar` também zera `cnpj`, `place_id`, `cep`, `bairro`, `latitude`,
+`longitude` e remove `place_id` da `provenance` (via constante
+`_PROVENANCE_REIDENTIFICADORAS`, preservando fonte/base legal/campos/coletado_em
+para a auditoria e a LIA). Ficam só as **dimensões agregadas** — `municipio`,
+`uf`, CNAE, porte e score —, que alimentam o aprendizado sem apontar para uma
+empresa. Vale para os **dois** caminhos que chamam `_anonimizar`: a retenção por
+prazo (`RetencaoService`) e a eliminação a pedido do titular (`PrivacyService.eliminar`, art. 18, IV).
+Teste novo `test_anonimizar_apaga_os_reidentificadores_da_empresa` — falha antes
+(`cnpj`/`place_id`/… sobreviviam) e passa depois; também fixa que `municipio`/`uf`
+**permanecem**, para uma próxima execução não anonimizar demais. `pytest`
+(461 passed, 3 skipped) e `ruff` verdes. Seguro por construção: o dedup já ignora
+lead com `deleted_at` (`repositories/leads.py`), então zerar `place_id`/`cnpj` de
+lead anonimizado não afeta descoberta; nenhum teste esperava esses campos vivos.
+
+### O que achei e NÃO corrigi
+
+Nada novo fora da fila abaixo. A correção de hoje resolve a **reidentificação**
+por campo estruturado; ela **não** resolve o item 5 (eliminação guarda e-mail
+cru na supressão, não hash) — são coisas diferentes: uma é o dado que o lead
+guarda, a outra é o que a lista de supressão grava. Fica uma dúvida de **margem**
+para quem tiver a caneta jurídica: se as geografias grossas (`municipio`/`uf`) ou
+outros metadados da `provenance` também deveriam sair. Escolhi a linha padrão de
+anonimização — apagar identificadores diretos e localização de precisão, manter
+o agregado estatístico —, mas confirmar o limite exato é **[revisão jurídica]**.
+Não mexi nos itens 1–10 restantes; nenhum coincide com esta correção.
+
+### O que depende de outra rotina ou de decisão humana
+
+Esta correção vive inteira em `compliance.py` — não cria dependência nova. As
+pendências seguem as da tabela ao fim do radar (rotas, worker, opt-out/envio,
+domínio real). O que **trava de verdade** para o dia da Fase 7 continua sendo os
+🔴 itens 1 e 2 (verificação de identidade do titular e — já resolvido no `main` —
+filtro de tenant em `/solicitacoes`), ambos em `api/routes/compliance.py`, fora
+do meu escopo.
 
 ---
 
@@ -363,6 +432,12 @@ Conferido nesta leitura, após a consolidação:
   ambos os endereços, e as solicitações de direitos concluídas; idempotente e
   auditada em cada eixo. Endereço sem `@` (telefone) vira `[expurgado]`, não
   `NULL` — o registro de que houve um contato sobrevive ao expurgo (18/09).
+- **Anonimização impede a reidentificação (20/09):** `_anonimizar` apaga não só
+  o contato mas os reidentificadores estruturados — `cnpj`, `place_id` (na coluna
+  **e** na `provenance`), lat/long, CEP e bairro. Ficam só as dimensões agregadas
+  (município/UF, CNAE, porte, score). Vale para a retenção por prazo e para a
+  eliminação a pedido (art. 18, IV). Ressalva de margem em aberto: se geografia
+  grossa/outros metadados também deveriam sair — **[revisão jurídica]**.
 - **Trilha de auditoria** encadeada por hash; `verificar_cadeia()` fecha verde
   depois de rodar pipeline + LIA + expurgo.
 - **Declaração de IA** presente no corpo de toda mensagem, com resposta a humano

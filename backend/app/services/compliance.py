@@ -755,8 +755,26 @@ class RetencaoService:
 
 
 # --- utilitarios --------------------------------------------------------------
+#: Chaves de `provenance` que reidentificam a empresa e por isso saem no
+#: expurgo. O `place_id` mora aqui alem da coluna homonima: zerar so a coluna
+#: deixaria a chave do Google intacta na proveniencia. As demais chaves
+#: (fonte, base legal, campos, coletado_em) sao metadados de proveniencia e
+#: ficam para a auditoria e para a LIA, que le as fontes reais dos leads.
+_PROVENANCE_REIDENTIFICADORAS = ("place_id",)
+
+
 def _anonimizar(lead: Lead) -> None:
-    """Remove o dado pessoal e preserva o registro estatistico."""
+    """Remove o dado pessoal E os reidentificadores; preserva so o agregado.
+
+    Anonimizar (LGPD art. 5, XI) e deixar o dado sem poder ser reassociado a
+    empresa por meios razoaveis. Zerar so o texto do `endereco` nao bastava: as
+    versoes ESTRUTURADAS da mesma informacao sobreviviam e reidentificavam a
+    empresa com um passo — o `place_id` (chave estavel do Google Places, tambem
+    guardada na `provenance`), o CNPJ (base da Receita), a lat/long exata e o
+    CEP. Todos saem aqui. Ficam apenas as dimensoes agregadas — municipio/UF,
+    ramo (CNAE), porte e score —, que alimentam o aprendizado sem apontar para
+    uma empresa especifica.
+    """
     lead.email = None
     lead.telefone = None
     lead.telefone_normalizado = None
@@ -768,10 +786,24 @@ def _anonimizar(lead: Lead) -> None:
     lead.resumo = None
     lead.razao_social = "[anonimizado]"
     lead.nome_fantasia = None
-    lead.provenance = {
-        **(lead.provenance or {}),
-        "anonimizado_em": now().isoformat(),
+    # Reidentificadores diretos e localizacao de precisao. O `endereco` em texto
+    # ja saiu acima; faltavam as versoes estruturadas — as que uma consulta
+    # reaproveita para recompor a identidade.
+    lead.cnpj = None
+    lead.place_id = None
+    lead.cep = None
+    lead.bairro = None
+    lead.latitude = None
+    lead.longitude = None
+    # A proveniencia fica para a auditoria/LIA, mas sem as chaves que
+    # reidentificam (o `place_id` tambem morava aqui).
+    prov = {
+        chave: valor
+        for chave, valor in (lead.provenance or {}).items()
+        if chave not in _PROVENANCE_REIDENTIFICADORAS
     }
+    prov["anonimizado_em"] = now().isoformat()
+    lead.provenance = prov
     lead.deleted_at = now()
 
 

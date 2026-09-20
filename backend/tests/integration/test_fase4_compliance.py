@@ -321,6 +321,66 @@ def test_retencao_anonimiza_leads_vencidos(session, usuario, portas_db, settings
     assert antigo.provenance.get("anonimizado_em")
 
 
+def test_anonimizar_apaga_os_reidentificadores_da_empresa(
+    session, usuario, portas_db, settings
+) -> None:
+    """Anonimizar tem que impedir a REIDENTIFICACAO (LGPD art. 5, XI), nao so
+    apagar o texto do endereco.
+
+    O `place_id` e a chave estavel do Google Places: um `GET /places/{id}`
+    recompoe nome, endereco e telefone do estabelecimento — o dado
+    "anonimizado" volta inteiro. Ele sobrevivia em DOIS lugares (a coluna e a
+    `provenance`), junto do CNPJ, da lat/long exata, do CEP e do bairro:
+    qualquer um deles devolve a identidade da empresa que o expurgo diz remover,
+    enquanto so o `endereco` em texto era zerado. As dimensoes agregadas
+    (municipio/UF, ramo, porte, score) ficam — sustentam o aprendizado sem
+    apontar para uma empresa especifica.
+    """
+    campanha = _rodar(
+        session, usuario, portas_db, nome="Reident", nivel=NivelAutonomia.ASSISTIDO
+    )
+    lead = session.execute(
+        select(Lead).where(Lead.campaign_id == campanha.id)
+    ).scalars().first()
+    assert lead is not None
+    lead.created_at = now() - timedelta(days=settings.retencao_leads_dias + 10)
+    lead.status = StatusLead.QUALIFICADO
+    lead.email = lead.email or "alvo@exemplo.com.br"
+    lead.cnpj = "12345678000199"
+    lead.place_id = "ChIJ_reidentifica_a_empresa"
+    lead.cep = "60000000"
+    lead.bairro = "Centro"
+    lead.latitude = -3.731861
+    lead.longitude = -38.526670
+    lead.municipio = "Fortaleza"
+    lead.uf = "CE"
+    lead.provenance = {**(lead.provenance or {}), "place_id": "ChIJ_reidentifica_a_empresa"}
+    session.flush()
+
+    RetencaoService(session, settings=settings).executar(dry_run=False)
+    session.refresh(lead)
+
+    # o dado de contato ja saia antes; o registro estatistico continua.
+    assert lead.email is None
+    assert lead.razao_social == "[anonimizado]"
+    assert lead.provenance.get("anonimizado_em")
+
+    # os reidentificadores diretos e a localizacao de precisao TEM que sumir.
+    assert lead.cnpj is None
+    assert lead.place_id is None
+    assert lead.cep is None
+    assert lead.bairro is None
+    assert lead.latitude is None
+    assert lead.longitude is None
+    # o place_id tambem morava na proveniencia — a copia sai junto, senao
+    # zerar so a coluna deixava a chave de reidentificacao de pe.
+    assert "place_id" not in lead.provenance
+
+    # dimensoes agregadas ficam: nao apontam para uma empresa, alimentam a mira.
+    assert lead.municipio == "Fortaleza"
+    assert lead.uf == "CE"
+
+
 def test_retencao_preserva_lead_convertido(session, usuario, portas_db, settings) -> None:
     campanha = _rodar(session, usuario, portas_db, nome="Preserva")
     lead = session.execute(
