@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -26,6 +26,7 @@ from app.models.cost_event import CostEvent
 from app.models.credit_ledger import CreditLedger
 from app.models.enums import TipoCredito
 from app.models.lead import Lead
+from app.models.message import Message
 from app.models.user import Subscription, User
 from app.services.creditos import CATALOGO, PlanoCatalogo
 
@@ -200,9 +201,21 @@ class MargemService:
             .group_by(CreditLedger.tipo)
         )
         if campaign_id:
-            # Consumo da campanha = leads dela + mensagens dela.
+            # Consumo da campanha = leads dela + mensagens dela. `contato_revelado`
+            # e debitado referenciando o id do LEAD; `mensagem_enviada` e
+            # `sinal_intencao`, o id da MENSAGEM. Filtrar so por lead dropava a
+            # receita de envio/IA e contava so a revelacao — a margem da campanha
+            # (custo inteiro, receita parcial) aparecia pior do que a real.
             leads = select(Lead.id).where(Lead.campaign_id == campaign_id).scalar_subquery()
-            stmt = stmt.where(CreditLedger.referencia_id.in_(leads))
+            mensagens = (
+                select(Message.id).where(Message.campaign_id == campaign_id).scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(
+                    CreditLedger.referencia_id.in_(leads),
+                    CreditLedger.referencia_id.in_(mensagens),
+                )
+            )
         base = overage = 0
         for tipo, quantidade in self.session.execute(stmt).all():
             if tipo == TipoCredito.OVERAGE:

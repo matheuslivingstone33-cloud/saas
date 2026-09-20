@@ -120,6 +120,50 @@ def test_overage_conta_receita_pelo_preco_de_overage(session, usuario) -> None:
     assert margem["receita_brl"] != round(n * preco_base, 2)
 
 
+def test_margem_por_campanha_conta_receita_de_envio_nao_so_de_revelacao(
+    session, usuario, portas_db
+) -> None:
+    """A receita por campanha tem de incluir os creditos de ENVIO/IA, nao so os
+    de revelacao.
+
+    `mensagem_enviada` e `sinal_intencao` sao debitados referenciando o id da
+    MENSAGEM; `contato_revelado`, o id do LEAD. O filtro da campanha so casava
+    ids de lead, entao dropava a receita de envio/IA enquanto o custo da campanha
+    era contado inteiro — a margem da campanha aparecia pior do que a real, dentro
+    de um numero que ninguem questiona. Mesmo eixo deste radar, do lado da receita.
+    """
+    from sqlalchemy import func, select
+
+    from app.models.lead import Lead
+
+    # PRO para cada credito consumido ter preco (no trial a receita e zero).
+    assinatura = UserRepository(session).assinatura(usuario.id)
+    assinatura.plano = Plano.PRO
+    assinatura.teto_leads_mes = CATALOGO[Plano.PRO].teto_leads_mes
+    session.flush()
+    CreditService(session).creditar(usuario.id, CATALOGO[Plano.PRO].creditos_mes)
+
+    campanha = _rodar(session, usuario, portas_db, nome="Campanha unica")
+
+    svc = MargemService(session)
+    por_campanha = svc.por_usuario(usuario.id, campanha.id).to_dict()
+    do_usuario = svc.por_usuario(usuario.id).to_dict()
+
+    reveladas = int(
+        session.execute(
+            select(func.count(Lead.id)).where(
+                Lead.campaign_id == campanha.id, Lead.revelado_em.is_not(None)
+            )
+        ).scalar_one()
+    )
+    # O envio consumiu credito alem da revelacao: ha MAIS credito que revelacoes.
+    assert por_campanha["creditos_consumidos"] > reveladas > 0
+    # Uma unica campanha: todo consumo do usuario pertence a ela.
+    assert por_campanha["creditos_consumidos"] == do_usuario["creditos_consumidos"]
+    # Logo a receita da campanha nao pode cair para so-revelacao.
+    assert por_campanha["receita_brl"] == do_usuario["receita_brl"] > 0
+
+
 def test_margem_por_campanha_isola_o_custo(session, usuario, portas_db) -> None:
     primeira = _rodar(session, usuario, portas_db, nome="C1")
     _rodar(session, usuario, portas_db, nome="C2")

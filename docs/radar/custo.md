@@ -416,3 +416,87 @@ integrar isto, não recriar em branch nova.
   WhatsApp; incluindo o modelo de cobrança do WhatsApp, que a Meta mudou de
   conversa para por-mensagem) contra o faturado real. Não invento valor de
   provedor.
+
+---
+
+## 2026-09-20 (2ª execução) — margem POR CAMPANHA: a receita de envio deixava de somar
+
+### Corrigido
+- **A margem por campanha contava o CUSTO inteiro da campanha, mas só a receita
+  de REVELAÇÃO — dropava a receita de envio e de sinal de intenção.** Em
+  `margem.py::_creditos_consumidos`, quando há `campaign_id`, o consumo era
+  filtrado por `CreditLedger.referencia_id.in_(leads_da_campanha)`. Só que os três
+  consumos referenciam coisas diferentes: `contato_revelado` é debitado com
+  `referencia_id = lead.id` (`revelacao.py`), mas `mensagem_enviada` e
+  `sinal_intencao` com `referencia_id = mensagem.id` (`envio.py`). O filtro só
+  casava id de lead → **os créditos de envio (`CONSUMO_ENVIO`) e de IA
+  (`CONSUMO_IA`) sumiam** do total da campanha. O comentário do código já dizia
+  "leads dela **+ mensagens dela**" — a intenção estava lá, a implementação parou
+  na metade. Resultado: a margem da campanha (o número que o painel mostra
+  por-campanha) aparecia **pior do que a real** — custo cheio, receita parcial —,
+  dentro de um número que ninguém questiona. É o mesmo eixo deste radar ("a margem
+  não pode ser ficção"), do lado da receita, e o irmão por-escopo da correção de
+  overage da 1ª execução de hoje.
+  - **Por que NÃO é decisão de preço:** não escolho quanto cobrar; só faço a
+    receita **já reconhecida** (créditos consumidos × preço já decidido do plano)
+    ser somada no escopo certo. O eixo de cobrança segue sendo o contato revelado;
+    o crédito de `mensagem_enviada`/`sinal_intencao` já existia e já era contado no
+    escopo do USUÁRIO — só não descia para o da CAMPANHA.
+  - **Correção:** o filtro por campanha passou a aceitar `referencia_id` que seja
+    lead da campanha **ou** mensagem da campanha (`Message.campaign_id`, que a
+    mensagem já carrega), via `or_(... .in_(leads), ... .in_(mensagens))`. O escopo
+    de USUÁRIO (sem `campaign_id`) segue **idêntico** — nunca teve filtro de
+    referência, então já somava tudo. O overage também é apanhado nos dois lados
+    (um `OVERAGE` de envio referencia a mensagem).
+  - **Testes:** `tests/integration/test_fase7_margem.py::test_margem_por_campanha_conta_receita_de_envio_nao_so_de_revelacao`
+    (novo) — Pro, uma campanha; a margem por-campanha tem de bater com a do usuário
+    e ter **mais** créditos que revelações (o envio consome crédito além da
+    revelação). Falha antes (`3 > 3`: só as 3 revelações), passa depois (revela +
+    envia). `pytest` 473 passed / 3 skipped, `ruff` limpo.
+
+### Verificado e OK (sem ação) — reconferido nesta execução
+- **Tabela de LLM correta e atual — conferida contra a fonte autoritativa HOJE.**
+  Opus 5 (US$5/US$25 por 1M), Sonnet 5 (US$2/US$10) e Haiku 4.5 (US$1/US$5) batem
+  **exatamente** com a tabela oficial da Anthropic na skill `claude-api` (cache
+  2026-06-24). Os IDs canônicos **não levam sufixo de data** (a própria fonte:
+  "never append date suffixes"), então `llm.claude-opus-5.*` etc. casam com o
+  modelo real e não caem no fallback do mock. Sem dúvida de preço de LLM em aberto.
+- **Eixo de cobrança = contato revelado.** Reconferido: `lead_qualificado=0`,
+  `contato_revelado=1` conta no teto do mês, `revelar()` idempotente
+  (`lead.revelado_em`), `mensagem_enviada`/`sinal_intencao` **não** mexem no teto
+  de contatos — a correção acima não muda o eixo de cobrança, só o de contabilidade
+  de receita já reconhecida. Nada voltou a cobrar por descoberta.
+- **Balde certo e custos-fantasma dos dois lados** seguem fechados (`cost.py`
+  deriva balde da chave; `registrar_llm` só emite lado com token > 0). Não toquei.
+
+### Achado e NÃO corrigido (fica para outro dono / outra execução)
+- **[meu escopo, edge estreita] Débito que ATRAVESSA o zero é 100% classificado
+  como OVERAGE.** `creditos.py::debitar` faz `overage = estado.creditos < custo` e
+  marca o lançamento inteiro como `OVERAGE` quando verdadeiro. Com saldo 1 e custo
+  2 (só `sinal_intencao` custa 2), os **dois** créditos viram overage — o crédito
+  que ainda existia no plano é valorizado ao preço de overage (mais caro),
+  superestimando um tico a receita/margem. Cenário raro (exige saldo == 1 e op de
+  custo 2) e o "certo" (1 base + 1 overage num único débito) mexe na estrutura do
+  ledger — candidato a "uma coisa" futura, com cuidado contábil. Não é o mesmo bug
+  de hoje.
+- **[observabilidade, meu escopo, baixo] `latencia_ms` só no evento de ENTRADA.**
+  Numa completude o evento de saída nasce `latencia_ms=None`. Não afeta os três
+  pilares (preço/balde/fantasma); e replicar a latência nos dois eventos pode
+  dobrar num painel que soma latência — a semântica é ambígua, então não mexi.
+- **[adaptador, fora do escopo] WhatsApp: template de MARKETING cobrado ao preço de
+  UTILITY** (`adapters/real/bsp_whatsapp.py`) — segue aberto (some com a revalidação
+  F7). A tabela (meu escopo) tem as duas chaves certas; quem escolhe a chave é o
+  adaptador.
+- **[ambíguo, meu escopo] `custo_medio_lead_micros` soma os DOIS baldes** enquanto
+  `tokens_por_lead` conta só tokens de IA — decisão de produto sobre o que a vitrine
+  quer mostrar. Não mexi no chute.
+
+### Depende de outros / decisão humana
+- **Integração ao `main`** — este commit precisa chegar ao `main` (rebase + push).
+- **`settings.usd_brl` fixo** (`config.py`, fora do escopo) — câmbio velho = margem
+  BRL errada. Em produção precisa vir de fonte real.
+- **Preço sem cadastro falha fechado só no boot** — a trava dura (recusar subir com
+  `llm_model` sem preço, como o `JWT_SECRET`) mora em `config.py`, fora do escopo. A
+  marca `preco_fallback` + aviso em `cost.py` é a rede.
+- **Fase 7 (chaves + cartão)** — revalidar preços de DADOS (Places, SES, WhatsApp)
+  contra o faturado real. Não invento valor de provedor.
