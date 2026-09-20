@@ -38,7 +38,57 @@ dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** tamb
 
 ---
 
-## O que corrigiu nesta execução (2026-09-20)
+## O que corrigiu nesta execução (2026-09-20) — acento decomposto (NFD)
+
+**Acento decomposto (NFD) escondia opt-out do casamento lexical.**
+(`services/conversa.py`)
+
+Era o próximo buraco de **direito do titular** dentro dos meus arquivos, e o
+mesmo pior caso das execuções anteriores: um opt-out que o classificador **não
+vê**. Por isso veio antes do candidato de negócio que estava na fila (a citação
+`<blockquote>` sem atribuição, item 1), como manda a regra: em dúvida, o direito
+do titular ganha do negócio.
+
+O caso: o **mesmo** texto pode chegar com o acento **decomposto** — a vogal
+seguida do til/agudo/circunflexo como um caractere combinante **separado**
+(`na` + `U+0303` + `o`) no lugar do `ã` pronto. macOS e alguns provedores
+serializam assim. Nessa forma, "não me envie" não casa nem com o sinal "não me
+envie" (que está composto no código) nem com "nao me envie" — e a pessoa que
+pediu para sair continua recebendo. Confirmei ponta a ponta antes da correção:
+um opt-out em NFD era classificado como `dúvida` e **gerava resposta**
+(aguardando aprovação), em vez de suprimir. O inverso também dói: "Não tenho
+interesse" decomposto virava `interesse`.
+
+O que mudou:
+
+- **`recompor_acentos(texto)`** — aplica a forma canônica **NFC**, que junta a
+  vogal e o combinante num caractere só. É a forma dos nossos sinais, então
+  recompor o corpo faz os dois casarem.
+- **Roda por último na normalização** (depois de `decodificar_quoted_printable`,
+  `html_para_texto` e `remover_invisiveis`), nos dois pontos: começo de
+  `classificar_por_sinal` e antes do LLM em `classificar`. Por último de
+  propósito: um invisível entre a vogal e o combinante bloquearia a composição,
+  então tirar o invisível antes é o que deixa o NFC compor.
+- **Sem gate de "parece".** Como o `remover_invisiveis`, NFC é sempre seguro: em
+  texto já composto (o caso comum) é no-op; nunca tira acento nem muda leitura —
+  só junta. O único efeito (revelar um opt-out escondido) é o lado seguro de
+  errar. Nunca inventa marca onde não havia; o `corpo` gravado continua intacto
+  (a normalização é só para classificar).
+
+Testes novos (em `test_motor4_conversa.py`), os três de intenção falhando antes
+(opt-out → `None`/`dúvida`, recusa → `interesse`) e passando depois, mais as
+duas unitárias: `test_recompor_acentos_compoe_forma_decomposta`,
+`test_recompor_acentos_nao_mexe_em_texto_ja_composto`,
+`test_opt_out_com_acento_decomposto_e_reconhecido`,
+`test_recusa_com_acento_decomposto_nao_vira_outra_intencao` e
+`test_opt_out_com_acento_decomposto_encerra_e_suprime_ponta_a_ponta`.
+**472 passed, 3 skipped; `ruff` limpo.**
+
+`cadencia.py` e `webhook.py` não foram tocados — a correção foi toda no Motor 4.
+
+---
+
+## O que corrigiu na execução de 2026-09-20 (caractere invisível)
 
 **Opt-out partido por caractere invisível voltou a ser reconhecido.**
 (`services/conversa.py`)
@@ -261,8 +311,15 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
    **Resíduo de largura-zero fechado em 20/09.** `remover_invisiveis()` tira
    largura-zero (`U+200B`/`&#8203;`/`&#x200B;`), hífen suave (`U+00AD`), juntador
    de palavra e BOM, juntando a palavra partida antes de classificar — nos dois
-   pontos. Um `des&#8203;cadastrar` volta a virar opt-out (ver "O que corrigiu
-   nesta execução (2026-09-20)" acima).
+   pontos. Um `des&#8203;cadastrar` volta a virar opt-out (ver "O que corrigiu na
+   execução de 2026-09-20 (caractere invisível)" acima).
+
+   **Resíduo de acento decomposto (NFD) fechado em 20/09.** `recompor_acentos()`
+   aplica NFC e junta a vogal ao til/agudo/circunflexo combinante que vinha
+   separado — um "não me envie" em NFD voltou a ser opt-out (ver "O que corrigiu
+   nesta execução (2026-09-20) — acento decomposto (NFD)" acima). Com QP, HTML,
+   invisíveis e NFC fechados, os jeitos **conhecidos** de o mesmo texto esconder
+   uma marca do classificador estão cobertos.
 
    **Resíduo honesto, para uma execução futura** (não fechei, é "outra coisa"):
    - **Citação HTML em `<blockquote>` sem linha de atribuição.** O Gmail
@@ -273,7 +330,8 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
      ainda varre o texto inteiro), mas a intenção de negócio pode vir poluída.
      Tratar `<blockquote>` como fronteira é possível, mas é ampliar a detecção de
      citação — deixei de fora para não juntar duas coisas numa execução. **É o
-     próximo candidato sugerido dentro do item 1.**
+     próximo candidato sugerido dentro do item 1** (é negócio, não titular; por
+     isso a NFD, que era titular, entrou na frente nesta execução).
 
 2. ✅ **RESOLVIDO em 2026-09-16 — rodapé de citação do Outlook sem `>` e sem
    régua.** O bloco `De:/Enviada:/Para:/Assunto:` que aparecia sozinho, sem a
@@ -319,6 +377,24 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
    respondeu:" ou variantes de outros idiomas não são fronteira. Ampliar a
    regra é fácil, mas cada padrão novo é risco de cortar resposta legítima —
    por isso ficou de fora do corte conservador desta execução.
+
+8. **Cobertura de frases de opt-out (achado novo em 20/09, NÃO corrigido).** Ao
+   sondar o classificador com texto real, várias formas comuns de pedir saída
+   **não** casam com nenhum sinal e caem para o LLM: "pare/parem de me enviar",
+   "remova-me da lista", "remova meu e-mail", "favor remover meu contato", "não
+   desejo receber", "solicito remoção da base", "opt out" (só temos
+   "unsubscribe"). Isso é **direito do titular** — cada uma que escapa é alguém
+   que pediu para sair e continua recebendo. **Por que não fechei junto:** a
+   NFD já era a "uma coisa" desta execução, e ampliar sinais não é um transform
+   seguro como a NFD — é caso a caso e tem risco dos dois lados. "descadastr"
+   pega tudo com o radical, mas "quero cancelar" é ambíguo ("cancelar a
+   reunião"), então adicionar demais gera falso opt-out (suprime lead por
+   engano); adicionar de menos deixa titular sem saída. **Recomendo** fechar as
+   inequívocas primeiro ("pare/parem de me enviar", "remova-me/remova meu",
+   "não desejo receber", "opt out", "solicito remoção"), uma leva por execução,
+   deixando as ambíguas ("cancelar" sozinho) para o LLM. Não inventei os
+   padrões aqui para não juntar duas coisas — fica registrado como o **próximo
+   candidato de titular**, à frente do `<blockquote>` (negócio).
 
 `cadencia.py` e `webhook.py` **não foram tocados** nesta execução — a correção
 foi toda no Motor 4. Nada pendente identificado dentro deles além do que a

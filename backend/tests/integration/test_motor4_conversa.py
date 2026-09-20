@@ -8,6 +8,8 @@ cliente juridicamente. Silencio na hora certa e a funcionalidade.
 
 from __future__ import annotations
 
+import unicodedata
+
 import pytest
 from sqlalchemy import select
 
@@ -31,6 +33,7 @@ from app.services.conversa import (
     classificar_por_sinal,
     decodificar_quoted_printable,
     html_para_texto,
+    recompor_acentos,
     remover_historico_citado,
     remover_invisiveis,
 )
@@ -746,6 +749,58 @@ def test_opt_out_com_largura_zero_encerra_e_suprime_ponta_a_ponta(
     r = ServicoDeConversa(session, portas_db).receber(
         lead=lead_abordado, corpo="Por favor, não me envie​ mais e-mails."
     )
+    assert r.intencao is Intencao.PEDIDO_OPT_OUT
+    assert r.encerrou and not r.respondeu
+    assert lead_abordado.status is StatusLead.OPT_OUT
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
+    ).scalar_one_or_none()
+    assert supressao is not None
+
+
+# --- Texto real: acento decomposto (NFD) -------------------------------------
+# Depois do quoted-printable, do HTML e dos invisiveis, ainda sobra um jeito de
+# o MESMO texto esconder uma marca do casamento lexical: o acento pode chegar
+# DECOMPOSTO (NFD) — a vogal seguida do til/agudo/circunflexo como um caractere
+# combinante SEPARADO ("na" + U+0303 + "o") no lugar do "ã" pronto. macOS e
+# alguns provedores serializam assim. Nessa forma, "não me envie" nao casa nem
+# com "não me envie" nem com "nao me envie" — e a pessoa que pediu para sair
+# continua recebendo. E o mesmo pior caso do soft break e do largura-zero: um
+# opt-out que o classificador NAO ve. Recompor para NFC (a forma canonica dos
+# nossos sinais) fecha o buraco sem tocar em texto ja composto.
+
+
+def test_recompor_acentos_compoe_forma_decomposta() -> None:
+    decomposto = unicodedata.normalize("NFD", "Não")  # n + a + U+0303 + o
+    assert decomposto != "Não", "o teste so vale se a entrada estiver mesmo decomposta"
+    assert recompor_acentos(decomposto) == "Não"
+
+
+def test_recompor_acentos_nao_mexe_em_texto_ja_composto() -> None:
+    """Em texto ja em NFC (o caso comum) recompor e no-op: nao muda nada."""
+    texto = "Não tenho interesse, obrigado. Orçamento, climatização e manutenção."
+    assert recompor_acentos(texto) == texto
+
+
+def test_opt_out_com_acento_decomposto_e_reconhecido() -> None:
+    """"Não me envie" com o til combinante separado nao pode escapar do opt-out."""
+    corpo = unicodedata.normalize("NFD", "Não me envie mais e-mails, por favor.")
+    assert classificar_por_sinal(corpo) is Intencao.PEDIDO_OPT_OUT
+
+
+def test_recusa_com_acento_decomposto_nao_vira_outra_intencao() -> None:
+    """Decomposta, "Não tenho interesse" perdia o "não" e a marca de recusa nao
+    casava — o lexical caia para o LLM ou classificava errado."""
+    corpo = unicodedata.normalize("NFD", "Não tenho interesse, obrigado.")
+    assert classificar_por_sinal(corpo) is Intencao.RECUSA
+
+
+def test_opt_out_com_acento_decomposto_encerra_e_suprime_ponta_a_ponta(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """Ponta a ponta: opt-out em NFD suprime e para, como o texto ja composto."""
+    corpo = unicodedata.normalize("NFD", "Não me envie mais e-mails, por favor.")
+    r = ServicoDeConversa(session, portas_db).receber(lead=lead_abordado, corpo=corpo)
     assert r.intencao is Intencao.PEDIDO_OPT_OUT
     assert r.encerrou and not r.respondeu
     assert lead_abordado.status is StatusLead.OPT_OUT

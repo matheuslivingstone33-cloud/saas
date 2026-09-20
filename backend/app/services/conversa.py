@@ -28,6 +28,7 @@ from __future__ import annotations
 import html
 import quopri
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -411,6 +412,32 @@ def remover_invisiveis(texto: str) -> str:
     return _RE_INVISIVEIS.sub("", texto)
 
 
+def recompor_acentos(texto: str) -> str:
+    """Recompoe o texto na forma canonica NFC antes de classificar.
+
+    Mais um jeito de o MESMO texto esconder uma marca do casamento lexical: o
+    acento pode chegar DECOMPOSTO (NFD), com o til/agudo/circunflexo como um
+    caractere combinante SEPARADO logo depois da vogal — "na" + U+0303 + "o" no
+    lugar do "não" pronto. macOS e alguns provedores serializam assim. Nessa
+    forma, "não me envie" nao casa nem com "não me envie" nem com "nao me
+    envie", e a pessoa que pediu para sair continua recebendo. E o analogo do
+    soft break do quoted-printable e do largura-zero — o mesmo pior caso: um
+    opt-out que o classificador NAO ve.
+
+    NFC e a forma canonica dos nossos sinais (o codigo-fonte escreve "não"
+    composto), entao recompor o corpo faz os dois casarem. E seguro e SEM gate:
+    em texto ja composto (o caso comum) e no-op; nunca tira acento nem muda a
+    leitura — so junta a vogal e o combinante num caractere so. Como o
+    `remover_invisiveis`, o unico efeito e revelar marca escondida, nunca
+    inventar. Roda DEPOIS de `remover_invisiveis` de proposito: um invisivel
+    entre a vogal e o combinante bloquearia a composicao; tirado o invisivel, o
+    NFC compoe.
+    """
+    if not texto:
+        return texto
+    return unicodedata.normalize("NFC", texto)
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -428,15 +455,19 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
 
     O corpo e normalizado ANTES de tudo, e nesta ordem: primeiro o
     quoted-printable (a quebra suave `=\\n` parte palavras, a linha do nosso link
-    e as marcas de citacao), depois o HTML (tags e entidades) e por ultimo os
-    caracteres invisiveis (largura-zero, hifen suave). E a ordem do e-mail real —
-    o HTML chega codificado em quoted-printable, entao decodificar QP primeiro
-    entrega o HTML inteiro para `html_para_texto`; e o invisivel vem por ultimo
-    porque uma entidade como `&#8203;` so vira o caractere literal depois do HTML.
+    e as marcas de citacao), depois o HTML (tags e entidades), depois os
+    caracteres invisiveis (largura-zero, hifen suave) e por ultimo o NFC, que
+    recompoe acento decomposto (`na` + til combinante -> `não`). E a ordem do
+    e-mail real — o HTML chega codificado em quoted-printable, entao decodificar
+    QP primeiro entrega o HTML inteiro para `html_para_texto`; o invisivel vem
+    depois porque uma entidade como `&#8203;` so vira o caractere literal depois
+    do HTML; e o NFC por ultimo porque um invisivel entre a vogal e o combinante
+    bloquearia a composicao.
     """
     texto = decodificar_quoted_printable(texto)
     texto = html_para_texto(texto)
     texto = remover_invisiveis(texto)
+    texto = recompor_acentos(texto)
     inteiro = _normalizar(_RE_LINHA_DO_NOSSO_LINK.sub("", texto or ""))
     if not inteiro:
         return None
@@ -867,11 +898,12 @@ class ServicoDeConversa:
         # sobre o historico citado colado embaixo. O opt-out ja foi procurado no
         # texto inteiro em `classificar_por_sinal` acima, entao estreitar o
         # escopo aqui nao arrisca perder um pedido de saida. Mesma normalizacao
-        # do sinal lexical (QP, depois HTML, depois os invisiveis) para o modelo
-        # nao ver tag, entidade nem largura-zero em vez de texto.
+        # do sinal lexical (QP, HTML, os invisiveis e o NFC) para o modelo nao
+        # ver tag, entidade, largura-zero nem acento decomposto em vez de texto.
         texto = decodificar_quoted_printable(texto)
         texto = html_para_texto(texto)
         texto = remover_invisiveis(texto)
+        texto = recompor_acentos(texto)
         novo = remover_historico_citado(texto) or texto
         resposta = self.portas.llm.completar(
             LLMRequest(
