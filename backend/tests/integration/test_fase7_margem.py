@@ -3,12 +3,27 @@
 from __future__ import annotations
 
 from app.models.campaign import Campaign
-from app.models.enums import NivelAutonomia, Plano, StatusCampanha
+from app.models.enums import NivelAutonomia, Plano, StatusCampanha, TipoCredito
 from app.repositories.misc import UserRepository
+from app.services.creditos import CATALOGO, CreditService
 from app.services.margem import MargemService
 from app.services.pipeline import PipelineStub
 
 SERVICO = "instalacao e manutencao de ar condicionado para empresas"
+
+
+def _zerar_saldo(session, usuario) -> None:  # noqa: ANN001
+    """Zera o saldo por AJUSTE_MANUAL (fora do eixo de consumo/receita)."""
+    servico = CreditService(session)
+    saldo = servico.ledger.saldo(usuario.id)
+    if saldo:
+        servico.ledger.lancar(
+            user_id=usuario.id,
+            tipo=TipoCredito.AJUSTE_MANUAL,
+            quantidade=-saldo,
+            descricao="zerado no teste",
+        )
+    session.flush()
 
 
 def _rodar(session, usuario, portas_db, nome="Margem"):  # noqa: ANN001
@@ -65,6 +80,44 @@ def test_plano_pago_tem_margem_positiva(session, usuario, portas_db) -> None:
     assert margem["margem_brl"] > 0, "no plano Pro cada lead precisa se pagar"
     assert margem["margem_pct"] > 50
     assert margem["por_lead"]["receita_brl"] > margem["por_lead"]["custo_brl"]
+
+
+def test_overage_conta_receita_pelo_preco_de_overage(session, usuario) -> None:
+    """Credito de overage rende o preco de overage, nao o preco-base do plano.
+
+    O painel ja conta o credito de overage como receita reconhecida (esta em
+    `CONSUMO`), mas o valorizava pelo preco-base amortizado do plano. O cliente
+    paga pelo overage o `overage_centavos_por_credito` do plano — mais caro que o
+    credito-base. Valorizar tudo a um preco so subestimava a receita do overage e
+    fazia a margem parecer pior do que a real, dentro de um numero que ninguem
+    questiona. O preco de overage ja e decidido (esta no catalogo e no painel de
+    billing); aqui so aplicamos ele.
+    """
+    assinatura = UserRepository(session).assinatura(usuario.id)
+    assinatura.plano = Plano.PRO
+    assinatura.teto_leads_mes = CATALOGO[Plano.PRO].teto_leads_mes
+    assinatura.overage_habilitado = True
+    session.flush()
+
+    _zerar_saldo(session, usuario)  # sem saldo: todo debito seguinte vira overage
+
+    servico = CreditService(session)
+    n = 4
+    for _ in range(n):
+        servico.debitar(usuario.id, "contato_revelado")
+    session.flush()
+
+    catalogo = CATALOGO[Plano.PRO]
+    preco_base = (catalogo.preco_centavos / 100) / catalogo.creditos_mes
+    preco_overage = catalogo.overage_centavos_por_credito / 100
+    assert preco_overage != preco_base, "cenario invalido: precos iguais nao distinguem"
+
+    margem = MargemService(session).por_usuario(usuario.id).to_dict()
+
+    assert margem["creditos_consumidos"] == n
+    # Receita pelo preco de OVERAGE, nao pelo preco-base do plano.
+    assert margem["receita_brl"] == round(n * preco_overage, 2)
+    assert margem["receita_brl"] != round(n * preco_base, 2)
 
 
 def test_margem_por_campanha_isola_o_custo(session, usuario, portas_db) -> None:

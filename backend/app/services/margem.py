@@ -27,7 +27,7 @@ from app.models.credit_ledger import CreditLedger
 from app.models.enums import TipoCredito
 from app.models.lead import Lead
 from app.models.user import Subscription, User
-from app.services.creditos import CATALOGO
+from app.services.creditos import CATALOGO, PlanoCatalogo
 
 #: Lancamentos que representam consumo (receita reconhecida).
 CONSUMO = (
@@ -87,15 +87,14 @@ class MargemService:
     def por_usuario(
         self, user_id: uuid.UUID, campaign_id: uuid.UUID | None = None
     ) -> Margem:
-        creditos = self._creditos_consumidos(user_id, campaign_id)
-        preco_credito = self._preco_do_credito(user_id)
+        base, overage = self._creditos_consumidos(user_id, campaign_id)
         dados_usd, ia_usd = self._custos_usd(user_id, campaign_id)
         leads = self._leads(user_id, campaign_id)
         return self._montar(
             escopo="campanha" if campaign_id else "usuario",
             referencia=str(campaign_id or user_id),
-            creditos=creditos,
-            preco_credito=preco_credito,
+            creditos=base + overage,
+            receita=self._receita(user_id, base, overage),
             dados_usd=dados_usd,
             ia_usd=ia_usd,
             leads=leads,
@@ -157,12 +156,11 @@ class MargemService:
         escopo: str,
         referencia: str | None,
         creditos: int,
-        preco_credito: float,
+        receita: float,
         dados_usd: float,
         ia_usd: float,
         leads: int,
     ) -> Margem:
-        receita = creditos * preco_credito
         custo_usd = dados_usd + ia_usd
         custo_brl = custo_usd * self.settings.usd_brl
         margem = receita - custo_brl
@@ -185,23 +183,54 @@ class MargemService:
 
     def _creditos_consumidos(
         self, user_id: uuid.UUID, campaign_id: uuid.UUID | None
-    ) -> int:
-        stmt = select(func.coalesce(func.sum(-CreditLedger.quantidade), 0)).where(
-            CreditLedger.user_id == user_id, CreditLedger.tipo.in_(CONSUMO)
+    ) -> tuple[int, int]:
+        """Consumo do cliente, separado em (base, overage).
+
+        A separacao existe porque o credito de overage rende OUTRO preco: o
+        cliente paga por ele o `overage_centavos_por_credito` do plano, mais caro
+        que o credito-base. Somar tudo a um preco so subestimava a receita do
+        overage e fazia a margem parecer pior do que a real.
+        """
+        stmt = (
+            select(
+                CreditLedger.tipo,
+                func.coalesce(func.sum(-CreditLedger.quantidade), 0),
+            )
+            .where(CreditLedger.user_id == user_id, CreditLedger.tipo.in_(CONSUMO))
+            .group_by(CreditLedger.tipo)
         )
         if campaign_id:
             # Consumo da campanha = leads dela + mensagens dela.
             leads = select(Lead.id).where(Lead.campaign_id == campaign_id).scalar_subquery()
             stmt = stmt.where(CreditLedger.referencia_id.in_(leads))
-        return int(self.session.execute(stmt).scalar_one())
+        base = overage = 0
+        for tipo, quantidade in self.session.execute(stmt).all():
+            if tipo == TipoCredito.OVERAGE:
+                overage += int(quantidade)
+            else:
+                base += int(quantidade)
+        return base, overage
 
-    def _preco_do_credito(self, user_id: uuid.UUID) -> float:
+    def _receita(
+        self, user_id: uuid.UUID, base_creditos: int, overage_creditos: int
+    ) -> float:
+        """Receita reconhecida: credito-base ao preco do plano, overage ao seu.
+
+        O overage e cobrado do cliente ao `overage_centavos_por_credito` (o mesmo
+        que o painel de billing mostra), nao ao preco-base amortizado do plano.
+        """
         assinatura = self.session.execute(
             select(Subscription).where(Subscription.user_id == user_id)
         ).scalar_one_or_none()
         if assinatura is None:
             return 0.0
         catalogo = CATALOGO[assinatura.plano]
+        return base_creditos * self._preco_base(catalogo) + overage_creditos * (
+            catalogo.overage_centavos_por_credito / 100
+        )
+
+    @staticmethod
+    def _preco_base(catalogo: PlanoCatalogo) -> float:
         if not catalogo.creditos_mes:
             return 0.0
         if catalogo.preco_centavos == 0:

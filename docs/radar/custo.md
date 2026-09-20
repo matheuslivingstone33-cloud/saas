@@ -313,3 +313,106 @@ integrar isto, não recriar em branch nova.
   evento é dos adaptadores.
 - **Fase 7 (chaves + cartão)** — item de "PRECISA DE VOCÊ" (HANDOFF §0.2). A
   revalidação dos preços de dados fecha depois disso.
+
+---
+
+## 2026-09-20 — receita de overage no painel de margem: fim da subestimativa
+
+### Corrigido
+- **O painel de margem valorizava o crédito de OVERAGE pelo preço-base do plano,
+  não pelo preço de overage que o cliente de fato paga.** `margem.py` conta o
+  crédito de overage como receita reconhecida (`TipoCredito.OVERAGE` está em
+  `CONSUMO`), mas `receita = créditos × preço-base` usava **um único** preço para
+  todos os créditos. O crédito de overage é cobrado do cliente ao
+  `overage_centavos_por_credito` do plano — mais caro que o crédito-base
+  amortizado (Pro: R$0,70/crédito de overage vs. R$0,4975/crédito-base). Ou seja:
+  o painel contava o **custo** de servir o lead de overage, mas subestimava a
+  **receita** dele → a margem do overage aparecia pior do que a real, dentro de um
+  número que ninguém questiona. É o mesmo eixo deste radar ("a margem não pode ser
+  ficção"), do lado da receita.
+  - **Por que NÃO é decisão de preço:** o preço de overage já está **decidido** —
+    mora no `CATALOGO` e é o mesmo que o painel de billing mostra ao cliente
+    (`POST /v1/billing/overage`, `conta.py`). Aqui só **aplicamos** esse preço já
+    existente; não escolho quanto cobrar.
+  - **Correção:** `_creditos_consumidos` passou a devolver `(base, overage)`
+    (agrupando o ledger por `tipo`), e `_receita(user, base, overage)` valoriza
+    `base × preço-base + overage × preço-overage`. `por_usuario` monta a receita a
+    partir disso; `_montar` recebe a receita pronta (não mais `créditos ×
+    preço`). O `consolidado()` soma a receita por cliente, então herda a correção
+    sem mudança própria. O caminho **sem overage** segue idêntico (overage=0 →
+    mesma conta de antes): trial continua receita zero, Pro sem overage continua
+    igual.
+  - **Testes:** `tests/integration/test_fase7_margem.py::test_overage_conta_receita_pelo_preco_de_overage`
+    (novo) — Pro com overage ligado, 4 créditos consumidos sem saldo (viram
+    overage): receita tem de ser `4 × R$0,70`, **não** `4 × R$0,4975`. Falha antes
+    (1,99), passa depois (2,80). `pytest` 454 passed / 3 skipped, `ruff` limpo.
+
+### Verificado e OK (sem ação) — reconferido nesta execução
+- **Tabela de LLM correta e atual — conferida contra a fonte autoritativa.**
+  Opus 5 (US$5/US$25 por 1M), Sonnet 5 (US$2/US$10) e Haiku 4.5 (US$1/US$5) batem
+  **exatamente** com a tabela da skill `claude-api` (cache 2026-06-24). Os IDs
+  canônicos **não levam sufixo de data** (a própria fonte diz "never append date
+  suffixes"), então `llm.claude-opus-5.*` / `llm.claude-sonnet-5.*` /
+  `llm.claude-haiku-4-5.*` casam com o modelo real e não caem no fallback.
+- **Todo `chave_preco` usado no código existe na tabela.** Varri os call sites
+  (`adapters/*`, `services/*`, `http_client.py`): `places.text_search`,
+  `places.place_details`, `enrichment.receita_cnpj`, `email.ses.send`,
+  `whatsapp.template.{utility,marketing}`, `search.web_search`,
+  `llm.embedding.input` e os `llm.*` via `registrar_llm` — **nenhum** cai em
+  `preco()` sem cadastro (que seria KeyError = gastar sem registrar).
+  (`places.nearby_search` está cadastrado e ainda sem uso — sobra inofensiva.)
+- **Balde certo, derivado centralmente; custos-fantasma dos dois lados fechados.**
+  `cost.py` grava `balde` a partir da chave (DADOS→1, IA→2), não de quem chama;
+  `registrar_llm` só emite evento do lado com token > 0, e `(0,0)` não registra
+  nada.
+- **Places é cobrado por REQUISIÇÃO, não por resultado.** `fake_places` passa
+  `len(itens)` mas o `CostSpec` usa `quantidade=1` (a contagem vai só para
+  `metadados`). Sem inflar o balde 1 hoje (tudo em mock).
+- **Eixo de cobrança = contato revelado.** `lead_qualificado=0`,
+  `contato_revelado=1` conta no teto do mês, `revelar()` idempotente
+  (`lead.revelado_em`), `mensagem_enviada` não mexe no teto. `mascarar()` esconde
+  todos os campos de contato (`CAMPOS_OCULTOS`) e **não** expõe `place_id`,
+  `resumo` nem `contexto` — o paywall não vaza por um campo esquecido. Nada
+  voltou a cobrar por descoberta.
+
+### Achado e NÃO corrigido (fica para outro dono / outra execução)
+- **[adaptador, fora do escopo] O adaptador REAL de WhatsApp cobra template de
+  MARKETING ao preço de UTILITY.** `adapters/real/bsp_whatsapp.py` (linhas 81 e
+  91) fixa `chave_preco="whatsapp.template.utility"` nos **dois** ramos, nunca
+  usando `whatsapp.template.marketing` (~7,8× mais caro: 62.500 vs 8.000 micros).
+  Quando o WhatsApp virar canal real (não é hoje), o balde 1 sairia subestimado. A
+  tabela de preços (meu escopo) tem as duas chaves certas; quem escolhe a chave é
+  o adaptador. O mock (`fake_whatsapp.py`) faz distinção diferente — os dois
+  deveriam concordar. **Dono: Envio/adaptadores.** Some com a revalidação F7.
+- **[observabilidade, meu escopo, baixo] `latencia_ms` só é gravada no evento de
+  ENTRADA.** Numa completude o evento de saída nasce com `latencia_ms=None`; numa
+  chamada só-de-saída (entrada cacheada) a latência some. Não afeta os três
+  pilares (preço/balde/fantasma) — é ruído no painel de latência, não no de
+  margem. Candidato a "uma coisa" futura, sem urgência.
+- **[ambíguo, meu escopo] `tokens_por_lead().custo_medio_lead_micros` soma os
+  DOIS baldes** (dados + IA), enquanto `tokens_por_lead` conta só tokens de IA.
+  Como "custo total por lead" está certo; como "custo de IA por lead" estaria
+  errado. Não mexi para não trocar a semântica no chute — decisão de produto sobre
+  o que a vitrine quer mostrar.
+
+### Depende de outros / decisão humana
+- **Modelo de reconhecimento de receita do overage — confirmar com o dono.** A
+  correção acima assume que a receita de um crédito de overage é o
+  `overage_centavos_por_credito` (o que o cliente paga). Se o produto quiser
+  mostrar a margem só pela economia do plano-base e tratar overage à parte, é
+  decisão de finanças/produto — mas aí o painel de billing e o painel de margem
+  contariam coisas diferentes, o que é pior. O comportamento agora bate com a
+  cobrança que o cliente recebe.
+- **[adaptador] Tokens de leitura de cache (`cache_read_input_tokens`) na F7.** Se
+  o adaptador real da Anthropic passar só `input_tokens` a `registrar_llm` e
+  ignorar os tokens de cache, esse custo (reduzido, mas real) não é registrado —
+  "gasta sem registrar". Mora em `adapters/real/anthropic_llm.py`, fora do escopo.
+- **`settings.usd_brl` fixo** (`config.py`, fora do escopo) — câmbio velho =
+  margem BRL errada. Em produção precisa vir de fonte real.
+- **Preço sem cadastro falha fechado só no boot** — a trava dura (recusar subir
+  com `llm_model` sem preço, como o `JWT_SECRET`) mora em `config.py`, fora do
+  escopo. A marca `preco_fallback` + aviso em `cost.py` é a rede.
+- **Fase 7 (chaves + cartão)** — revalidar os preços de DADOS (Places, SES,
+  WhatsApp; incluindo o modelo de cobrança do WhatsApp, que a Meta mudou de
+  conversa para por-mensagem) contra o faturado real. Não invento valor de
+  provedor.
