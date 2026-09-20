@@ -15,20 +15,23 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta consolidação (20/09):** **465 testes verdes (3 pulados)** ·
-`ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da segurança de
-18/09) — **14 tabelas** no total. `upgrade head` / `downgrade base` e o fluxo
-completo pela interface continuam valendo da última verificação com código; a
-segurança/Vercel de 18/09 mexeu em backend e acrescentou só `frontend/vercel.json`
-(nenhuma mudança em `frontend/src`, então o `npm run build` da última verificação
-segue valendo). As seis correções de 20/09 (campanha pausada não despacha, opt-out
-por caractere invisível, Places sem resultados, link na resposta da IA,
-anonimização apaga reidentificadores, crédito de overage) foram todas de backend.
+**Verificado nesta consolidação (20/09, 2ª passada):** **473 testes verdes
+(3 pulados)** · `ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da
+segurança de 18/09) — **14 tabelas** no total, sem migration nova. `upgrade head` /
+`downgrade base` e o fluxo completo pela interface continuam valendo da última
+verificação com código; a segurança/Vercel de 18/09 mexeu em backend e acrescentou
+só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as três correções
+desta passada foram todas de backend — então o `npm run build` da última verificação
+segue valendo. As três correções novas de 20/09 (Envio: reclamação de spam com teto
+próprio, separado do bounce; Conversa: acento decomposto/NFD recomposto; Compliance:
+eliminação alcança também as mensagens do titular) não têm migration nem decisão de
+produto.
 
-> O número já foi `428` (consolidação de 18/09) e `453` (após a segurança/Vercel);
-> as rotinas que rodaram em 20/09 partiram de bases diferentes e, integradas ao
-> `main`, somam **465**. Contagem reconferida com `pytest` nesta consolidação (as
-> duas últimas rotinas, Compliance e Margem, entraram por baixo dela).
+> O número já foi `428` (consolidação de 18/09), `453` (após a segurança/Vercel) e
+> `465` (1ª consolidação de 20/09, seis rotinas). As três rotinas que rodaram
+> **depois** dela (Envio, Conversa, Compliance) integraram ao `main` por rebase e
+> levaram a contagem a **473**, reconferida com `pytest` nesta 2ª passada. As
+> rotinas partem de bases diferentes; o total integrado no `main` é o que vale.
 
 ---
 
@@ -36,9 +39,10 @@ anonimização apaga reidentificadores, crédito de overage) foram todas de back
 
 - `docker-compose.yml` (postgres+pgvector, redis, backend, worker, frontend),
   Dockerfiles multi-stage, usuário não-root, `HEALTHCHECK`, sem segredo em imagem.
-- 10 tabelas na fundação (hoje são **13** no total — `score_weights`,
-  `privacy_requests` e `ramo_weights` entraram depois, nas migrations 0002, 0003
-  e 0010) com enums, índices de dedup, soft-delete, `provenance` e `embedding`
+- 10 tabelas na fundação (hoje são **14** no total — `score_weights`,
+  `privacy_requests`, `ramo_weights` e `tentativas_acesso` entraram depois, nas
+  migrations 0002, 0003, 0010 e 0012) com enums, índices de dedup, soft-delete,
+  `provenance` e `embedding`
   (pgvector 384d). Migration `0001` cria a extensão, os índices HNSW e a trigger
   de imutabilidade do `audit_logs`.
 - 7 portas com DTOs + mocks determinísticos + registry por env.
@@ -90,7 +94,11 @@ anonimização apaga reidentificadores, crédito de overage) foram todas de back
   hash do documento. Disponível em JSON e Markdown.
 - **Direitos do titular** (art. 18): acesso, eliminação, oposição e portabilidade,
   com protocolo e prazo de 15 dias. A eliminação anonimiza **mas mantém a
-  supressão** — sem isso a próxima campanha redescobriria o mesmo contato.
+  supressão** — sem isso a próxima campanha redescobriria o mesmo contato. Desde
+  20/09 a eliminação é **simétrica ao acesso**: o que o relatório de acesso devolve
+  como dado do titular (leads **e** as mensagens trocadas com ele) a eliminação
+  agora remove — expurga corpo/assunto e mascara os dois endereços das mensagens,
+  imediato; antes o e-mail e o texto do titular sobreviviam até o expurgo por prazo.
 - **Retenção**: expurgo por prazo com `dry_run`, preservando cliente convertido.
 - Política de privacidade e declaração de IA publicadas em rota pública.
 - Migration `0003` (`privacy_requests`).
@@ -159,9 +167,12 @@ anonimização apaga reidentificadores, crédito de overage) foram todas de back
   virar código morto.
 - **Entregabilidade:** bounce permanente suprime e descarta; reclamação de spam
   suprime com origem própria e manda o lead para opt-out; retorno temporário
-  não suprime nada. Acima de 2% de retorno (com 20 envios de amostra) a
-  campanha pausa sozinha — dominío queimado não volta, e leva junto o e-mail
-  com que o cliente fatura.
+  não suprime nada. A campanha pausa sozinha (com 20 envios de amostra) — domínio
+  queimado não volta, e leva junto o e-mail com que o cliente fatura. Desde 20/09
+  **bounce e reclamação têm tetos separados**: a taxa combinada pausa em 2% (como
+  antes), mas a **reclamação de spam** tem freio próprio e muito mais baixo
+  (`RECLAMACAO_TAXA_MAXIMA` = 0,3%), porque o SES suspende a conta perto de 0,5%
+  de reclamação — a campanha pausa por spam **antes** de a conta ser suspensa.
 - Migration `0007` (`messages.retorno`, `reclamacao_spam`, `bounce_registrado`).
 
 ---

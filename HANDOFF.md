@@ -8,13 +8,15 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-20 · consolidação — docs reconferidos contra o
-código (**465 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas
-(`tentativas_acesso`, migration 0012), seis correções de rotina integradas neste
-dia (campanha pausada não despacha, opt-out por caractere invisível, Places sem
-resultados, link na resposta da IA, anonimização apaga reidentificadores, crédito
-de overage). Segurança (cobrança, painel de admin, limite de login, APP_SECRET
-obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
+**Última atualização:** 2026-09-20 (2ª consolidação do dia) · docs reconferidos
+contra o código (**473 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas,
+migration head `0012` (sem migration nova). Depois da 1ª consolidação (seis
+rotinas, 465 testes) rodaram **mais três rotinas de backend**, todas integradas ao
+`main` por rebase: Envio (reclamação de spam com teto próprio, separado do bounce),
+Conversa (acento decomposto/NFD recomposto — mais um opt-out escondido que volta a
+ser visto) e Compliance (eliminação alcança também as mensagens do titular).
+Nenhuma decisão de produto. Segurança (cobrança, painel de admin, limite de login,
+APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
 [docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
 ---
@@ -22,25 +24,40 @@ obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
 **Estado em 20/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
-integradas ao `main`**. **465 testes verdes** (3 pulados) e `ruff` limpo,
-reconferidos nesta consolidação; **migration head em `0012`** (`tentativas_acesso`,
-da segurança de 18/09) — `upgrade`/`downgrade` nos dois dialetos continuam valendo
-da última verificação com código. A segurança/Vercel de 18/09 mexeu em backend e
-acrescentou só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as
-quatro correções de 20/09 foram todas de backend — então o `tsc --noEmit`/build de
-frontend segue valendo. Tudo publicado: `main` == `origin/main`. Nenhuma chave de
-API — o sistema inteiro roda em mock.
+integradas ao `main`**. **473 testes verdes** (3 pulados) e `ruff` limpo,
+reconferidos nesta 2ª consolidação; **migration head em `0012`** (`tentativas_acesso`,
+da segurança de 18/09; sem migration nova) — `upgrade`/`downgrade` nos dois dialetos
+continuam valendo da última verificação com código. A segurança/Vercel de 18/09
+mexeu em backend e acrescentou só `frontend/vercel.json` (nenhuma mudança em
+`frontend/src`), e as correções de rotina de 20/09 foram todas de backend — então o
+`tsc --noEmit`/build de frontend segue valendo. Tudo publicado: `main` ==
+`origin/main`. Nenhuma chave de API — o sistema inteiro roda em mock.
 
 > Os "340 testes" de 31/08 (Etapas 0–8) viraram 428 com as correções de setembro,
-> 453 com a segurança/Vercel de 18/09, e **465** com as seis rotinas de 20/09
-> (campanha pausada, caractere invisível, Places sem resultados, link na resposta
-> da IA, anonimização de reidentificadores, crédito de overage). As rotinas partem
-> de bases diferentes, então o número de cada radar é o da hora dela; o total
-> integrado no `main` é o que vale. Contagem reconferida com `pytest` em 20/09,
-> **depois** de as duas últimas rotinas (Compliance e Margem) entrarem por baixo
-> desta consolidação — por isso é 465 e não 463.
+> 453 com a segurança/Vercel de 18/09, **465** com as seis rotinas da 1ª
+> consolidação de 20/09 (campanha pausada, caractere invisível, Places sem
+> resultados, link na resposta da IA, anonimização de reidentificadores, crédito de
+> overage) e **473** com as três rotinas que rodaram depois dela (Envio, Conversa,
+> Compliance — detalhe na nota abaixo). As rotinas partem de bases diferentes, então
+> o número de cada radar é o da hora dela; o total integrado no `main` é o que vale.
+> Contagem reconferida com `pytest` nesta 2ª passada.
 
-> **20/09 — seis correções de backend integradas, todas de rotina.** Envio
+> **20/09 (2ª leva) — mais três correções de backend, todas de rotina.** Depois da
+> consolidação das seis abaixo, rodaram e integraram ao `main`: **Envio** (a
+> reclamação de spam ganhou teto próprio, `RECLAMACAO_TAXA_MAXIMA` = 0,3%, separado
+> do teto de bounce de 2% — o SES suspende a conta perto de 0,5% de reclamação, bem
+> antes de a régua única de 2% pausar; a campanha agora pausa por spam **ou** pela
+> taxa combinada, só adiciona pausa); **Conversa** (`recompor_acentos`/NFC junta a
+> vogal ao acento decomposto — "não me envie" em NFD volta a ser reconhecido como
+> opt-out; com QP, HTML, invisível e NFC, os jeitos **conhecidos** de esconder uma
+> marca do classificador estão cobertos); **Compliance** (a eliminação a pedido do
+> titular passou a expurgar também as **mensagens** trocadas com ele — corpo/assunto
+> fora, os dois endereços mascarados —, fechando a assimetria com o relatório de
+> acesso, que já as devolvia como dado do titular). Sem migration, sem decisão de
+> produto. Conversa deixou **um achado novo aberto** (frases de opt-out que não
+> casam com sinal lexical — ver §0.3, achados técnicos).
+
+> **20/09 (1ª leva) — seis correções de backend integradas, todas de rotina.** Envio
 > (campanha `PAUSADA`/`FALHOU` não despacha mais abordagem fria nova — fecha o
 > achado que estava aberto desde 16/09), Motor 4 (opt-out escondido por caractere
 > de largura-zero volta a ser reconhecido; e a **resposta automática da IA** passa
@@ -259,6 +276,7 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 | **Teto de gasto da paginação do Places** | hoje a busca lê só a 1ª página (20 empresas) e ignora `nextPageToken`. Encadear páginas é fácil, mas **cada página é cobrada pelo Google**: quantas páginas por consulta, e quanto uma campanha pode gastar, é preço |
 | **Descadastro "1 clique" (RFC 8058) e o GET que descadastra sozinho** | Gmail/Yahoo exigem one-click de quem manda em volume; falta o header `List-Unsubscribe-Post` **e** a rota `/descadastro/{token}` aceitar POST (ver §0.3, dependência 6). A implementação é técnica, mas há uma decisão: hoje o **GET** já efetiva a saída, então um antivírus corporativo que abre links para checar pode descadastrar um lead sozinho. Manter o GET assim (favorece o titular, some com leads em silêncio) ou exigir POST é **produto/jurídica** |
 | **Conferir quem pede um direito do titular** | o formulário público atende na hora, sem confirmar que quem pede é o dono do e-mail — um impostor pode pedir a exclusão dos dados de outra pessoa. Como confirmar (link no e-mail, prazo) é produto e pede **revisão jurídica** |
+| **Limite do expurgo de mensagem na eliminação** *(nova em 20/09, confirmação, baixa prioridade)* | ao expurgar as mensagens do titular na eliminação (art. 18, IV), mascaramos os **dois** endereços — inclusive o **nosso**. Compliance manteve idêntico ao expurgo por prazo (cada mensagem é 1:1 entre nós e o lead, nenhum dado de terceiro), mas confirmar o limite exato é **revisão jurídica**. É confirmar um padrão razoável, não redesenhar |
 | **Aprovar os textos jurídicos novos** (18/09) | rascunhos completos em [docs/juridico-rascunho/](docs/juridico-rascunho/) — política, termos de uso, acordo de tratamento de dados, declaração de IA — e o roteiro do dono em `REVISAO-JURIDICA.md` (o que preencher, o que decidir, o que exige advogado). **Os publicados em `docs/` seguem os antigos até a aprovação**; a rotina de Compliance não deve reescrever os rascunhos |
 | **Falha parcial na descoberta: entregar o que achou ou falhar a rodada?** | a robustez técnica já está feita (uma consulta recusada não derruba a rodada), mas o que o usuário **vê** — leads parciais com aviso, ou "tente de novo" — é UX/produto (radar Descoberta) |
 | **Falso opt-out pelo nosso próprio rodapé citado** *(caso agudo já mitigado)* | a linha do nosso `/descadastro/` citada de volta **já não** vira opt-out: o Motor 4 remove essa linha antes de varrer, mesmo com quoted-printable/HTML. Sobra a decisão mais ampla — **remover todo o nosso rodapé/declaração citados antes da varredura** (a linha "Responda a este e-mail para falar com uma pessoa" ainda pode ser citada) —, que o radar Conversa recomenda mas não decide sozinho. Menos urgente agora |
@@ -319,9 +337,10 @@ consolidação é local e nunca vai para o `origin`.)
    Envio pôs o link **visível no corpo com rótulo e link na mesma linha** na
    abordagem (item 7, `186f018`, 18/09); Motor 4 já removia a linha do
    `/descadastro/` antes de varrer opt-out e **decodifica quoted-printable (16/09),
-   HTML (18/09) e remove caractere de largura-zero (20/09) antes** — então um link
-   partido por soft break, entidade HTML ou `U+200B` é remontado numa linha só
-   antes da varredura. **20/09 fechou o último buraco da IA:** a **resposta
+   HTML (18/09), remove caractere de largura-zero (20/09) e recompõe acento
+   decomposto/NFC (20/09) antes** — então um link partido por soft break, entidade
+   HTML, `U+200B` ou acento em NFD é remontado numa linha só antes da varredura.
+   **20/09 fechou o último buraco da IA:** a **resposta
    automática** do Motor 4 saía com link montado à mão (domínio de teste + id cru,
    que a página recusava) e sem link no corpo; agora usa o mesmo `compliance.link_para`
    assinado, no cabeçalho e no corpo (`e6843b3`). Ponta a ponta: um "tenho
@@ -337,7 +356,9 @@ consolidação é local e nunca vai para o `origin`.)
    `bounce_permanente`) grava o e-mail cru pelo mesmo caminho. Guardar o hash exige
    que a **consulta** de opt-out antes do envio (`repositories/misc.py` +
    `services/envio.py`) também compare por hash — Compliance não fecha sozinha.
-   **[revisão jurídica]**
+   **[revisão jurídica]** *(Nota: a correção de 20/09 — eliminação passar a expurgar
+   as mensagens do titular — é **coisa diferente**: mexe no que a eliminação
+   **apaga**, não no que a lista de supressão **guarda**. Este item segue aberto.)*
 
 4. **Prazos do titular sem vigia** *(Compliance ↔ rotas/worker)*. `prazo_resposta`
    é gravado e **ninguém lê** para saber se um pedido venceu (`correcao` cai em
@@ -429,20 +450,36 @@ invisíveis para as rotinas donas dos arquivos.
   consulta (400 do Places) — precisa da lista de tipos válidos da Google; dedup
   enfraquece para resultado sem `id` (trade-off de qualidade); nomes sujos degradam
   o match na Receita (medir antes de mexer).
-- **Envio** *(campanha parada fechada em 20/09)*: o buraco "`aprovar()` numa conta
-  quebrada pausa mas não freia o próximo clique" **foi fechado** (`5dd97b1`):
-  campanha `PAUSADA`/`FALHOU` não despacha mais **abordagem fria** nova — nem por
-  `aprovar` humano, nem pelo worker. A decisão de desenho ficou registrada: a trava
-  vale só para abordagem fria; **resposta a quem já escreveu (Motor 4 auto e manual)
-  não é barrada** (é solicitada, não ameaça reputação).
-- **Conversa** *(caractere invisível fechado em 20/09)*: o último buraco de opt-out
-  escondido foi resolvido (`e81f530`, `remover_invisiveis`: largura-zero, hífen
-  suave, BOM, inclusive vindo como entidade `&#8203;`). Sobram, de baixo risco:
-  assinatura/rodapé corporativo e bottom-posting ainda poluem a classificação de
-  negócio (opt-out segue varrendo o texto inteiro); e o `<blockquote>` sem linha de
-  atribuição não é fronteira de citação. **A resposta manual (`responder_manualmente`)
-  leva o link só no cabeçalho** — quando for para o corpo, vale a regra do item 2
-  (rótulo e link na mesma linha); mora em `conversa.py`.
+- **Envio** *(campanha parada fechada em 20/09; teto de reclamação de spam fechado
+  em 20/09, 2ª leva)*: o buraco "`aprovar()` numa conta quebrada pausa mas não freia
+  o próximo clique" **foi fechado** (`5dd97b1`): campanha `PAUSADA`/`FALHOU` não
+  despacha mais **abordagem fria** nova — nem por `aprovar` humano, nem pelo worker
+  (a trava vale só para abordagem fria; resposta a quem já escreveu, Motor 4 auto e
+  manual, não é barrada). E a pausa por reputação deixou de medir bounce e
+  reclamação na mesma régua (`3ff41af`): reclamação de spam tem teto próprio de
+  0,3% (constante de módulo, não `config.py`), a campanha pausa pela taxa combinada
+  (2%) **ou** pela de reclamação. Sobra, sem decisão de fora: promover o teto de
+  reclamação (e uma amostra mínima própria) a `Settings` — mora em `config.py`,
+  conforto de operação, não pré-requisito.
+- **Conversa** *(caractere invisível e acento decomposto/NFD fechados em 20/09)*: os
+  últimos jeitos **conhecidos** de esconder opt-out do casamento lexical foram
+  resolvidos — `remover_invisiveis` (`e81f530`: largura-zero, hífen suave, BOM,
+  inclusive como entidade `&#8203;`) e `recompor_acentos`/NFC (`bec3f86`: "não me
+  envie" em NFD volta a casar), nos dois pontos de classificação. **Achado novo,
+  aberto (20/09, 2ª leva):** várias **frases** comuns de opt-out não casam com sinal
+  lexical nenhum e caem para o LLM — "pare/parem de me enviar", "remova-me da lista",
+  "remova meu e-mail", "não desejo receber", "solicito remoção", "opt out" (só há
+  "unsubscribe"). É direito do titular: cada frase que escapa é alguém que pediu para
+  sair e continua recebendo. O radar de Conversa recomenda fechar as **inequívocas**
+  primeiro, uma leva por execução, deixando as ambíguas ("cancelar" sozinho, que
+  também é "cancelar a reunião") para o LLM — não é transform seguro como a NFD, tem
+  risco dos dois lados. Uma rotina só (`conversa.py`), sem decisão de fora; é o
+  próximo candidato de titular do radar, à frente do `<blockquote>` (negócio).
+  Seguem, de baixo risco: assinatura/rodapé corporativo e bottom-posting poluem a
+  classificação de **negócio** (opt-out varre o texto inteiro, então não some); o
+  `<blockquote>` sem linha de atribuição não é fronteira de citação. **A resposta
+  manual (`responder_manualmente`) leva o link só no cabeçalho** — quando for para o
+  corpo, vale a regra da dependência 2 (rótulo e link na mesma linha).
 
 ### Bloqueado até a Fase 7 (depende do formato do payload real)
 
@@ -576,7 +613,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**465 testes verdes (3 pulados) · lint limpo.**
+**473 testes verdes (3 pulados) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
@@ -1163,7 +1200,8 @@ a assinatura dos webhooks. **As cinco divergências estão resolvidas.**
   roubado vale até expirar (30 min o de acesso, 14 dias o de renovação). Uma
   lista de revogação exige estado compartilhado (Redis) e só faz sentido quando
   houver sessão real para revogar.
-- **Nada limita tentativas de login.** Não há atraso progressivo nem bloqueio
-  por IP. O bcrypt de custo 12 já torna força bruta cara (~250 ms por
-  tentativa), mas isso é mitigação, não defesa: falta decidir se entra
-  rate limit no proxy (mais simples) ou na aplicação.
+- ~~**Nada limita tentativas de login.**~~ **Resolvido em 18/09** (0.1 item 4):
+  rate limit na aplicação — 5 falhas por e-mail / 30 por IP em 15 min (429 antes do
+  bcrypt) e 5 cadastros por IP por hora, contados no banco (`tentativas_acesso`,
+  migration 0012), que também é o registro de acesso do Marco Civil (6 meses). O
+  bcrypt de custo 12 (~250 ms) segue como segunda camada.
