@@ -9,19 +9,20 @@
 > ar de confiança.
 
 **Última atualização:** 2026-09-20 · consolidação — docs reconferidos contra o
-código (**463 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas
-(`tentativas_acesso`, migration 0012), quatro correções novas integradas
-(campanha pausada não despacha, opt-out por caractere invisível, Places sem
-resultados, link na resposta da IA). Segurança (cobrança, painel de admin, limite
-de login, APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do
-dono em [docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
+código (**465 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas
+(`tentativas_acesso`, migration 0012), seis correções de rotina integradas neste
+dia (campanha pausada não despacha, opt-out por caractere invisível, Places sem
+resultados, link na resposta da IA, anonimização apaga reidentificadores, crédito
+de overage). Segurança (cobrança, painel de admin, limite de login, APP_SECRET
+obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
+[docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
 **Estado em 20/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
-integradas ao `main`**. **463 testes verdes** (3 pulados) e `ruff` limpo,
+integradas ao `main`**. **465 testes verdes** (3 pulados) e `ruff` limpo,
 reconferidos nesta consolidação; **migration head em `0012`** (`tentativas_acesso`,
 da segurança de 18/09) — `upgrade`/`downgrade` nos dois dialetos continuam valendo
 da última verificação com código. A segurança/Vercel de 18/09 mexeu em backend e
@@ -31,19 +32,25 @@ frontend segue valendo. Tudo publicado: `main` == `origin/main`. Nenhuma chave d
 API — o sistema inteiro roda em mock.
 
 > Os "340 testes" de 31/08 (Etapas 0–8) viraram 428 com as correções de setembro,
-> 453 com a segurança/Vercel de 18/09, e **463** com as quatro rotinas de 20/09
+> 453 com a segurança/Vercel de 18/09, e **465** com as seis rotinas de 20/09
 > (campanha pausada, caractere invisível, Places sem resultados, link na resposta
-> da IA). As rotinas partem de bases diferentes, então o número de cada radar é o
-> da hora dela; o total integrado no `main` é o que vale. Contagem reconferida com
-> `pytest` em 20/09.
+> da IA, anonimização de reidentificadores, crédito de overage). As rotinas partem
+> de bases diferentes, então o número de cada radar é o da hora dela; o total
+> integrado no `main` é o que vale. Contagem reconferida com `pytest` em 20/09,
+> **depois** de as duas últimas rotinas (Compliance e Margem) entrarem por baixo
+> desta consolidação — por isso é 465 e não 463.
 
-> **20/09 — quatro correções de backend integradas, todas de rotina.** Envio
+> **20/09 — seis correções de backend integradas, todas de rotina.** Envio
 > (campanha `PAUSADA`/`FALHOU` não despacha mais abordagem fria nova — fecha o
 > achado que estava aberto desde 16/09), Motor 4 (opt-out escondido por caractere
 > de largura-zero volta a ser reconhecido; e a **resposta automática da IA** passa
 > a levar o link de descadastro assinado que funciona — antes ia com domínio de
-> teste e id cru), e Descoberta (`"places": null` no topo da resposta não derruba
-> mais a rodada). Nenhuma migration nova, nenhuma decisão de produto.
+> teste e id cru), Descoberta (`"places": null` no topo da resposta não derruba
+> mais a rodada), Compliance (a anonimização apaga também os reidentificadores —
+> CNPJ, `place_id`, CEP, bairro, lat/long e o `place_id` da proveniência —, não só
+> o endereço em texto) e Margem (crédito de overage rende o preço de overage, não
+> o preço-base). Nenhuma migration nova, nenhuma decisão de produto. As duas
+> últimas (Compliance, Margem) entraram no `main` durante esta consolidação.
 
 > **18/09 — a concorrência das rotinas se repetiu e se resolveu sozinha.** Cinco
 > rotinas rodaram juntas ao abrir o app (Descoberta, Motor 3, Compliance, Motor 4,
@@ -393,10 +400,11 @@ invisíveis para as rotinas donas dos arquivos.
 
 ### Radar que já não bate com o código
 
-- **Compliance, item 2 (🔴 `/solicitacoes` não filtra por tenant)**: o radar de
-  Compliance ainda lista este item como aberto e o chama de "trava de verdade"
-  para a Fase 7. **Já está corrigido no `main`** — a rota filtra por `user_id`
-  **ou** contato dos leads do cliente (commit `d82d247`, = 0.1 item 9). Dos dois 🔴
+- **Compliance, item 2 (🔴 `/solicitacoes` não filtra por tenant)**: a **fila**
+  do radar de Compliance ainda lista este item como aberto e o chama de "trava de
+  verdade" para a Fase 7 — mas a execução de 20/09 daquele radar **já reconhece no
+  topo** que está corrigido no `main` (a rota filtra por `user_id` **ou** contato
+  dos leads do cliente, commit `d82d247`, = 0.1 item 9). Dos dois 🔴
   que o radar destaca, **só o item 1 (verificação de identidade do titular) segue
   aberto** — esse está na 0.2. Não trate o item 2 como pendência.
 
@@ -568,7 +576,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**463 testes verdes (3 pulados) · lint limpo.**
+**465 testes verdes (3 pulados) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 

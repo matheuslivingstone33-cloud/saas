@@ -15,19 +15,20 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta consolidação (20/09):** **463 testes verdes (3 pulados)** ·
+**Verificado nesta consolidação (20/09):** **465 testes verdes (3 pulados)** ·
 `ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da segurança de
 18/09) — **14 tabelas** no total. `upgrade head` / `downgrade base` e o fluxo
 completo pela interface continuam valendo da última verificação com código; a
 segurança/Vercel de 18/09 mexeu em backend e acrescentou só `frontend/vercel.json`
 (nenhuma mudança em `frontend/src`, então o `npm run build` da última verificação
-segue valendo). As correções de 20/09 (campanha pausada não despacha, opt-out por
-caractere invisível, Places sem resultados, link na resposta da IA) foram todas de
-backend.
+segue valendo). As seis correções de 20/09 (campanha pausada não despacha, opt-out
+por caractere invisível, Places sem resultados, link na resposta da IA,
+anonimização apaga reidentificadores, crédito de overage) foram todas de backend.
 
 > O número já foi `428` (consolidação de 18/09) e `453` (após a segurança/Vercel);
-> as quatro rotinas que rodaram em 20/09 partiram de bases diferentes e, integradas
-> ao `main`, somam **463**. Contagem reconferida com `pytest` nesta consolidação.
+> as rotinas que rodaram em 20/09 partiram de bases diferentes e, integradas ao
+> `main`, somam **465**. Contagem reconferida com `pytest` nesta consolidação (as
+> duas últimas rotinas, Compliance e Margem, entraram por baixo dela).
 
 ---
 
