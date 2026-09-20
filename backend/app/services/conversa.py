@@ -384,6 +384,33 @@ def html_para_texto(texto: str) -> str:
         return texto
 
 
+#: Caracteres invisiveis que NAO sao espaco (o `\s` do `_normalizar` nao os pega)
+#: e que, plantados no meio de uma palavra, partem o casamento lexical: hifen
+#: suave (U+00AD), largura-zero (U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ), juntador
+#: de palavra (U+2060) e o BOM/ZWNBSP (U+FEFF). Um "desca<U+200B>dastrar" nao casa
+#: com "descadastr" — e a pessoa que pediu para sair continua recebendo.
+_RE_INVISIVEIS = re.compile("[­​‌‍⁠﻿]")
+
+
+def remover_invisiveis(texto: str) -> str:
+    """Remove caracteres invisiveis que partem palavra, JUNTANDO os pedacos.
+
+    E o analogo do soft break do quoted-printable e das entidades de HTML: mais
+    um jeito de esconder um opt-out do classificador. O provedor (ou o cliente de
+    e-mail) enfia um caractere de largura zero ou um hifen suave no meio de
+    "descadastrar" — as vezes vindo como entidade (`desca&#8203;dastrar`), que o
+    `html.unescape` transforma no U+200B literal — e "descadastr" nao casa. Some
+    o invisivel e "desca<zero>dastrar" volta a ser "descadastrar".
+
+    Remover so JUNTA vizinhos: nunca inventa marca onde nao havia, e o unico
+    risco (revelar um opt-out que estava escondido) e exatamente o lado seguro de
+    errar. Espaco de verdade, acento e quebra de linha nao sao tocados.
+    """
+    if not texto:
+        return texto
+    return _RE_INVISIVEIS.sub("", texto)
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -401,12 +428,15 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
 
     O corpo e normalizado ANTES de tudo, e nesta ordem: primeiro o
     quoted-printable (a quebra suave `=\\n` parte palavras, a linha do nosso link
-    e as marcas de citacao), depois o HTML (tags e entidades). E a ordem do
-    e-mail real — o HTML chega codificado em quoted-printable, entao decodificar
-    QP primeiro entrega o HTML inteiro para `html_para_texto`.
+    e as marcas de citacao), depois o HTML (tags e entidades) e por ultimo os
+    caracteres invisiveis (largura-zero, hifen suave). E a ordem do e-mail real —
+    o HTML chega codificado em quoted-printable, entao decodificar QP primeiro
+    entrega o HTML inteiro para `html_para_texto`; e o invisivel vem por ultimo
+    porque uma entidade como `&#8203;` so vira o caractere literal depois do HTML.
     """
     texto = decodificar_quoted_printable(texto)
     texto = html_para_texto(texto)
+    texto = remover_invisiveis(texto)
     inteiro = _normalizar(_RE_LINHA_DO_NOSSO_LINK.sub("", texto or ""))
     if not inteiro:
         return None
@@ -837,10 +867,11 @@ class ServicoDeConversa:
         # sobre o historico citado colado embaixo. O opt-out ja foi procurado no
         # texto inteiro em `classificar_por_sinal` acima, entao estreitar o
         # escopo aqui nao arrisca perder um pedido de saida. Mesma normalizacao
-        # do sinal lexical (QP e depois HTML) para o modelo nao ver tag nem
-        # entidade em vez de texto.
+        # do sinal lexical (QP, depois HTML, depois os invisiveis) para o modelo
+        # nao ver tag, entidade nem largura-zero em vez de texto.
         texto = decodificar_quoted_printable(texto)
         texto = html_para_texto(texto)
+        texto = remover_invisiveis(texto)
         novo = remover_historico_citado(texto) or texto
         resposta = self.portas.llm.completar(
             LLMRequest(

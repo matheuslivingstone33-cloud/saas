@@ -32,6 +32,7 @@ from app.services.conversa import (
     decodificar_quoted_printable,
     html_para_texto,
     remover_historico_citado,
+    remover_invisiveis,
 )
 
 
@@ -681,6 +682,69 @@ def test_opt_out_em_html_encerra_e_suprime_ponta_a_ponta(
     """Ponta a ponta: opt-out em HTML com entidade suprime e para, como o texto limpo."""
     r = ServicoDeConversa(session, portas_db).receber(
         lead=lead_abordado, corpo="<p>Por favor, n&atilde;o me envie mais e-mails.</p>"
+    )
+    assert r.intencao is Intencao.PEDIDO_OPT_OUT
+    assert r.encerrou and not r.respondeu
+    assert lead_abordado.status is StatusLead.OPT_OUT
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
+    ).scalar_one_or_none()
+    assert supressao is not None
+
+
+# --- Texto real: caractere invisivel partindo a palavra ----------------------
+# Depois do quoted-printable e do HTML, ainda sobra um jeito de esconder um
+# opt-out do casamento lexical: um caractere de LARGURA ZERO ou um HIFEN SUAVE
+# no meio da palavra. `desca<U+200B>dastrar`, `desca<U+00AD>dastrar` ou a versao
+# HTML `desca&#8203;dastrar` (o html.unescape deixa o U+200B literal no lugar) —
+# "descadastr" nao casa, e a pessoa que pediu para sair continua recebendo. E o
+# analogo do soft break do QP, e o mesmo pior caso: um opt-out que o
+# classificador NAO ve. "Opt-out duvidoso e opt-out" — na duvida, revela.
+
+
+def test_remover_invisiveis_junta_palavra_partida_por_largura_zero() -> None:
+    assert remover_invisiveis("desca​dastrar") == "descadastrar"
+
+
+def test_remover_invisiveis_tira_hifen_suave_e_bom() -> None:
+    assert remover_invisiveis("desca­dastrar﻿") == "descadastrar"
+
+
+def test_remover_invisiveis_nao_mexe_em_texto_comum() -> None:
+    """Espaco normal, acento e quebra de linha ficam intactos: so o invisivel sai."""
+    texto = "Não tenho interesse,\nobrigado."
+    assert remover_invisiveis(texto) == texto
+
+
+def test_opt_out_partido_por_largura_zero_e_reconhecido() -> None:
+    assert (
+        classificar_por_sinal("Por favor, quero me desca​dastrar da lista.")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_opt_out_partido_por_hifen_suave_e_reconhecido() -> None:
+    assert (
+        classificar_por_sinal("Quero me desca­dastrar, obrigado.")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_opt_out_em_html_com_entidade_de_largura_zero_e_reconhecido() -> None:
+    """`&#8203;` vira U+200B no html.unescape; sem tirar o invisivel, "descadastr"
+    ainda nao casa e o pedido de saida se perde."""
+    assert (
+        classificar_por_sinal("<p>Quero me desca&#8203;dastrar da lista.</p>")
+        is Intencao.PEDIDO_OPT_OUT
+    )
+
+
+def test_opt_out_com_largura_zero_encerra_e_suprime_ponta_a_ponta(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """Ponta a ponta: opt-out partido por largura-zero suprime e para, como o limpo."""
+    r = ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="Por favor, não me envie​ mais e-mails."
     )
     assert r.intencao is Intencao.PEDIDO_OPT_OUT
     assert r.encerrou and not r.respondeu

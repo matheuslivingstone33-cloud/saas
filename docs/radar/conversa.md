@@ -14,6 +14,7 @@
 > - **Quoted-printable decodificado — integrado em 16/09** (versão de 15/09, `f8116f2`, adaptada ao `main`). `decodificar_quoted_printable()` roda no começo de `classificar_por_sinal` e antes do LLM, então `n=C3=A3o me envie` e `desca=
 dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** também sai da varredura, porque a linha é remontada antes.
 > - **Corpo em HTML decodificado — integrado em 18/09.** `html_para_texto()` roda logo depois do quoted-printable, nos dois pontos (`classificar_por_sinal` e antes do LLM). Tags de bloco (`<div>`, `<br>`) viram quebra de linha, `<script>`/`<style>` saem inteiros e entidades (`n&atilde;o`, `&nbsp;`) são expandidas — então `<p>N&atilde;o quero receber</p>` vira opt-out e o corte de histórico volta a funcionar em e-mail HTML. **Só converte quando o texto tem cara de HTML**: "custo < 4 mil" fica intacto. Fecha a metade que faltava do item 1 abaixo.
+> - **Caractere invisível removido — integrado em 20/09.** `remover_invisiveis()` roda por último na normalização (depois do QP e do HTML, nos dois pontos), tirando largura-zero (`U+200B`/`ZWSP`, `ZWNJ`, `ZWJ`, juntador de palavra) e hífen suave (`U+00AD`) e o BOM. Um `desca<U+200B>dastrar` — inclusive vindo como entidade `desca&#8203;dastrar`, que o `html.unescape` deixa como o caractere literal — voltou a casar com "descadastr". Fecha o resíduo de largura-zero do item 1 abaixo; é o análogo do soft break do QP, e o mesmo pior caso: um opt-out que o classificador NÃO via.
 >
 > O que vem abaixo é o diário das execuções, mantido como estava.
 
@@ -33,11 +34,63 @@ dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** tamb
 > **Regra que não se negocia:** em caso de dúvida, o direito do titular ganha
 > do negócio. Opt-out duvidoso é opt-out.
 
-**Última execução:** 2026-09-18
+**Última execução:** 2026-09-20
 
 ---
 
-## O que corrigiu nesta execução (2026-09-18)
+## O que corrigiu nesta execução (2026-09-20)
+
+**Opt-out partido por caractere invisível voltou a ser reconhecido.**
+(`services/conversa.py`)
+
+Era o resíduo de "largura-zero" do item 1 da fila (o quoted-printable fechou em
+16/09, o HTML em 18/09) e o próximo buraco de **direito do titular** dentro dos
+meus arquivos — por isso veio antes dos itens que só afetam o negócio.
+
+O caso que dói é o pior de todos: um opt-out que o classificador **não vê**.
+Depois de decodificar QP e HTML ainda sobrava um jeito de esconder o pedido de
+saída — um caractere de **largura zero** (`U+200B`) ou um **hífen suave**
+(`U+00AD`) plantado no meio da palavra. `desca<U+200B>dastrar` não casa com
+`"descadastr"`; e como esses caracteres não são espaço, o `\s` da normalização
+não os pegava. Pior: quando o corpo vem em HTML, `desca&#8203;dastrar` sai do
+`html.unescape` já como o `U+200B` literal — o parsing de HTML de 18/09 não
+resolvia isso. Confirmei os três casos (largura-zero literal, hífen suave e
+entidade `&#8203;`) retornando `None` antes da correção.
+
+O que mudou:
+
+- **`remover_invisiveis(texto)`** — tira os invisíveis que partem palavra
+  (`U+00AD` hífen suave, `U+200B`/`U+200C`/`U+200D` largura-zero, `U+2060`
+  juntador de palavra, `U+FEFF` BOM), **juntando** os pedaços: `desca<zero>dastrar`
+  volta a ser `descadastrar`.
+- **Roda por último na normalização** (depois de `decodificar_quoted_printable`
+  e `html_para_texto`), nos dois pontos: começo de `classificar_por_sinal` e
+  antes do LLM em `classificar`. Por último de propósito: a entidade `&#8203;`
+  só vira o caractere literal **depois** do HTML, então tirar o invisível antes
+  disso não adiantaria.
+- **Sem gate de "parece".** Diferente do QP (`=`) e do HTML (`<`), esses
+  caracteres nunca são conteúdo de leitura — remover é sempre seguro. Remover só
+  **junta** vizinhos: nunca inventa marca onde não havia, e o único efeito
+  (revelar um opt-out escondido) é exatamente o lado seguro de errar. Espaço de
+  verdade, acento e quebra de linha não são tocados; o `corpo` gravado na
+  mensagem continua intacto (a limpeza é só para classificar).
+
+Testes novos (em `test_motor4_conversa.py`), os três de intenção falhando antes
+(retornavam `None`) e passando depois, mais as unitárias e o conservador:
+`test_remover_invisiveis_junta_palavra_partida_por_largura_zero`,
+`test_remover_invisiveis_tira_hifen_suave_e_bom`,
+`test_remover_invisiveis_nao_mexe_em_texto_comum`,
+`test_opt_out_partido_por_largura_zero_e_reconhecido`,
+`test_opt_out_partido_por_hifen_suave_e_reconhecido`,
+`test_opt_out_em_html_com_entidade_de_largura_zero_e_reconhecido` e
+`test_opt_out_com_largura_zero_encerra_e_suprime_ponta_a_ponta`.
+**459 passed, 3 skipped; `ruff` limpo.**
+
+`cadencia.py` e `webhook.py` não foram tocados — a correção foi toda no Motor 4.
+
+---
+
+## O que corrigiu na execução de 2026-09-18
 
 **O corpo em HTML passou a ser decodificado para texto antes de classificar.**
 (`services/conversa.py`)
@@ -205,6 +258,12 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
    nos dois pontos (`classificar_por_sinal` e antes do LLM). Era o maior buraco:
    sem isso o resto do parsing trabalhava sobre lixo.
 
+   **Resíduo de largura-zero fechado em 20/09.** `remover_invisiveis()` tira
+   largura-zero (`U+200B`/`&#8203;`/`&#x200B;`), hífen suave (`U+00AD`), juntador
+   de palavra e BOM, juntando a palavra partida antes de classificar — nos dois
+   pontos. Um `des&#8203;cadastrar` volta a virar opt-out (ver "O que corrigiu
+   nesta execução (2026-09-20)" acima).
+
    **Resíduo honesto, para uma execução futura** (não fechei, é "outra coisa"):
    - **Citação HTML em `<blockquote>` sem linha de atribuição.** O Gmail
      costuma pôr um `"Em <data>, Fulano escreveu:"` antes do `<blockquote>`, que
@@ -213,10 +272,8 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
      vira só quebra de linha, não fronteira de citação. Risco baixo (o opt-out
      ainda varre o texto inteiro), mas a intenção de negócio pode vir poluída.
      Tratar `<blockquote>` como fronteira é possível, mas é ampliar a detecção de
-     citação — deixei de fora para não juntar duas coisas numa execução.
-   - **Entidades numéricas / largura-zero** (`&#8203;`, `&#x200B;`) que partem
-     palavra (`des&#8203;cadastrar`) não são tratadas — análogo ao soft break do
-     QP, mas mais raro. Fica para depois.
+     citação — deixei de fora para não juntar duas coisas numa execução. **É o
+     próximo candidato sugerido dentro do item 1.**
 
 2. ✅ **RESOLVIDO em 2026-09-16 — rodapé de citação do Outlook sem `>` e sem
    régua.** O bloco `De:/Enviada:/Para:/Assunto:` que aparecia sozinho, sem a
