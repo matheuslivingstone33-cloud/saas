@@ -146,19 +146,12 @@ _SINAIS: list[tuple[Intencao, tuple[str, ...]]] = [
             "nao quero receber", "não quero receber", "parar de receber",
             "cancelar inscricao", "cancelar inscrição", "unsubscribe",
             "sair da lista", "nao me envie", "não me envie",
-            # Frases inequivocas de saida que antes escapavam para o LLM. Cada
-            # uma e um pedido CLARO de parar de receber ou de ser removido —
-            # nenhuma cabe num lead interessado. As ambiguas ("cancelar" sozinho,
-            # que tambem e "cancelar a reuniao") ficam de fora, com o LLM: la o
-            # risco e dos dois lados; aqui o pedido do titular e explicito.
+            # "Pare de me enviar/mandar" nao tem leitura de interesse. As demais
+            # frases de saida — remover, remocao, "nao desejo receber", opt-out —
+            # so valem com o PROPRIO contato como objeto: ver
+            # `_RE_OPT_OUT_EXPLICITO`, logo abaixo.
             "pare de me enviar", "parem de me enviar",
             "pare de me mandar", "parem de me mandar",
-            "nao desejo receber", "não desejo receber",
-            "remova-me", "me remova", "remover-me",
-            "remova meu", "remova o meu", "remover meu", "remover o meu",
-            "solicito remocao", "solicito remoção",
-            "solicito a remocao", "solicito a remoção",
-            "opt out", "opt-out",
         ),
     ),
     (
@@ -204,6 +197,41 @@ _SINAIS: list[tuple[Intencao, tuple[str, ...]]] = [
         ),
     ),
 ]
+
+#: Frases de saida que so sao opt-out quando o objeto e o proprio contato.
+#:
+#: Em 20/09 elas entraram como pedaco solto de texto, e opt-out e terminal:
+#: "preciso remover meu ar-condicionado antigo", "solicito a remocao do
+#: entulho", "nao desejo receber ligacoes, prefiro e-mail", "voces tem
+#: opt-out?" e ate "nao me remova da lista, tenho interesse" viravam pedido
+#: de saida — e o lead que queria comprar se perdia para sempre. Agora cada
+#: uma exige o que esta sendo removido (e-mail, contato, cadastro, dados, a
+#: lista) ou o proprio "me", e o "nao" logo antes anula.
+_OBJETO_CONTATO = (
+    r"(?:o\s+|os\s+|a\s+)?(?:meus?|minhas?|nossos?|nossas?)\s+"
+    r"(?:e-?mails?|endere[cç]os?|contatos?|cadastros?|dados|nomes?|telefones?|n[uú]meros?)"
+)
+_NAO_ANTES = r"(?<!não )(?<!nao )"
+_RE_OPT_OUT_EXPLICITO = re.compile(
+    r"|".join(
+        (
+            # remova-me / me remova / remover-me (da lista, da base...)
+            _NAO_ANTES + r"\b(?:remova-me|remover-me|removam-me|me\s+remova[m]?)\b",
+            # remova meu e-mail / remover o meu contato / removam meus dados
+            _NAO_ANTES + r"\bremov(?:a|am|er|e)\s+" + _OBJETO_CONTATO,
+            # solicito (a) remocao do meu contato / da lista / da base / dos dados
+            r"\bsolicito\s+(?:a\s+)?remo[cç][aã]o\s+(?:d[oa]s?\s+)?"
+            r"(?:meus?|minhas?|lista|base|cadastro|dados|e-?mails?|contatos?)\b",
+            # nao desejo receber mais / e-mails / mensagens / contato / isso
+            r"\bn[aã]o\s+desejo\s+receber\s+"
+            r"(?:mais|e-?mails?|mensage[mn]s?|contatos?|comunica[cç][oõ]es|seus|suas|esse|este|essas|esses|isso|nada)\b",
+            # "quero opt out" / "please opt-out me" / "opt out from" — nao o
+            # "opt-out" citado como assunto nem o rodape em ingles de uma assinatura.
+            r"\b(?:quero|please|i\s+want\s+to|want\s+to)\s+opt[- ]?out\b",
+            r"\bopt[- ]?out\s+(?:me|desta|dessa|from)\b",
+        )
+    )
+)
 
 
 #: Intencoes cujo sinal e procurado no texto INTEIRO, e nao so na resposta nova.
@@ -364,6 +392,7 @@ _RE_QUEBRA_HTML = re.compile(
 #: Qualquer tag restante (inline: <span>, <a href=...>, <font>). `[^<>]` — e nao
 #: `[^>]` — impede que um `<` solto que tenha sobrado engula tudo ate o proximo `>`.
 _RE_TAG_RESTANTE = re.compile(r"<[^<>]+>")
+_RE_LINHAS_VAZIAS = re.compile(r"\n{3,}")
 
 
 def html_para_texto(texto: str) -> str:
@@ -392,7 +421,11 @@ def html_para_texto(texto: str) -> str:
         t = _RE_TAG_RESTANTE.sub("", t)
         t = html.unescape(t)
         # HTML gera muita linha vazia; o corte por linha nao precisa delas.
-        t = re.sub(r"[ \t]*\n[ \t]*(?:\n[ \t]*)+", "\n\n", t)
+        # Linha a linha, e nao por regex: `[ \t]*\n...` sobre uma sequencia longa
+        # de espacos sem quebra volta atras a cada posicao — 40 mil espacos
+        # num corpo de resposta levavam segundos, e o corpo vem do lead.
+        linhas = [linha.strip(" \t") for linha in t.split("\n")]
+        t = _RE_LINHAS_VAZIAS.sub("\n\n", "\n".join(linhas))
         return t.strip()
     except Exception:  # noqa: BLE001 — conversao best-effort, nunca fatal
         return texto
@@ -485,6 +518,8 @@ def classificar_por_sinal(texto: str) -> Intencao | None:
     if not inteiro:
         return None
     novo = _normalizar(remover_historico_citado(texto))
+    if _RE_OPT_OUT_EXPLICITO.search(inteiro):
+        return Intencao.PEDIDO_OPT_OUT
     for intencao, marcas in _SINAIS:
         alvo = inteiro if intencao in _SOBRE_TEXTO_INTEIRO else novo
         if alvo and any(marca in alvo for marca in marcas):

@@ -869,6 +869,54 @@ def test_cancelar_sozinho_nao_e_opt_out_no_lexical(texto: str) -> None:
     assert classificar_por_sinal(texto) is not Intencao.PEDIDO_OPT_OUT
 
 
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # remover / remova + objeto que NAO e o contato
+        "Tenho interesse. Preciso remover meu ar-condicionado antigo e instalar um novo, "
+        "qual o valor?",
+        "Por favor remova o meu colega do cc e me envie a proposta.",
+        "Pode remover meu sócio da cópia e mandar a proposta só pra mim?",
+        # remocao como servico pedido
+        "Solicito a remoção do entulho da obra. Podem enviar orçamento?",
+        "Solicito remoção de 3 árvores no terreno da fábrica, qual o custo?",
+        # preferencia de canal, nao saida
+        "Não desejo receber ligações; prefiro por e-mail. Qual o valor?",
+        "Não desejo receber visita comercial, mas pode enviar a proposta por e-mail.",
+        # opt-out como assunto ou no rodape da assinatura do lead
+        "Vocês têm opt-out para os destinatários? Tenho interesse na plataforma.",
+        "Tenho interesse, me liga amanhã.\n\n--\nJoão | ACME\n"
+        "If you no longer wish to receive emails from ACME, you can opt out here.",
+        # negacao — resposta provavel ao 3o toque, que pergunta se encerramos
+        "Não me remova da lista, tenho interesse sim!",
+        # e o dano pelo historico citado
+        "Pode ser terça às 10h.\n\nEm 10/09/2026, Fulano escreveu:\n"
+        "> Preciso remover meu forro de gesso antigo, qual o valor?",
+    ],
+)
+def test_frase_de_servico_ou_de_interesse_nao_vira_opt_out(texto: str) -> None:
+    """Opt-out e terminal: o lead que queria comprar se perderia para sempre.
+
+    Em 20/09 as frases novas de saida entraram como pedaco solto de texto, e cada
+    caso abaixo virava PEDIDO_OPT_OUT. Agora a frase so vale com o proprio
+    contato como objeto, e o "nao" logo antes anula.
+    """
+    assert classificar_por_sinal(texto) is not Intencao.PEDIDO_OPT_OUT
+
+
+def test_html_com_espacos_longos_nao_trava_a_leitura() -> None:
+    """O corpo vem do lead. A regex antiga voltava atras a cada espaco."""
+    import time
+
+    from app.services.conversa import html_para_texto
+
+    corpo = "<p>oi</p>" + " " * 200_000 + "<p>tenho interesse</p>"
+    inicio = time.perf_counter()
+    texto = html_para_texto(corpo)
+    assert time.perf_counter() - inicio < 1.0
+    assert "oi" in texto and "tenho interesse" in texto
+
+
 def test_frase_de_opt_out_apos_citacao_nao_se_perde() -> None:
     """Escrita embaixo do historico citado, a frase nova de saida ainda e pega —
     opt-out varre o texto inteiro, nao so a resposta nova."""
