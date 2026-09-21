@@ -223,6 +223,12 @@ def overage(
     assinatura = CreditService(session).assinatura(user.id)
     if assinatura is None:
         raise HTTPException(status_code=409, detail="Usuario sem assinatura")
+    if payload.habilitado and CATALOGO[assinatura.plano].overage_centavos_por_credito <= 0:
+        # Sem preco de overage, ligar a chave era revelar contato de graca.
+        raise HTTPException(
+            status_code=402,
+            detail="O plano gratuito nao tem consumo alem do limite. Troque de plano.",
+        )
     assinatura.overage_habilitado = payload.habilitado
     session.flush()
     return {

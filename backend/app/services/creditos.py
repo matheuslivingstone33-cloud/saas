@@ -222,21 +222,28 @@ class CreditService:
         if assinatura is None:
             return Saldo(creditos, "sem_assinatura", 0, 0, False, True, "sem assinatura ativa")
 
+        # Overage so existe em plano que COBRA overage. No gratuito o preco do
+        # credito extra e zero: com a chave ligada, o saldo ia para o negativo
+        # e cada contato revelado alem do teto saia de graca.
+        overage = (
+            assinatura.overage_habilitado
+            and CATALOGO[assinatura.plano].overage_centavos_por_credito > 0
+        )
         estado = Saldo(
             creditos=creditos,
             plano=assinatura.plano.value,
             teto_leads_mes=assinatura.teto_leads_mes,
             leads_consumidos_mes=assinatura.leads_consumidos_mes,
-            overage_habilitado=assinatura.overage_habilitado,
+            overage_habilitado=overage,
         )
-        if creditos <= 0 and not assinatura.overage_habilitado:
+        if creditos <= 0 and not overage:
             estado.bloqueado = True
             estado.motivo_bloqueio = "saldo de creditos zerado"
         elif creditos <= max(5, assinatura.teto_leads_mes // 10):
             estado.alertas.append("saldo baixo: menos de 10% do plano")
 
         if assinatura.leads_consumidos_mes >= assinatura.teto_leads_mes:
-            if assinatura.overage_habilitado:
+            if overage:
                 estado.alertas.append("teto do plano atingido: consumo entra como overage")
             else:
                 estado.bloqueado = True

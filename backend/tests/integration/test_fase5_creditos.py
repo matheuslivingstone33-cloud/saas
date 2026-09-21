@@ -129,6 +129,9 @@ def test_teto_do_plano_bloqueia_mesmo_com_credito(session, usuario) -> None:
 
 def test_overage_libera_consumo_acima_do_teto(session, usuario) -> None:
     assinatura = UserRepository(session).assinatura(usuario.id)
+    # Plano pago: no gratuito o overage nao existe (preco zero).
+    assinatura.plano = Plano.STARTER
+    assinatura.teto_leads_mes = CATALOGO[Plano.STARTER].teto_leads_mes
     assinatura.leads_consumidos_mes = assinatura.teto_leads_mes
     assinatura.overage_habilitado = True
     session.flush()
@@ -361,6 +364,28 @@ def test_trocar_para_o_mesmo_plano_nao_recarrega(client, usuario) -> None:
     atual = client.get("/v1/billing/saldo").json()["plano"]
     r = client.post("/v1/billing/plano", json={"plano": atual})
     assert r.status_code == 409
+
+
+def test_plano_gratuito_nao_liga_overage(client, usuario) -> None:
+    """Overage sem preco era revelar contato de graca, com saldo negativo."""
+    assert client.get("/v1/billing/saldo").json()["plano"] == "trial"
+    r = client.post("/v1/billing/overage", json={"habilitado": True})
+    assert r.status_code == 402
+    assert client.get("/v1/billing/saldo").json()["overage_habilitado"] is False
+
+
+def test_overage_ligado_antes_no_gratuito_nao_libera_consumo(session, usuario) -> None:
+    """A chave ja ligada numa conta gratuita nao vale: sem saldo, bloqueia."""
+    servico = CreditService(session)
+    assinatura = servico.assinatura(usuario.id)
+    assinatura.overage_habilitado = True
+    servico.debitar(usuario.id, "mensagem_enviada", quantidade=servico.saldo(usuario.id).creditos)
+    session.flush()
+
+    estado = servico.pode_consumir(usuario.id, "contato_revelado")
+    assert estado.bloqueado
+    with pytest.raises(SaldoInsuficiente):
+        servico.debitar(usuario.id, "contato_revelado")
 
 
 def test_api_extrato_pagina(client, usuario, session, portas_db) -> None:
