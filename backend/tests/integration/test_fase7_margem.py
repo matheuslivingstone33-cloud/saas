@@ -120,6 +120,43 @@ def test_overage_conta_receita_pelo_preco_de_overage(session, usuario) -> None:
     assert margem["receita_brl"] != round(n * preco_base, 2)
 
 
+def test_debito_que_cruza_o_teto_nao_valoriza_o_base_como_overage(session, usuario) -> None:
+    """Um debito que ATRAVESSA o teto do plano nao pode marcar 100% como overage.
+
+    Com saldo 1 e uma operacao de custo 2 (`sinal_intencao`, overage habilitado),
+    1 credito ainda esta DENTRO do plano (base) e so 1 e overage. Marcar o debito
+    inteiro como OVERAGE valoriza o credito-base ao preco de overage (mais caro) e
+    infla a receita/margem do painel — ficcao, do lado da receita, dentro de um
+    numero que ninguem questiona. Nao e decisao de preco: base e overage ja tem
+    preco decidido no catalogo; aqui so aplicamos cada um ao credito certo.
+    """
+    assinatura = UserRepository(session).assinatura(usuario.id)
+    assinatura.plano = Plano.PRO
+    assinatura.teto_leads_mes = CATALOGO[Plano.PRO].teto_leads_mes
+    assinatura.overage_habilitado = True
+    session.flush()
+
+    _zerar_saldo(session, usuario)
+    servico = CreditService(session)
+    servico.creditar(usuario.id, 1, descricao="um credito ainda dentro do plano")
+
+    # custo 2 com saldo 1: 1 credito e base (cabe no plano), 1 e overage.
+    servico.debitar(usuario.id, "sinal_intencao")
+    session.flush()
+
+    catalogo = CATALOGO[Plano.PRO]
+    preco_base = (catalogo.preco_centavos / 100) / catalogo.creditos_mes
+    preco_overage = catalogo.overage_centavos_por_credito / 100
+    assert preco_overage != preco_base, "cenario invalido: precos iguais nao distinguem"
+
+    margem = MargemService(session).por_usuario(usuario.id).to_dict()
+
+    assert margem["creditos_consumidos"] == 2
+    # 1 credito base + 1 overage — NAO 2 x overage.
+    assert margem["receita_brl"] == round(preco_base + preco_overage, 2)
+    assert margem["receita_brl"] != round(2 * preco_overage, 2)
+
+
 def test_margem_por_campanha_conta_receita_de_envio_nao_so_de_revelacao(
     session, usuario, portas_db
 ) -> None:

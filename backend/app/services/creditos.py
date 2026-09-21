@@ -274,20 +274,41 @@ class CreditService:
             raise SaldoInsuficiente(estado.motivo_bloqueio)
 
         tipo = _tipo_de(operacao)
-        overage = estado.creditos < custo
-        lancamento = self.ledger.lancar(
-            user_id=user_id,
-            tipo=TipoCredito.OVERAGE if overage else tipo,
-            quantidade=-custo,
-            descricao=descricao or f"consumo: {operacao}",
-            referencia_tipo=referencia_tipo,
-            referencia_id=referencia_id,
-            metadados={"operacao": operacao, "overage": overage},
-        )
+        # Um debito pode ATRAVESSAR o teto do plano: a parte que ainda cabe no
+        # saldo e consumo-base (preco do plano) e so o excedente e overage
+        # (preco de overage, mais caro). Marcar o debito inteiro como OVERAGE
+        # quando so parte dele estoura valorizava o credito-base ao preco de
+        # overage e inflava a receita/margem do painel — ficcao, do lado da
+        # receita. Nao e decisao de preco: base e overage ja tem preco decidido;
+        # aqui so aplicamos cada um ao credito certo. Fora do cruzamento (tudo
+        # base, tudo overage, ou custo 0) segue uma unica parcela, como antes.
+        disponivel = max(0, estado.creditos)
+        parte_overage = max(0, custo - disponivel)
+        parte_base = custo - parte_overage
+        parcelas = [
+            (t, q, o)
+            for t, q, o in ((tipo, parte_base, False), (TipoCredito.OVERAGE, parte_overage, True))
+            if q > 0
+        ]
+        if not parcelas:  # custo 0 (ex.: lead_qualificado): mantem o registro
+            parcelas = [(tipo, 0, False)]
+
+        saldo_apos = estado.creditos
+        for parcela_tipo, parcela, overage in parcelas:
+            lancamento = self.ledger.lancar(
+                user_id=user_id,
+                tipo=parcela_tipo,
+                quantidade=-parcela,
+                descricao=descricao or f"consumo: {operacao}",
+                referencia_tipo=referencia_tipo,
+                referencia_id=referencia_id,
+                metadados={"operacao": operacao, "overage": overage},
+            )
+            saldo_apos = lancamento.saldo_apos
 
         assinatura = self.assinatura(user_id)
         if assinatura is not None:
-            assinatura.saldo_creditos = lancamento.saldo_apos
+            assinatura.saldo_creditos = saldo_apos
             # O teto mensal do plano conta CONTATO REVELADO. Era descoberta,
             # e descoberta nao e o que o cliente compra: ele compra poder
             # falar com a empresa.
@@ -301,13 +322,13 @@ class CreditService:
             dados={
                 "operacao": operacao,
                 "creditos": -custo,
-                "saldo_apos": lancamento.saldo_apos,
-                "overage": overage,
+                "saldo_apos": saldo_apos,
+                "overage": parte_overage > 0,
             },
             ator=Ator.SISTEMA,
             user_id=user_id,
         )
-        return lancamento.saldo_apos
+        return saldo_apos
 
     def creditar(
         self,

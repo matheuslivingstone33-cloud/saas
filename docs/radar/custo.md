@@ -500,3 +500,101 @@ integrar isto, não recriar em branch nova.
   marca `preco_fallback` + aviso em `cost.py` é a rede.
 - **Fase 7 (chaves + cartão)** — revalidar preços de DADOS (Places, SES, WhatsApp)
   contra o faturado real. Não invento valor de provedor.
+
+---
+
+## 2026-09-21 — débito que ATRAVESSA o teto: o crédito-base deixava de custar overage
+
+### Corrigido
+- **Um débito que cruzava o teto do plano marcava 100% como OVERAGE — inflava a
+  receita/margem do painel.** `creditos.py::debitar` fazia `overage =
+  estado.creditos < custo` e gravava o lançamento **inteiro** com
+  `TipoCredito.OVERAGE` quando verdadeiro. Com saldo 1 e uma operação de custo 2
+  (`sinal_intencao`, overage habilitado), os **dois** créditos viravam overage:
+  o crédito que **ainda cabia no plano** (base) era valorizado ao preço de
+  overage — mais caro (Pro: R$0,70/crédito de overage vs. R$0,4975/crédito-base).
+  Como `margem.py` valoriza receita agrupando o ledger por `tipo`, o painel via
+  `2 × R$0,70` em vez de `1 base + 1 overage`, e a margem aparecia **melhor do que
+  a real**, dentro de um número que ninguém questiona. É o mesmo eixo deste radar
+  ("a margem não pode ser ficção"), do lado da receita — o irmão exato das
+  correções de overage/campanha de 20/09, agora no **cruzamento** do teto. Este
+  achado estava **nomeado e adiado** na execução de 20/09 (2ª): "candidato a 'uma
+  coisa' futura, com cuidado contábil".
+  - **Por que NÃO é decisão de preço:** base e overage **já têm preço decidido**
+    (o `CATALOGO`: `preço-base amortizado` e `overage_centavos_por_credito`).
+    Aqui só **aplico** cada preço já existente ao crédito certo — a mesma lógica
+    que a 1ª execução de 20/09 usou para dizer que o overage-receita "NÃO é
+    decisão de preço". Não escolho quanto cobrar.
+  - **Correção (só em `creditos.py::debitar`):** a parte do débito que **cabe no
+    saldo** vira consumo-base (`disponivel = max(0, saldo)`; `parte_base =
+    custo − parte_overage`); só o **excedente** (`parte_overage = max(0, custo −
+    disponivel)`) vira `OVERAGE`. Quando o débito **não** cruza o teto — tudo
+    base, tudo overage, ou custo 0 (`lead_qualificado`) — segue **uma única
+    parcela, idêntica ao que era antes** (mesmo tipo, mesmo `metadados.overage`,
+    mesmo `saldo_apos`, mesmo evento de auditoria). Só o **cruzamento** passa a
+    gerar duas parcelas (base + overage). O `saldo_apos` final e o campo
+    `overage` da auditoria ficam com o **mesmo valor** de antes (`parte_overage >
+    0` == o antigo `saldo < custo` para saldo ≥ 0).
+  - **Escopo do impacto HOJE:** só o **painel de margem** (`margem.py`), o único
+    lugar do código que multiplica crédito de overage pelo preço de overage. Não
+    há fatura ao cliente calculada a partir de lançamentos `OVERAGE` no código
+    atual (Stripe é F7) — quando essa fatura existir, lerá a classificação já
+    correta. Corrige o painel hoje e não estraga a cobrança amanhã.
+  - **Cenário estreito, de propósito:** só dispara com overage habilitado **e**
+    `0 < saldo < custo` (na prática, `sinal_intencao` de custo 2 com saldo 1, ou
+    um débito com `quantidade > 1`). Sem overage, o débito é bloqueado antes —
+    não cruza.
+  - **Testes:** `tests/integration/test_fase7_margem.py::test_debito_que_cruza_o_teto_nao_valoriza_o_base_como_overage`
+    (novo) — Pro, overage ligado, saldo 1, `sinal_intencao` (custo 2): a receita
+    do painel tem de ser `R$0,4975 + R$0,70` (1 base + 1 overage), **não**
+    `2 × R$0,70`. Falha antes (1,40), passa depois (1,20). Suíte inteira:
+    `pytest` 480 passed / 3 skipped, `ruff` limpo.
+
+### Verificado e OK (sem ação) — reconferido nesta execução
+- **Tabela de LLM correta e atual — conferida contra a fonte autoritativa HOJE.**
+  Opus 5 (US$5/US$25 por 1M), Sonnet 5 (US$2/US$10) e Haiku 4.5 (US$1/US$5) batem
+  **exatamente** com a tabela da skill `claude-api` (cache 2026-06-24). Os IDs
+  canônicos **não levam sufixo de data** (a própria fonte: "never append date
+  suffixes") e o padrão `settings.llm_model="claude-opus-5"` resolve sem cair no
+  fallback do mock. Sem dúvida de preço de LLM em aberto.
+- **Eixo de cobrança = contato revelado.** Reconferido: `lead_qualificado=0`,
+  `contato_revelado=1` (único que conta no teto do mês), `revelar()` idempotente
+  (`lead.revelado_em`), `mensagem_enviada`/`sinal_intencao` **não** mexem no teto.
+  A correção acima **não muda o eixo de cobrança** — só corrige a contabilidade da
+  receita já reconhecida no cruzamento do teto. Nada voltou a cobrar por descoberta.
+- **`mascarar()` não vaza contato por campo novo.** Cruzei `CAMPOS_OCULTOS` com o
+  modelo `Lead` atual: todos os campos de contato/identidade (razão social, nome
+  fantasia, CNPJ, e-mail, telefone[+normalizado], site, domínio, endereço) estão
+  mascarados; `cep`, `latitude`, `longitude`, `place_id`, `resumo`, `contexto` e
+  `embedding` **não** aparecem na saída da API; `provenance` carrega só a *fonte*
+  do campo, não o valor. O paywall não vaza por um campo esquecido.
+- **Balde certo e custos-fantasma dos dois lados** seguem fechados (`cost.py`
+  deriva balde da chave; `registrar_llm` só emite o lado com token > 0, e (0,0)
+  não registra nada). Não toquei.
+
+### Achado e NÃO corrigido (fica para outro dono / outra execução)
+- **[observabilidade, meu escopo, baixo] `latencia_ms` só no evento de ENTRADA.**
+  Numa completude o evento de saída nasce `latencia_ms=None`. Não afeta os três
+  pilares (preço/balde/fantasma); replicar nos dois pode dobrar num painel que
+  soma latência — semântica ambígua, então não mexi (segue como em 20/09).
+- **[ambíguo, meu escopo] `custo_medio_lead_micros` soma os DOIS baldes** enquanto
+  `tokens_por_lead` conta só tokens de IA — decisão de produto sobre o que a
+  vitrine quer mostrar. Não mexi no chute (segue como em 20/09).
+- **[adaptador, fora do escopo] WhatsApp: template de MARKETING cobrado ao preço de
+  UTILITY** (`adapters/real/bsp_whatsapp.py`) — segue aberto (some com a
+  revalidação F7). A tabela (meu escopo) tem as duas chaves certas; quem escolhe a
+  chave é o adaptador.
+
+### Depende de outros / decisão humana
+- **Integração ao `main`** — este commit precisa chegar ao `main` (rebase + push).
+- **Modelo de reconhecimento de receita no cruzamento — confirmar com finanças.**
+  A correção assume o óbvio: crédito dentro do plano = preço-base; excedente =
+  overage. Se finanças quiser tratar o crédito de fronteira de outro jeito, é
+  decisão do dono — mas hoje o painel bate com a definição do plano no catálogo.
+- **`settings.usd_brl` fixo** (`config.py`, fora do escopo) — câmbio velho = margem
+  BRL errada. Em produção precisa vir de fonte real.
+- **Preço sem cadastro falha fechado só no boot** — a trava dura (recusar subir com
+  `llm_model` sem preço, como o `JWT_SECRET`) mora em `config.py`, fora do escopo. A
+  marca `preco_fallback` + aviso em `cost.py` é a rede.
+- **Fase 7 (chaves + cartão)** — revalidar preços de DADOS (Places, SES, WhatsApp)
+  contra o faturado real. Não invento valor de provedor.
