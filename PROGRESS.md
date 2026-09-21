@@ -15,23 +15,26 @@
 | **Etapa 5** | Resposta manual dentro do produto | ✅ concluída |
 | **Etapa 6** | Paywall no servidor + cobrar por revelação | ✅ concluída |
 
-**Verificado nesta consolidação (20/09, 2ª passada):** **474 testes verdes
-(3 pulados)** · `ruff` limpo. Migration head em `0012` (`tentativas_acesso`, da
-segurança de 18/09) — **14 tabelas** no total, sem migration nova. `upgrade head` /
-`downgrade base` e o fluxo completo pela interface continuam valendo da última
-verificação com código; a segurança/Vercel de 18/09 mexeu em backend e acrescentou
-só `frontend/vercel.json` (nenhuma mudança em `frontend/src`), e as quatro correções
-desta passada foram todas de backend — então o `npm run build` da última verificação
-segue valendo. As quatro correções novas de 20/09 (Envio: reclamação de spam com teto
-próprio, separado do bounce; Conversa: acento decomposto/NFD recomposto; Compliance:
-eliminação alcança também as mensagens do titular; Margem: receita por campanha soma
-envio e IA, não só revelação) não têm migration nem decisão de produto.
+**Verificado nesta consolidação (21/09):** **501 testes verdes
+(3 pulados; 504 no total)** · `ruff` limpo. Migration head em `0012`
+(`tentativas_acesso`, da segurança de 18/09) — **14 tabelas** no total, sem migration
+nova. `upgrade head` / `downgrade base` e o fluxo completo pela interface continuam
+valendo da última verificação com código; as cinco correções desta leva foram todas de
+backend (nenhuma mudança em `frontend/src`), então o `npm run build`/`tsc` da última
+verificação segue valendo. As cinco correções de rotina de 21/09 — Descoberta/IA
+(`output_config` vai por `extra_body`, não como kwarg do SDK 0.69.0); Envio (warmup do
+domínio freia abordagem fria nova em modo real); Conversa (frases inequívocas de
+opt-out casam no lexical, 1ª leva); Crédito (débito que cruza o teto separa base de
+overage); Compliance (o acesso do art. 18, II passa a revelar a lista de supressão) —
+não têm migration nem decisão de produto.
 
-> O número já foi `428` (consolidação de 18/09), `453` (após a segurança/Vercel) e
-> `465` (1ª consolidação de 20/09, seis rotinas). As quatro rotinas que rodaram
-> **depois** dela (Envio, Conversa, Compliance, Margem) integraram ao `main` por
-> rebase e levaram a contagem a **474**, reconferida com `pytest` nesta 2ª passada. As
-> rotinas partem de bases diferentes; o total integrado no `main` é o que vale.
+> O número já foi `428` (consolidação de 18/09), `453` (após a segurança/Vercel),
+> `465` (1ª consolidação de 20/09, seis rotinas) e `474` (2ª consolidação de 20/09,
+> mais quatro rotinas). As cinco rotinas de 21/09 (Descoberta/IA, Envio, Conversa,
+> Crédito e Compliance) integraram ao `main` por rebase e levaram a contagem a
+> **501**, reconferida com `pytest` nesta consolidação. As rotinas partem de bases
+> diferentes (o número na mensagem de cada commit é o retrato da hora dela); o total
+> integrado no `main` é o que vale.
 
 ---
 
@@ -99,6 +102,11 @@ envio e IA, não só revelação) não têm migration nem decisão de produto.
   como dado do titular (leads **e** as mensagens trocadas com ele) a eliminação
   agora remove — expurga corpo/assunto e mascara os dois endereços das mensagens,
   imediato; antes o e-mail e o texto do titular sobreviviam até o expurgo por prazo.
+  Desde 21/09 o próprio relatório de **acesso** (art. 18, II) também revela a lista de
+  supressão (`opt_outs` — origem, motivo, escopo, data) que guardamos em caráter
+  permanente, fechando a simetria acesso↔supressão também nesse registro (Política
+  §8 atualizada). *(A supressão ainda guarda o e-mail **cru**, não o hash — decisão
+  de minimização em aberto, HANDOFF §0.3 dependência 3.)*
 - **Retenção**: expurgo por prazo com `dry_run`, preservando cliente convertido.
 - Política de privacidade e declaração de IA publicadas em rota pública.
 - Migration `0003` (`privacy_requests`).
@@ -141,7 +149,7 @@ envio e IA, não só revelação) não têm migration nem decisão de produto.
 | Item | Por quê |
 |---|---|
 | **Preencher as chaves e virar os flags** | Não há chave neste ambiente; a virada é o runbook da Fase 7 |
-| **SDK da Anthropic aceitar `output_config`** | 🔴 `requirements-prod.txt` fixa `anthropic==0.69.0`, que **não tem** o kwarg `output_config` que os adaptadores passam — com `LLM_MODE=real` nenhuma função de IA sobe. Ver HANDOFF §0.3 (radar de deploy, item 14) |
+| **`anthropic_search.py` ainda passa `output_config` como kwarg** | 🟡 **parcial** (era 🔴): `anthropic_llm.py` foi corrigido em 21/09 — o effort vai por `extra_body`, que o SDK fixado `anthropic==0.69.0` injeta no corpo cru sem validar como kwarg —, então Cérebro, personalização e Motor 4 sobem com `LLM_MODE=real`. Falta o **gêmeo** `anthropic_search.py:70` (busca web / sinal de intenção), que ainda estoura `TypeError` com `SEARCH_MODE=real`. Mesmo fix trivial; arquivo sem dono claro. Ver HANDOFF §0.3 |
 | **`docker compose up` executado** | Docker não está instalado nesta máquina — compose e Dockerfiles escritos e validados como YAML, mas não executados. (O deploy hoje tem também um caminho Vercel — `backend/vercel.json` + `vercel_build.py`) |
 | ~~**Autenticação real (JWT)**~~ | ✅ feito na Etapa 8: JWT com acesso de 30 min e renovação de 14 dias; `X-User-Email` não autentica mais nada |
 | **Assinatura do webhook do Stripe** | O auto-crédito já foi travado (crédito só pelo que o provedor confirma, idempotente); falta **verificar a assinatura** do webhook do Stripe real |
@@ -173,6 +181,13 @@ envio e IA, não só revelação) não têm migration nem decisão de produto.
   antes), mas a **reclamação de spam** tem freio próprio e muito mais baixo
   (`RECLAMACAO_TAXA_MAXIMA` = 0,3%), porque o SES suspende a conta perto de 0,5%
   de reclamação — a campanha pausa por spam **antes** de a conta ser suspensa.
+- **Warmup do domínio (21/09, em `envio.py`, só em modo real):** a abordagem fria
+  nova respeita uma rampa de volume **global** por dia que sobe com a idade do
+  domínio de envio (dia 0: 50/dia; até 2000 na 4ª semana; sem limite após 30 dias).
+  Um domínio novo que dispara no volume cheio no 1º dia vai para spam e não volta —
+  o warmup é a defesa que roda sozinha, no mesmo ponto (`despachar`) dos outros
+  guardrails. Teto global porque há um único domínio de envio hoje. **Resposta a
+  quem já escreveu nunca é barrada** (só abordagem fria), igual à pausa por campanha.
 - Migration `0007` (`messages.retorno`, `reclamacao_spam`, `bounce_registrado`).
 
 ---

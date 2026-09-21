@@ -8,41 +8,64 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-20 (2ª consolidação do dia) · docs reconferidos
-contra o código (**474 testes verdes, 3 pulados; `ruff` limpo**), 14 tabelas,
-migration head `0012` (sem migration nova). Depois da 1ª consolidação (seis
-rotinas, 465 testes) rodaram **mais quatro rotinas de backend**, todas integradas ao
-`main` por rebase: Envio (reclamação de spam com teto próprio, separado do bounce),
-Conversa (acento decomposto/NFD recomposto — mais um opt-out escondido que volta a
-ser visto), Compliance (eliminação alcança também as mensagens do titular) e Margem
-(receita por campanha soma envio e IA, não só revelação). A de Margem entrou no
-`main` enquanto esta consolidação rodava; o rebase a absorveu. Nenhuma decisão de
-produto. Segurança (cobrança, painel de admin, limite de login,
-APP_SECRET obrigatório) e Vercel fecharam em 18/09 — passo a passo do dono em
-[docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
+**Última atualização:** 2026-09-21 · docs reconferidos
+contra o código (**501 testes verdes, 3 pulados — 504 no total; `ruff` limpo**),
+14 tabelas, migration head `0012` (sem migration nova). Depois da consolidação de
+20/09 (474 testes) rodaram **cinco rotinas de backend**, todas integradas ao `main`
+por rebase: Descoberta/IA (`output_config` vai por `extra_body`, não como kwarg do
+SDK 0.69.0), Envio (warmup do domínio freia abordagem fria nova em modo real),
+Conversa (frases inequívocas de opt-out casam no lexical, 1ª leva), Crédito (débito
+que cruza o teto separa base de overage) e Compliance (o acesso do art. 18, II revela
+a lista de supressão). Nenhuma migration, nenhuma decisão de produto. **A de
+Descoberta/IA fechou só metade do 🔴 do SDK:** `anthropic_llm.py` está corrigido, mas
+o gêmeo `anthropic_search.py` ainda passa o kwarg (§0.3, tabela de deploy). Segurança
+(cobrança, painel de admin, limite de login, APP_SECRET obrigatório) e Vercel fecharam
+em 18/09 — passo a passo do dono em [docs/COLOCAR-NO-VERCEL.md](docs/COLOCAR-NO-VERCEL.md)
 
 ---
 
 ## 0. Onde paramos — leia isto antes de qualquer coisa
 
-**Estado em 20/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
-integradas ao `main`**. **474 testes verdes** (3 pulados) e `ruff` limpo,
-reconferidos nesta 2ª consolidação; **migration head em `0012`** (`tentativas_acesso`,
+**Estado em 21/09/2026:** Etapas 0 a 8 fechadas **e as rotinas autônomas
+integradas ao `main`**. **501 testes verdes** (3 pulados; 504 no total) e `ruff` limpo,
+reconferidos nesta consolidação; **migration head em `0012`** (`tentativas_acesso`,
 da segurança de 18/09; sem migration nova) — `upgrade`/`downgrade` nos dois dialetos
-continuam valendo da última verificação com código. A segurança/Vercel de 18/09
-mexeu em backend e acrescentou só `frontend/vercel.json` (nenhuma mudança em
-`frontend/src`), e as correções de rotina de 20/09 foram todas de backend — então o
+continuam valendo da última verificação com código. As cinco correções de rotina de
+21/09 foram todas de backend (nenhuma mudança em `frontend/src`) — então o
 `tsc --noEmit`/build de frontend segue valendo. Tudo publicado: `main` ==
 `origin/main`. Nenhuma chave de API — o sistema inteiro roda em mock.
 
 > Os "340 testes" de 31/08 (Etapas 0–8) viraram 428 com as correções de setembro,
 > 453 com a segurança/Vercel de 18/09, **465** com as seis rotinas da 1ª
-> consolidação de 20/09 (campanha pausada, caractere invisível, Places sem
-> resultados, link na resposta da IA, anonimização de reidentificadores, crédito de
-> overage) e **474** com as quatro rotinas que rodaram depois dela (Envio, Conversa,
-> Compliance, Margem — detalhe na nota abaixo). As rotinas partem de bases diferentes,
-> então o número de cada radar é o da hora dela; o total integrado no `main` é o que
-> vale. Contagem reconferida com `pytest` nesta 2ª passada.
+> consolidação de 20/09, **474** com as quatro rotinas da 2ª consolidação de 20/09
+> (Envio, Conversa, Compliance, Margem) e **501** com as cinco rotinas de 21/09
+> (Descoberta/IA, Envio, Conversa, Crédito, Compliance — detalhe na nota abaixo). As
+> rotinas partem de bases diferentes, então o número na mensagem de cada commit é o
+> da hora dela; o total integrado no `main` é o que vale. Contagem reconferida com
+> `pytest` nesta consolidação.
+
+> **21/09 — cinco correções de backend, todas de rotina.** Todas integraram ao
+> `main` por rebase, sem migration e sem decisão de produto:
+> **Descoberta/IA** (`1e4faed`) — `output_config` deixou de ir como kwarg do SDK
+> `anthropic==0.69.0` (que não tem esse parâmetro e estouraria `TypeError` na
+> **primeira** chamada real de IA) e passou a ir por `extra_body`, com o JSON na rede
+> idêntico; **fecha metade do 🔴 do SDK** — o gêmeo `anthropic_search.py:70` ainda
+> passa o kwarg e ficou **sem dono** (§0.3); **Envio** (`5088dda`) — warmup do domínio:
+> em modo real, a abordagem fria nova respeita uma rampa de volume **global** por dia
+> que sobe com a idade do domínio (dia 0: 50/dia; sem limite após 30 dias); resposta a
+> quem já escreveu nunca é barrada; **Conversa** (`85c9c03`) — frases inequívocas de
+> opt-out ("pare de me enviar", "remova meu e-mail", "opt out"…) passam a casar no
+> lexical, sem depender do LLM; as ambíguas ("cancelar" sozinho) ficam com o LLM de
+> propósito (1ª leva — **fecha o achado que estava aberto na §0.3**); **Crédito**
+> (`419b4ef`) — um débito que cruza o teto do plano separa a parte-base (preço-base) do
+> excedente (overage), em vez de marcar tudo como overage e inflar a margem do painel
+> (**fecha o achado que estava aberto na §0.3**); **Compliance** (`1c51f37`) — o
+> relatório de acesso (art. 18, II) passou a revelar também a lista de supressão
+> (`opt_outs`) que guardamos em caráter permanente, fechando a simetria
+> acesso↔supressão; Política de Privacidade §8 atualizada. **Balanço da §0.3:** dois
+> achados técnicos fechados (frases de opt-out, overage no cruzamento do teto); dois
+> novos abertos — o gêmeo `anthropic_search.py` **sem dono** (tabela de deploy) e o
+> desperdício de IA no meio de uma leva de warmup (Envio, baixo).
 
 > **20/09 (2ª leva) — mais três correções de backend, todas de rotina.** Depois da
 > consolidação das seis abaixo, rodaram e integraram ao `main`: **Envio** (a
@@ -300,10 +323,10 @@ agente não tem. Se a rotina esbarrar em algum, ela para e avisa.
 3. **WhatsApp como canal** (§9 de `docs/IDEIAS.md`) — a maior, e a que mais
    depende do resto estável.
 
-### Branches fora do `main` (verificadas em 20/09)
+### Branches fora do `main` (verificadas em 21/09)
 
 `git branch -r` mostra **só `origin/main`** (e o ponteiro `origin/HEAD`). **Nada a
-integrar à mão.** As rotinas de 18/09 e 20/09 integraram cada commit direto no
+integrar à mão.** As rotinas de 18/09 a 21/09 integraram cada commit direto no
 `main` por rebase e não deixaram branch para trás. As duas `origin/claude/*`
 antigas — cujo conteúdo já estava no `main` — foram apagadas do GitHub em 16/09
 (registro abaixo). Nenhuma `origin/pendente/*`. (A branch `claude/*` desta
@@ -365,7 +388,11 @@ consolidação é local e nunca vai para o `origin`.)
    `services/envio.py`) também compare por hash — Compliance não fecha sozinha.
    **[revisão jurídica]** *(Nota: a correção de 20/09 — eliminação passar a expurgar
    as mensagens do titular — é **coisa diferente**: mexe no que a eliminação
-   **apaga**, não no que a lista de supressão **guarda**. Este item segue aberto.)*
+   **apaga**, não no que a lista de supressão **guarda**. Este item segue aberto.
+   Nota 21/09: o **acesso** passou a **revelar** esse e-mail cru no relatório do
+   titular — disclosure correto, mas deixa mais evidente que ainda guardamos o
+   endereço cru, não o hash; também é sobre o que o acesso **mostra**, não o que a
+   lista **guarda**. Segue aberto.)*
 
 4. **Prazos do titular sem vigia** *(Compliance ↔ rotas/worker)*. `prazo_resposta`
    é gravado e **ninguém lê** para saber se um pedido venceu (`correcao` cai em
@@ -405,11 +432,13 @@ invisíveis para as rotinas donas dos arquivos.
 > burlável** foi travada, o **`/margem/consolidado`** virou admin, o **catálogo de
 > ramos** passou a ser carregado no deploy Vercel e o **`APP_SECRET`** entrou na
 > trava de produção. A tabela abaixo já reflete o estado real, não o do radar.
-> Surgiu também um 🔴 novo que o deploy achou e ninguém fechou: o SDK da Anthropic.
+> O 🔴 que o deploy achou (SDK da Anthropic) foi **meio-fechado em 21/09**:
+> `anthropic_llm.py` corrigido por `extra_body`, `anthropic_search.py` ainda pendente
+> e **sem dono** — virou 🟡 parcial na tabela.
 
 | Estado | Achado | Onde / dono provável |
 |---|---|---|
-| 🔴 **novo** | **SDK da Anthropic fixado recusa a chamada dos adaptadores.** `requirements-prod.txt` fixa `anthropic==0.69.0`, que **não tem** o kwarg `output_config` que `anthropic_llm.py` (`:119`, `:199`) e `anthropic_search.py` passam. Com `LLM_MODE`/`SEARCH_MODE=real`, **nenhuma** função de IA sobe (onboarding, Cérebro, personalização, Motor 4, busca). Confirmado no código em 20/09 (versão ainda `0.69.0`, kwarg ainda passado). Corrigir: subir o SDK para uma versão com `output_config` ou mandar por `extra_body`. `smoke.py llm` avisa o erro exato | `requirements-prod.txt`, `adapters/real/anthropic_*` — Custo/Cérebro |
+| 🟡 **parcial** (era 🔴, 21/09) | **SDK da Anthropic: metade corrigida, metade sem dono.** `anthropic_llm.py` (`completar` `:120`, `orquestrar_descoberta` `:200`) parou de passar `output_config` como kwarg do SDK `anthropic==0.69.0` (que não tem esse parâmetro e estouraria `TypeError` na 1ª chamada real) e passou a mandá-lo por `extra_body` (`1e4faed`, Descoberta) — Cérebro, personalização e Motor 4 **sobem** com `LLM_MODE=real`, com o JSON de rede idêntico. **Sobra `anthropic_search.py:70`** (busca web / sinal de intenção que a personalização usa acima de score 60), que **ainda** passa `output_config={"effort":"low"}` como kwarg → `TypeError` com `SEARCH_MODE=real`. Confirmado no código em 21/09. Descoberta diz que não é seu arquivo; **ninguém o reivindica**. Fix: o mesmo `extra_body`, uma linha | `adapters/real/anthropic_search.py` — **sem dono** (chamado por `personalizacao.py`; radar de deploy o punha em Custo/Cérebro) |
 | ✅ 20/09 | ~~**Catálogo de ramos vazio em produção.**~~ Resolvido no caminho Vercel: `carregar_catalogo()` foi separado do `semear()` (idempotente) e o `scripts/vercel_build.py` roda `alembic upgrade head` **e** `carregar_catalogo` no deploy. (No caminho compose antigo, `SEED_ON_START=false` ainda não carregaria o catálogo no start — só relevante se voltar ao Docker) | `db/seed.py`, `scripts/vercel_build.py` |
 | 🔴 | **Vetores do catálogo sempre do mock.** O seed vetoriza com `FakeLLM` mesmo com `LLM_MODE=real` → o serviço, vetorizado pela OpenAI, é comparado com vetores de outro espaço. Revetorizar com o provedor ativo | `db/seed.py`, `services/cerebro.py` — Descoberta/Cérebro |
 | 🔴 | **Sem base da Receita, nenhum e-mail sai.** O compose aponta para `cnpj_full.csv`, que não existe e não tem importador; `ReceitaLocal` carrega tudo em memória (inviável com o dump de 4 GB). **Nunca** apontar para `cnpj_sample.csv` em produção (e-mails com cara de reais) | `adapters/mock/receita_local.py` — Descoberta |
@@ -424,7 +453,10 @@ invisíveis para as rotinas donas dos arquivos.
 > altos (200/500 por dia) que **anulam as travas `${VAR:?}` e o aquecimento** do
 > compose para quem faz `cp .env.example .env` — domínio novo a 500/dia vai para
 > spam e não volta. Mitigado no `COLOCAR-NO-AR`; a rotina de deploy marcou como o
-> próximo item dela.
+> próximo item dela. *(21/09: o **warmup** em `envio.py` agora freia por **código** a
+> abordagem fria de domínio novo mesmo com limite alto no `.env`, em modo real — não
+> substitui a correção do `.env.example`, mas a rede de segurança deixou de depender
+> só de o operador acertar o arquivo.)*
 
 ### Radar que já não bate com o código
 
@@ -450,57 +482,62 @@ invisíveis para as rotinas donas dos arquivos.
 
 ### Achados técnicos ainda abertos (uma rotina só, sem decisão de fora)
 
-- **Descoberta** *(`"places": null` fechado em 20/09; raio grampeado em 18/09)*:
-  o crash por `"places": null` no topo da resposta foi resolvido (`ca9450e`:
-  `for p in (dados.get("places") or [])`) — **os buracos de crash da conversão do
-  Places estão esgotados**. Sobram, sem crash: `includedType` inválido derruba a
-  consulta (400 do Places) — precisa da lista de tipos válidos da Google; dedup
-  enfraquece para resultado sem `id` (trade-off de qualidade); nomes sujos degradam
-  o match na Receita (medir antes de mexer).
-- **Envio** *(campanha parada fechada em 20/09; teto de reclamação de spam fechado
-  em 20/09, 2ª leva)*: o buraco "`aprovar()` numa conta quebrada pausa mas não freia
-  o próximo clique" **foi fechado** (`5dd97b1`): campanha `PAUSADA`/`FALHOU` não
-  despacha mais **abordagem fria** nova — nem por `aprovar` humano, nem pelo worker
-  (a trava vale só para abordagem fria; resposta a quem já escreveu, Motor 4 auto e
-  manual, não é barrada). E a pausa por reputação deixou de medir bounce e
-  reclamação na mesma régua (`3ff41af`): reclamação de spam tem teto próprio de
-  0,3% (constante de módulo, não `config.py`), a campanha pausa pela taxa combinada
-  (2%) **ou** pela de reclamação. Sobra, sem decisão de fora: promover o teto de
-  reclamação (e uma amostra mínima própria) a `Settings` — mora em `config.py`,
-  conforto de operação, não pré-requisito.
-- **Conversa** *(caractere invisível e acento decomposto/NFD fechados em 20/09)*: os
-  últimos jeitos **conhecidos** de esconder opt-out do casamento lexical foram
-  resolvidos — `remover_invisiveis` (`e81f530`: largura-zero, hífen suave, BOM,
-  inclusive como entidade `&#8203;`) e `recompor_acentos`/NFC (`bec3f86`: "não me
-  envie" em NFD volta a casar), nos dois pontos de classificação. **Achado novo,
-  aberto (20/09, 2ª leva):** várias **frases** comuns de opt-out não casam com sinal
-  lexical nenhum e caem para o LLM — "pare/parem de me enviar", "remova-me da lista",
-  "remova meu e-mail", "não desejo receber", "solicito remoção", "opt out" (só há
-  "unsubscribe"). É direito do titular: cada frase que escapa é alguém que pediu para
-  sair e continua recebendo. O radar de Conversa recomenda fechar as **inequívocas**
-  primeiro, uma leva por execução, deixando as ambíguas ("cancelar" sozinho, que
-  também é "cancelar a reunião") para o LLM — não é transform seguro como a NFD, tem
-  risco dos dois lados. Uma rotina só (`conversa.py`), sem decisão de fora; é o
-  próximo candidato de titular do radar, à frente do `<blockquote>` (negócio).
-  Seguem, de baixo risco: assinatura/rodapé corporativo e bottom-posting poluem a
-  classificação de **negócio** (opt-out varre o texto inteiro, então não some); o
-  `<blockquote>` sem linha de atribuição não é fronteira de citação. **A resposta
-  manual (`responder_manualmente`) leva o link só no cabeçalho** — quando for para o
-  corpo, vale a regra da dependência 2 (rótulo e link na mesma linha).
-- **Custo/Margem** *(margem por campanha corrigida em 20/09, 2ª leva)*: a margem
-  **por campanha** contava o custo inteiro mas só a receita de revelação, porque o
-  filtro casava só `referencia_id` de lead e o envio/sinal-de-intenção referenciam a
-  mensagem (`69f40e7`, `margem.py::_creditos_consumidos` passou a aceitar lead **ou**
-  mensagem da campanha; escopo de usuário inalterado; não mexe no eixo de cobrança,
-  que segue sendo o contato revelado). **Achado novo, aberto (20/09, 2ª leva):** um
-  débito que **atravessa o zero** é marcado 100% como `OVERAGE` (`creditos.py::debitar`
-  faz `overage = creditos < custo` para o lançamento inteiro) — com saldo 1 e uma
-  operação de custo 2 (só `sinal_intencao`), o crédito-base que ainda existia é
-  valorizado ao preço de overage, superestimando um tico a receita/margem. Cenário
-  raro (exige saldo == 1 e op de custo 2) e o certo (1 base + 1 overage num só débito)
-  mexe na **estrutura do ledger** — candidato futuro, com cuidado contábil; uma rotina
-  só (Custo), sem decisão de fora. Baixo risco: `latencia_ms` só no evento de entrada.
-  A tabela de preços de LLM foi reconferida contra a fonte e está atual (Opus 5, Sonnet
+- **Descoberta** *(`output_config` por `extra_body` em 21/09; `"places": null` fechado
+  em 20/09; raio grampeado em 18/09)*: **21/09** — `anthropic_llm.py` deixou de passar
+  `output_config` como kwarg do SDK 0.69.0 e passou a mandá-lo por `extra_body`
+  (`1e4faed`), destravando Cérebro/personalização/Motor 4 com `LLM_MODE=real`; o gêmeo
+  `anthropic_search.py` ficou de fora (não é arquivo de Descoberta) e segue quebrado —
+  ver a tabela de deploy acima. Os buracos de **crash** da conversão do Places seguem
+  esgotados (`ca9450e`). Sobram, sem crash: `includedType` inválido derruba a consulta
+  (400 do Places) — precisa da lista de tipos válidos da Google; dedup enfraquece para
+  resultado sem `id` (trade-off de qualidade); nomes sujos degradam o match na Receita
+  (medir antes de mexer).
+- **Envio** *(warmup do domínio em 21/09; campanha parada e teto de reclamação de spam
+  fechados em 20/09)*: **21/09** — a abordagem fria nova passou a respeitar um **warmup
+  de domínio** (`5088dda`): em modo real, um teto GLOBAL de e-mails/dia que sobe com a
+  idade do domínio (dia 0: 50; sem limite após 30 dias), enforçado em `checar_bloqueios`
+  (via `despachar`, o único caminho de saída); resposta a quem já escreveu nunca é
+  barrada e opt-out continua ganhando. Teto global porque há um único domínio de envio
+  hoje. Já estavam fechados: campanha `PAUSADA`/`FALHOU` não despacha abordagem fria
+  nova (`5dd97b1`) e a reclamação de spam tem teto próprio de 0,3% (`3ff41af`). **Achado
+  novo, aberto (21/09), baixo:** o early-return do `preparar_lote` só evita gerar IA
+  quando o warmup já esgotou no INÍCIO da leva; se estoura no meio (teto 50, 48
+  enviados, leva de 10), os leads além do teto são **redigidos** (custo de IA) e só
+  então bloqueados no despacho — nada sai acima do teto, só se gasta geração. Fechar é
+  um `interrompido_por_aquecimento` no `Lote`. Uma rotina só (Envio), sem decisão de
+  fora — junto com promover os números da rampa e o teto de reclamação a `Settings`
+  (mora em `config.py`, conforto de operação, não pré-requisito).
+- **Conversa** *(invisível e NFD fechados em 20/09; frases inequívocas de opt-out,
+  1ª leva, fechadas em 21/09)*: os jeitos **conhecidos** de esconder o *mesmo* opt-out
+  (largura-zero, hífen suave, BOM, acento em NFD) já estavam cobertos; **21/09 fechou a
+  1ª leva das frases** (`85c9c03`) — "pare/parem de me enviar", "não desejo receber",
+  "remova-me / remova meu e-mail", "solicito remoção", "opt out" passam a casar no
+  lexical, sem depender do LLM. **De propósito ficaram de fora as ambíguas** ("cancelar"
+  sozinho, que também é "cancelar a reunião"): ampliar sinal de opt-out **não** é
+  transform seguro como a NFD (que só revela) — erra dos dois lados —, então a frase
+  ambígua desce para o LLM, com teste conservador fixando o limite. Sobra, uma rotina
+  só (`conversa.py`), sem decisão de fora: **mais levas de frases** se aparecerem, e o
+  próximo candidato de titular do radar passa a ser o `<blockquote>` sem linha de
+  atribuição (negócio, não fronteira de citação). Seguem, de baixo risco:
+  assinatura/rodapé corporativo e bottom-posting poluem a classificação de **negócio**
+  (opt-out varre o texto inteiro, então não some). **A resposta manual
+  (`responder_manualmente`) leva o link só no cabeçalho** — quando for para o corpo,
+  vale a regra da dependência 2 (rótulo e link na mesma linha).
+- **Custo/Margem** *(margem por campanha corrigida em 20/09; débito que cruza o teto
+  fechado em 21/09)*: a margem **por campanha** já soma envio + IA (`69f40e7`), e
+  **21/09 fechou o achado do cruzamento do teto** (`419b4ef`): um débito que
+  atravessava o saldo do plano marcava os **dois** créditos como `OVERAGE`, e o painel
+  via `2 × preço-overage` em vez de `1 base + 1 overage` — margem melhor que a real.
+  Agora `creditos.py::debitar` separa a parte que cabe no saldo (preço-base) do
+  excedente (overage); fora do cruzamento nada muda (mesma parcela única, mesmo
+  `saldo_apos`, mesma auditoria). Não é decisão de preço: base e overage já têm preço
+  no catálogo. O eixo de cobrança segue sendo o **contato revelado**. Sobram, de baixo
+  risco, uma rotina só (Custo), sem decisão de fora: `latencia_ms` só no evento de
+  entrada; `custo_medio_lead_micros` soma os dois baldes enquanto `tokens_por_lead`
+  conta só IA (o que a vitrine mostra é produto). Fora do escopo de Custo: o WhatsApp
+  cobra template de **marketing** ao preço de **utility** (`adapters/real/bsp_whatsapp.py`
+  escolhe a chave; a tabela tem as duas certas) — some com a revalidação da Fase 7. A
+  tabela de preços de LLM foi reconferida contra a fonte e está atual (Opus 5, Sonnet
   5, Haiku 4.5).
 
 ### Bloqueado até a Fase 7 (depende do formato do payload real)
@@ -635,7 +672,7 @@ bloqueio, custo em dois baldes que nunca se misturam (1 = dados, 2 = IA), painel
 de margem, adaptadores reais dos provedores, execução ao vivo por SSE, revisão
 por teclado, paleta de comandos (Ctrl+K), tema claro/escuro.
 
-**474 testes verdes (3 pulados) · lint limpo.**
+**501 testes verdes (3 pulados; 504 no total) · lint limpo.**
 
 ### 3.2 O Motor 4, e a decisão que ele carrega
 
