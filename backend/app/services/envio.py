@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -67,6 +67,48 @@ log = get_logger("envio")
 #: solicitada, nao ameaca a reputacao, e a camada de conversa a decide de proposito
 #: sem olhar o status da campanha.
 CAMPANHA_PARADA = frozenset({StatusCampanha.PAUSADA, StatusCampanha.FALHOU})
+
+#: WARMUP (aquecimento) do dominio de envio. Com SES real, um dominio NOVO que
+#: dispara no volume cheio no primeiro dia vai direto para a caixa de spam, e a
+#: reputacao de dominio NAO volta rapido: ele para de entregar tambem para os
+#: clientes ATUAIS do cliente — a nota fiscal, o orcamento, a resposta ao chamado.
+#: O ativo mais fragil do produto morre pelo proprio produto. A rampa abaixo e a
+#: defesa: limita o volume GLOBAL de ABORDAGEM FRIA por dia pela IDADE do dominio
+#: (dias desde o primeiro e-mail que o sistema enviou), comecando baixo e subindo
+#: ao longo de semanas, como manda a pratica de entregabilidade do SES.
+#:
+#: Teto GLOBAL de e-mails/dia por idade, em pares (dia_minimo, teto). GLOBAL de
+#: proposito: hoje ha um unico dominio de envio (`ses_from_email`), entao o volume
+#: de um cliente conta para o teto de todos — a reputacao que um queima derruba a
+#: entrega de todos. Constante de modulo de proposito: promove-la a `Settings`
+#: tocaria `config.py`, de outro dono; e forte candidata a virar setting quando
+#: alguem mexer la. Numeros de uma rampa conservadora — a reputacao so se ganha
+#: devagar, e errar para baixo custa dias, errar para cima custa o dominio.
+_RAMPA_AQUECIMENTO: tuple[tuple[int, int], ...] = (
+    (0, 50),  # dias 0-1: comeca bem baixo
+    (2, 100),  # dias 2-3
+    (4, 250),  # dias 4-6
+    (7, 500),  # 2a semana
+    (14, 1000),  # 3a semana
+    (21, 2000),  # 4a semana
+)
+#: Passada esta idade (dias desde o 1o envio) o dominio esta aquecido: a rampa nao
+#: limita mais e os tetos por usuario/campanha assumem sozinhos.
+AQUECIMENTO_DIAS = 30
+
+
+def _para_aware_utc(valor: datetime | str) -> datetime:
+    """Normaliza um timestamp vindo do banco para datetime UTC-aware.
+
+    No SQLite, `func.min` sobre uma coluna DateTime pode voltar como string ou
+    como datetime naive (o dialeto nao guarda fuso); no Postgres volta aware.
+    Todos os timestamps nascem de `now()` (UTC), entao um valor naive/str e UTC.
+    """
+    if isinstance(valor, str):
+        valor = datetime.fromisoformat(valor)
+    if valor.tzinfo is None:
+        valor = valor.replace(tzinfo=UTC)
+    return valor
 
 
 @dataclass(slots=True)
@@ -162,6 +204,19 @@ class SendService:
                 campanha=str(campanha.id),
                 status=campanha.status.value,
             )
+            return lote
+        # Warmup do dominio ja esgotado hoje: nao comeca leva AUTOMATICA de
+        # abordagem fria de e-mail — cada mensagem seria redigida (custo de IA) so
+        # para o despacho bloquear em seguida. So vale quando a leva DISPARA agora
+        # (modo automatico); drafts do modo assistido continuam sendo redigidos,
+        # porque a aprovacao humana pode acontecer amanha, com budget disponivel.
+        canal_campanha = campanha.canal_padrao or Canal.EMAIL
+        if (
+            status_inicial is StatusMensagem.APROVADA
+            and canal_campanha is Canal.EMAIL
+            and self._aquecimento_esgotado()
+        ):
+            log.warning("lote_ignorado_aquecimento_dominio", campanha=str(campanha.id))
             return lote
         self.personalizacao.reiniciar_orcamento()
 
@@ -402,6 +457,17 @@ class SendService:
             if campanha is not None and limites["restante_campanha"] <= 0:
                 return Bloqueio("limite_diario_campanha", str(limites["limite_campanha"]))
 
+        # WARMUP do dominio: uma ABORDAGEM FRIA de e-mail em modo real respeita a
+        # rampa de aquecimento (teto GLOBAL/dia pela idade do dominio). So e-mail
+        # (a reputacao e do dominio de envio) e so abordagem fria — resposta a quem
+        # ja escreveu (`abordagem_fria=False`) NUNCA entra aqui, igual a trava de
+        # campanha parada: e solicitada e nao ameaca a reputacao. Em mock nao ha
+        # dominio a proteger, entao a rampa nao vale. So ADICIONA bloqueio.
+        if abordagem_fria and canal is Canal.EMAIL and self._email_em_modo_real():
+            teto = self._teto_de_aquecimento()
+            if teto is not None and self._enviados_email_24h() >= teto:
+                return Bloqueio("aquecimento_dominio", str(teto))
+
         return None
 
     def limites(self, user_id: uuid.UUID, campaign_id: uuid.UUID | None = None) -> dict:
@@ -423,6 +489,65 @@ class SendService:
             "enviadas_campanha_24h": enviadas_campanha,
             "restante_campanha": max(0, limite_campanha - enviadas_campanha),
         }
+
+    # -- warmup do dominio ----------------------------------------------------
+    def _email_em_modo_real(self) -> bool:
+        """A rampa de aquecimento so vale com SES real; em mock nao ha dominio."""
+        return self.settings.mode_for("email") == "real"
+
+    def _idade_do_dominio_em_dias(self) -> int:
+        """Dias desde o PRIMEIRO e-mail que o sistema enviou (idade do dominio).
+
+        A reputacao e do dominio de envio, que hoje e um so (`ses_from_email`),
+        entao a idade e GLOBAL — nao por usuario nem por campanha. Sem nenhum
+        envio ainda, o dominio tem idade zero (dia 1 do warmup).
+        """
+        primeiro = self.session.execute(
+            select(func.min(Message.enviado_em)).where(
+                Message.direcao == Direcao.SAIDA,
+                Message.canal == Canal.EMAIL,
+                Message.enviado_em.is_not(None),
+            )
+        ).scalar_one_or_none()
+        if primeiro is None:
+            return 0
+        return max(0, (now() - _para_aware_utc(primeiro)).days)
+
+    def _teto_de_aquecimento(self) -> int | None:
+        """Teto GLOBAL de e-mails por dia durante o warmup, ou None se ja aquecido."""
+        idade = self._idade_do_dominio_em_dias()
+        if idade >= AQUECIMENTO_DIAS:
+            return None
+        teto = _RAMPA_AQUECIMENTO[0][1]
+        for dia, valor in _RAMPA_AQUECIMENTO:
+            if idade >= dia:
+                teto = valor
+        return teto
+
+    def _enviados_email_24h(self) -> int:
+        """Total GLOBAL de e-mails que sairam nas ultimas 24h (todos os usuarios).
+
+        Warmup e do dominio inteiro: o volume de um cliente conta para o teto de
+        todos, porque a reputacao queimada por um derruba a entrega de todos.
+        """
+        desde = now() - timedelta(days=1)
+        return int(
+            self.session.execute(
+                select(func.count(Message.id)).where(
+                    Message.direcao == Direcao.SAIDA,
+                    Message.canal == Canal.EMAIL,
+                    Message.enviado_em.is_not(None),
+                    Message.enviado_em >= desde,
+                )
+            ).scalar_one()
+        )
+
+    def _aquecimento_esgotado(self) -> bool:
+        """True se o teto de warmup do dia ja foi atingido (so em modo real)."""
+        if not self._email_em_modo_real():
+            return False
+        teto = self._teto_de_aquecimento()
+        return teto is not None and self._enviados_email_24h() >= teto
 
     # -- internos -------------------------------------------------------------
     def _gerar(

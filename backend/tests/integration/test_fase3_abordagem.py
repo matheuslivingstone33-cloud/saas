@@ -494,3 +494,107 @@ def test_pipeline_reporta_metricas_do_motor_3(session, usuario, portas_db) -> No
     assert "motivos_bloqueio" in dados
     assert "sem_contato" in dados
     assert dados["mensagens_geradas"] >= dados["mensagens_enviadas"]
+
+
+# --- Warmup (aquecimento) do dominio de envio --------------------------------
+def _marcar_email_enviado(session, usuario, campanha, sufixo, *, enviado_em=None):  # noqa: ANN001
+    """Insere um e-mail JA ENVIADO, para encher o contador global do warmup."""
+    from app.core.ids import now
+    from app.models.enums import Direcao
+    from app.models.message import Message
+
+    msg = Message(
+        user_id=usuario.id,
+        campaign_id=campanha.id,
+        canal=Canal.EMAIL,
+        direcao=Direcao.SAIDA,
+        status=StatusMensagem.ENVIADA,
+        destinatario=f"enviado{sufixo}@exemplo.com.br",
+        corpo="x",
+        enviado_em=enviado_em or now(),
+    )
+    session.add(msg)
+    session.flush()
+    return msg
+
+
+def test_leva_automatica_respeita_o_warmup_do_dominio(
+    session, usuario, portas_db, settings, monkeypatch
+) -> None:
+    """Dominio novo em modo real: a leva automatica para no teto do warmup.
+
+    Sem a rampa, um dominio recem-criado dispararia o volume cheio no primeiro
+    dia e iria direto para spam — e reputacao de dominio nao volta. Com o teto do
+    dia 0 rebaixado para 2, so 2 abordagens frias saem e as demais sao barradas.
+    """
+    from app.services import envio as envio_mod
+
+    monkeypatch.setattr(envio_mod, "_RAMPA_AQUECIMENTO", ((0, 2),))
+    real = settings.model_copy(update={"email_mode": "real"})
+    campanha = _campanha(session, usuario, nome="Warmup", nivel=NivelAutonomia.AUTOMATICO)
+    leads = [_lead_qualificado(session, usuario, campanha, s) for s in ("01", "02", "03", "04")]
+
+    antes = len(list(settings.outbox_path.glob("*.json")))
+    lote = SendService(session, portas_db, settings=real).preparar_lote(campanha, leads, None)
+
+    assert lote.enviadas == 2, "so o teto do warmup (2) pode sair no dia 0"
+    assert lote.motivos_bloqueio.get("aquecimento_dominio", 0) >= 1
+    depois = len(list(settings.outbox_path.glob("*.json")))
+    assert depois - antes == 2, "nada acima do teto do warmup vai para o outbox"
+
+
+def test_warmup_barra_abordagem_fria_mas_nao_resposta(
+    session, usuario, portas_db, settings, monkeypatch
+) -> None:
+    """A rampa vale so para ABORDAGEM FRIA e so em modo real.
+
+    Resposta a quem ja escreveu (`abordagem_fria=False`) nao ameaca a reputacao e
+    perde o lead engajado se barrada — a mesma regra da pausa por campanha. E em
+    mock nao ha dominio a proteger, entao nem a abordagem fria e barrada.
+    """
+    from app.services import envio as envio_mod
+
+    monkeypatch.setattr(envio_mod, "_RAMPA_AQUECIMENTO", ((0, 1),))
+    real = settings.model_copy(update={"email_mode": "real"})
+    campanha = _campanha(session, usuario, nome="Warmup flag", nivel=NivelAutonomia.AUTOMATICO)
+    lead = _lead_qualificado(session, usuario, campanha, "88")
+    destino = lead.email.strip().lower()
+    _marcar_email_enviado(session, usuario, campanha, "89")  # esgota o teto do dia (1)
+
+    envio = SendService(session, portas_db, settings=real)
+    com_flag = envio.checar_bloqueios(campanha, lead, destino, abordagem_fria=True)
+    assert com_flag is not None and com_flag.motivo == "aquecimento_dominio"
+    sem_flag = envio.checar_bloqueios(campanha, lead, destino)
+    assert sem_flag is None or sem_flag.motivo != "aquecimento_dominio"
+
+    mock = SendService(session, portas_db, settings=settings)
+    mock_bloqueio = mock.checar_bloqueios(campanha, lead, destino, abordagem_fria=True)
+    assert mock_bloqueio is None or mock_bloqueio.motivo != "aquecimento_dominio"
+
+
+def test_teto_do_warmup_sobe_com_a_idade_do_dominio(
+    session, usuario, portas_db, settings
+) -> None:
+    """A rampa padrao sobe com a idade do dominio e some depois de aquecido.
+
+    Cobre tambem a normalizacao do timestamp que volta do banco (naive/str no
+    SQLite): sem ela, `now() - primeiro_envio` estouraria.
+    """
+    from datetime import timedelta
+
+    from app.core.ids import now
+
+    real = settings.model_copy(update={"email_mode": "real"})
+    envio = SendService(session, portas_db, settings=real)
+    campanha = _campanha(session, usuario, nome="Idade dominio")
+
+    assert envio._idade_do_dominio_em_dias() == 0
+    assert envio._teto_de_aquecimento() == 50  # dia 0: base da rampa
+
+    _marcar_email_enviado(session, usuario, campanha, "70", enviado_em=now() - timedelta(days=10))
+    assert envio._idade_do_dominio_em_dias() == 10
+    assert envio._teto_de_aquecimento() == 500  # >= 7 dias
+
+    _marcar_email_enviado(session, usuario, campanha, "71", enviado_em=now() - timedelta(days=31))
+    assert envio._idade_do_dominio_em_dias() == 31
+    assert envio._teto_de_aquecimento() is None  # dominio aquecido: rampa nao limita

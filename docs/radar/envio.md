@@ -26,9 +26,131 @@
 > `personalizacao.py`, `entregabilidade.py`,
 > `backend/app/adapters/real/ses_email.py` e os testes correspondentes.
 
-**Última execução:** 2026-09-20 · a taxa de RECLAMAÇÃO de spam ganhou teto
-próprio, bem mais baixo que o de bounce — a campanha pausa por spam antes de a
-conta ser suspensa, e não depois.
+**Última execução:** 2026-09-21 · o domínio de envio agora tem WARMUP
+(aquecimento): em modo real, a abordagem fria por e-mail respeita uma rampa de
+volume global por dia pela idade do domínio — um domínio novo não dispara mais o
+volume cheio no primeiro dia e não queima a reputação antes de começar.
+
+---
+
+## 2026-09-21 — WARMUP do domínio: abordagem fria nova respeita uma rampa de volume
+
+### O que corrigi (com teste)
+
+**Com SES real, uma abordagem fria de e-mail agora respeita a rampa de
+aquecimento do domínio: há um teto GLOBAL de e-mails por dia que sobe com a idade
+do domínio (dias desde o primeiro envio do sistema).** Um domínio recém-criado
+começa baixo (dia 0: 50/dia) e sobe ao longo de semanas até, passados 30 dias,
+não limitar mais — aí os tetos por usuário/campanha assumem sozinhos.
+
+Por que este é o maior risco de envio que fechava inteiro no meu escopo: o ativo
+mais frágil do produto é a **reputação do domínio de envio**, e o jeito mais
+comum de matá-la é o oposto de um bug — é o caminho feliz rodando cedo demais.
+Um domínio novo que dispara no volume cheio (hoje até 500/usuário/dia) no
+primeiro dia vai direto para spam, e reputação de domínio **não volta**: ele para
+de entregar também para os clientes ATUAIS do cliente (nota fiscal, orçamento,
+resposta ao chamado). O `.env.example` já era uma armadilha conhecida (o radar de
+deploy anotou: "domínio novo a 500/dia vai para spam e não volta"), e o warmup
+era, até aqui, só uma linha de checklist no docstring do SES e uma esperança de
+que o operador subisse os limites do compose à mão. Agora é código: uma defesa
+que roda sozinha, no mesmo ponto de estrangulamento dos outros guardrails.
+
+**A decisão de desenho, resolvida — e por que não abre exceção a nada:**
+
+- **Só ABORDAGEM FRIA entra na conta.** Reusei a flag `abordagem_fria` que a
+  trava de campanha parada (20/09) já introduziu: `checar_bloqueios` só aplica a
+  rampa quando `abordagem_fria=True`. Resposta a quem já escreveu (Motor 4 auto e
+  manual, `abordagem_fria=False`) **nunca** é barrada pelo warmup — ela é
+  solicitada, não ameaça a reputação, e bloqueá-la perderia o lead engajado no
+  pior momento. É a mesma regra da pausa por campanha, de propósito.
+- **Só em modo real.** Em mock não há domínio a proteger, então a rampa não vale
+  — a suíte inteira (que roda em mock) não muda uma linha de comportamento. O
+  gate é `settings.mode_for("email") == "real"`, não o `.modo` do adaptador: os
+  testes de falha síncrona injetam um `_EmailQueFalha` com `modo="real"` e
+  continuariam mock pelo settings, intactos.
+- **Teto GLOBAL, não por usuário.** Hoje há um único domínio de envio
+  (`ses_from_email`), então o volume de um cliente conta para o teto de todos — a
+  reputação que um queima derruba a entrega de todos. Modelar per-usuário deixaria
+  N clientes somarem N×teto no dia 1, que é exatamente o que a rampa existe para
+  impedir.
+- **Só ADICIONA bloqueio, nunca remove.** Opt-out continua sendo checado antes e
+  sempre ganha; o warmup é um freio a mais para abordagem fria, jamais uma
+  exceção a opt-out ou a qualquer guardrail.
+
+Como ficou, tudo em `envio.py` (só meu):
+
+- `_RAMPA_AQUECIMENTO` (constante de módulo) — pares `(dia_mínimo, teto)`:
+  `(0,50) (2,100) (4,250) (7,500) (14,1000) (21,2000)`; `AQUECIMENTO_DIAS = 30`.
+  Constante de módulo de propósito (mesmo motivo do `RECLAMACAO_TAXA_MAXIMA`):
+  promovê-la a `Settings` tocaria `config.py`, de outro dono — é forte candidata a
+  virar setting quando alguém mexer lá.
+- `_idade_do_dominio_em_dias`, `_teto_de_aquecimento`, `_enviados_email_24h`,
+  `_aquecimento_esgotado`, `_email_em_modo_real` — helpers que calculam a idade
+  do domínio (min `enviado_em` global), o teto do dia e o volume das últimas 24h.
+- `checar_bloqueios` — devolve `Bloqueio("aquecimento_dominio", <teto>)` para
+  abordagem fria de e-mail em modo real quando o volume do dia atinge o teto.
+  Como `despachar` é o único caminho de saída e já passa `abordagem_fria`, isso
+  vale para o disparo automático, o `aprovar` humano e o worker sem tocar em
+  `cadencia.py` nem `conversa.py`.
+- `preparar_lote` — porta da frente: se o warmup já está esgotado, uma leva
+  **automática** de e-mail retorna vazia **sem redigir** (não queima IA para o
+  despacho bloquear em seguida). Drafts do modo **assistido** continuam sendo
+  redigidos, porque a aprovação humana pode ser amanhã, com budget disponível.
+- `_para_aware_utc` — normaliza o timestamp que volta do banco (naive/string no
+  SQLite, aware no Postgres) antes de `now() - primeiro`, senão a conta de idade
+  estouraria.
+
+`SendService` segue o único caminho de saída e opt-out segue terminal: esta
+mudança só **antecipa** um bloqueio automático de abordagem fria, nunca abre
+exceção.
+
+Testes: 3 novos em `test_fase3_abordagem.py` — a leva automática em modo real
+para no teto do dia (rampa rebaixada a 2: só 2 saem, o resto é barrado e não vai
+ao outbox); a flag distingue abordagem fria (barrada) de resposta (passa), e em
+mock nem a abordagem fria é barrada; e a rampa sobe com a idade do domínio (dia
+0 → 50, 10 dias → 500, 31 dias → sem limite), cobrindo a normalização do
+timestamp. Verificado que **falham antes** (sem os métodos/constantes) e
+**passam depois**. **477 passed, 3 skipped; `ruff` limpo.**
+
+### O que achei e NÃO corrigi (uma coisa por execução)
+
+1. **Desperdício de IA no MEIO de uma leva automática (não no começo).** O
+   early-return do `preparar_lote` só dispara quando o warmup já está esgotado ao
+   INÍCIO da leva. Se a leva começa com budget e o estoura no meio (ex.: teto 50,
+   48 já enviados, leva de 10), os leads além do teto são **redigidos** (custo de
+   IA) e só então bloqueados no despacho. Nada sai acima do teto — a segurança
+   está inteira —, o custo é só de geração. Fechar isso é um `interrompido_por_aquecimento`
+   no `Lote` que quebra a leva no primeiro bloqueio de warmup, espelhando o
+   `interrompido_por_conta`; deixei para uma próxima execução por ser +1 campo e
+   +2 pontos de `break`, e "uma coisa por execução".
+2. **🔴 O "descadastro de 1 clique" NÃO é o one-click do RFC 8058** (herdado,
+   segue aberto). Falta `List-Unsubscribe-Post: List-Unsubscribe=One-Click` **e**
+   a rota `/descadastro/{token}` aceitar POST (arquivo de outro dono). Pôr só o
+   header agora seria pior (POST one-click → 405). Ver "O que depende de outros".
+3. **A supressão por endereço morto grava o e-mail cru** (herdado). Minimizar para
+   hash exige a **consulta** de opt-out por hash (`repositories/misc.py`), fora do
+   meu escopo. Registrado para casar com Compliance.
+4. **Bounce `Undetermined` → `transitorio` (não suprime).** Escolha conservadora e
+   reversível, herdada; confirmar com produto/ops se o volume for alto.
+
+### O que depende de outros
+
+- **Números da rampa e "domínio por cliente" são candidatos a decisão de
+  produto/ops, não a bug.** Escolhi uma rampa conservadora padrão de SES e um
+  teto GLOBAL (um único domínio de envio hoje). Se o produto passar a enviar de um
+  domínio POR cliente (identidade SES própria por conta), a idade e o teto viram
+  per-domínio — mexe na base do cálculo. E promover a rampa a `Settings` mora em
+  `config.py` (outro dono). Nada disso é pré-requisito: a defesa já roda; virar
+  setting/por-domínio é conforto e evolução.
+- **One-click do RFC 8058** (Envio ↔ dono das rotas): o header é meu e trivial; o
+  endpoint POST em `api/routes/compliance.py` não é. Sobem **juntos**, senão o
+  descadastro quebra (405). Sem mudança nesta execução.
+- **Retorno assíncrono do SNS** (item 8) segue testado por contrato e sem rota que
+  o chame (verificar assinatura X.509 do SNS + confirmar inscrição, em
+  `api/routes/entregabilidade.py`) — sem mudança nesta execução. Nota: o warmup
+  freia o volume que SAI; o SNS é o que traz de volta o bounce/reclamação que
+  mede se o warmup está funcionando. As duas peças se completam quando a rota
+  existir.
 
 ---
 
