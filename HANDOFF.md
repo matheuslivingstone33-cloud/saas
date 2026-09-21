@@ -8,7 +8,13 @@
 > Um handoff desatualizado é pior que nenhum, porque leva a decisão errada com
 > ar de confiança.
 
-**Última atualização:** 2026-09-21 · docs reconferidos
+**Última atualização:** 2026-09-21 (noite) · **revisão do que as rotinas fizeram de
+18 a 21/09** — quatro revisores leram os 20 commits por área e cada achado foi provado
+com teste; 529 testes verdes. Ver "Revisão de 21/09" logo abaixo antes de mexer em
+conversa, envio, crédito ou compliance. O parágrafo seguinte é da consolidação da
+manhã e ficou parcialmente superado (o `anthropic_search.py` já foi corrigido).
+
+**Consolidação da manhã de 21/09:** docs reconferidos
 contra o código (**501 testes verdes, 3 pulados — 504 no total; `ruff` limpo**),
 14 tabelas, migration head `0012` (sem migration nova). Depois da consolidação de
 20/09 (474 testes) rodaram **cinco rotinas de backend**, todas integradas ao `main`
@@ -174,6 +180,42 @@ depois de um `git pull` sobe container novo com código velho. Reinicia sem erro
 e parece atualizado.
 
 ---
+
+### Revisão de 21/09 — o que as rotinas quebraram e foi consertado
+
+Cinco commits de correção no `main` (`4f800ba`, `77fb729`, `ee13f83`, `ae27df6`,
+mais este handoff). Cada teste novo falhava antes da correção.
+
+| Área | O que estava errado | Commit |
+|---|---|---|
+| Conversa | 🔴 frases novas de opt-out (85c9c03) eram pedaço solto de texto: "preciso **remover meu** ar-condicionado", "**solicito a remoção** do entulho", "**não desejo receber** ligações, prefiro e-mail", "vocês têm **opt-out**?", rodapé em inglês da assinatura e "**não me remova** da lista" viravam opt-out — terminal. Agora exigem o próprio contato como objeto (`_RE_OPT_OUT_EXPLICITO`) e o "não" antes anula. Também: regex quadrática em `html_para_texto` | `4f800ba` |
+| Crédito | plano gratuito ligava overage e revelava contato de graça (saldo negativo, receita zero) | `77fb729` |
+| Envio | 🔴 pausa por reputação quase nunca acontecia (CONCLUIDA não podia virar PAUSADA; a cadência seguia); bloqueio temporário (campanha parada, limite do dia, aquecimento) virava BLOQUEADA e matava a mensagem — lead cobrado nunca abordado, toque congelado, fila aprovada destruída na pausa; mensagem manual a quem nunca respondeu furava pausa e aquecimento | `ee13f83` |
+| Compliance | eliminação não achava lead/resposta gravados com maiúsculas; `gancho`/`sinais` (nome da empresa) sobreviviam nos metadados; relatório de acesso antigo guardava tudo; trilha guardava `place_id` e remetente crus; retenção nunca anonimizava lead sem e-mail | `ae27df6` |
+| IA real | `anthropic_search.py` ainda passava `output_config` como kwarg (TypeError com o SDK 0.69.0) | `ae27df6` |
+
+**Descartado:** `b64b700` (Descoberta, `"places": null`) ficou numa cópia sem ir ao
+`main` — é idêntico ao `ca9450e`, que já está lá.
+
+**Achados que ficaram abertos (decisão ou trabalho de rotina):**
+
+- **Crédito/margem (Custo):** a receita valoriza o histórico pelo plano **atual** —
+  trocar de plano muda a receita passada; o que decide overage é o **saldo**, não o
+  teto de contatos; o overage vira saldo negativo que a renovação desconta de novo
+  (cobrança dupla se o overage for faturado à parte — **decisão de produto**);
+  diferença de 1 centavo entre a soma das campanhas e o total.
+- **Envio:** a reputação é medida por campanha, mas o SES mede a conta inteira;
+  ela só é recalculada quando chega um retorno; a idade do domínio para o
+  aquecimento conta o primeiro envio em qualquer modo (inclusive mock).
+- **Compliance:** o acesso devolve ao titular o `motivo` que o cliente escreveu no
+  descadastro manual (**decisão**); o e-mail mascarado mantém o domínio, que
+  identifica a empresa (**revisão jurídica**); eliminação pedida por e-mail não
+  alcança mensagens de WhatsApp do mesmo lead.
+- **Conversa:** ainda escapam para o LLM "Não quero mais receber e-mails", "Parem de
+  mandar e-mail", hífen não-ASCII e marcas de direção Unicode no meio da palavra.
+- **Rotinas:** continuam fazendo fast-forward na pasta principal
+  (`C:\Users\User\saas`) depois de salvar, apesar da proibição no prompt. Inofensivo
+  com a pasta limpa; risco se houver trabalho aberto nela.
 
 ### As rotinas foram integradas — 15/09/2026
 
