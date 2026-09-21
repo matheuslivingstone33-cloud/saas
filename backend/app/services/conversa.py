@@ -146,6 +146,19 @@ _SINAIS: list[tuple[Intencao, tuple[str, ...]]] = [
             "nao quero receber", "não quero receber", "parar de receber",
             "cancelar inscricao", "cancelar inscrição", "unsubscribe",
             "sair da lista", "nao me envie", "não me envie",
+            # Frases inequivocas de saida que antes escapavam para o LLM. Cada
+            # uma e um pedido CLARO de parar de receber ou de ser removido —
+            # nenhuma cabe num lead interessado. As ambiguas ("cancelar" sozinho,
+            # que tambem e "cancelar a reuniao") ficam de fora, com o LLM: la o
+            # risco e dos dois lados; aqui o pedido do titular e explicito.
+            "pare de me enviar", "parem de me enviar",
+            "pare de me mandar", "parem de me mandar",
+            "nao desejo receber", "não desejo receber",
+            "remova-me", "me remova", "remover-me",
+            "remova meu", "remova o meu", "remover meu", "remover o meu",
+            "solicito remocao", "solicito remoção",
+            "solicito a remocao", "solicito a remoção",
+            "opt out", "opt-out",
         ),
     ),
     (

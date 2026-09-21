@@ -808,3 +808,85 @@ def test_opt_out_com_acento_decomposto_encerra_e_suprime_ponta_a_ponta(
         select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
     ).scalar_one_or_none()
     assert supressao is not None
+
+
+# --- Texto real: frases inequivocas de opt-out -------------------------------
+# Depois de decodificar QP/HTML, tirar invisiveis e recompor acento, o texto ja
+# chega legivel. Sobra a cobertura das FRASES: varias formas comuns de pedir
+# saida nao casavam com sinal nenhum e caiam para o LLM — "pare de me enviar",
+# "remova-me da lista", "remova meu e-mail", "nao desejo receber", "solicito
+# remocao", "opt out" (so havia "unsubscribe"). E direito do titular: cada frase
+# que escapa e alguem que pediu para sair e continua recebendo. Fechamos as
+# INEQUIVOCAS (pedido claro de parar de receber / de ser removido). As ambiguas
+# ("cancelar" sozinho, que tambem e "cancelar a reuniao") ficam com o LLM: nao e
+# transform seguro como o NFC, tem risco dos dois lados.
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Por favor, pare de me enviar e-mails.",
+        "Parem de me enviar mensagens.",
+        "Pare de me mandar propostas.",
+        "Parem de me mandar isso.",
+        "Não desejo receber mais contato de voces.",
+        "Nao desejo receber mais e-mails.",
+        "Remova-me da lista, obrigado.",
+        "Me remova da base de contatos.",
+        "Favor remover meu e-mail do cadastro.",
+        "Remova meu contato, por gentileza.",
+        "Peço para remover o meu e-mail.",
+        "Favor remover-me da base.",
+        "Solicito a remoção do meu contato da base.",
+        "Solicito remocao da base de dados.",
+        "Quero opt out desta lista.",
+        "Please opt-out me from this list.",
+    ],
+)
+def test_frases_de_opt_out_inequivocas_sao_reconhecidas(texto: str) -> None:
+    """Cada frase clara de saida vira PEDIDO_OPT_OUT no lexical, sem depender do LLM.
+
+    Antes desta leva todas caiam para None (nenhuma marca casava) e o pedido de
+    saida ficava nas maos do modelo — direito do titular dependendo de acerto de
+    interpretacao.
+    """
+    assert classificar_por_sinal(texto) is Intencao.PEDIDO_OPT_OUT
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Podemos cancelar a reunião de amanhã?",
+        "Precisei cancelar o horário, remarcamos?",
+    ],
+)
+def test_cancelar_sozinho_nao_e_opt_out_no_lexical(texto: str) -> None:
+    """"Cancelar" sozinho e ambiguo (a reuniao, o horario) — fica com o LLM.
+
+    Adicionar "cancelar" como marca de opt-out geraria falso opt-out: suprimir um
+    lead que so quis remarcar. O lado seguro de errar aqui NAO e suprimir; por isso
+    a frase ambigua nao casa com sinal e desce para o modelo decidir."""
+    assert classificar_por_sinal(texto) is not Intencao.PEDIDO_OPT_OUT
+
+
+def test_frase_de_opt_out_apos_citacao_nao_se_perde() -> None:
+    """Escrita embaixo do historico citado, a frase nova de saida ainda e pega —
+    opt-out varre o texto inteiro, nao so a resposta nova."""
+    corpo = "> Podemos agendar uma visita?\nRemova meu e-mail, por favor."
+    assert classificar_por_sinal(corpo) is Intencao.PEDIDO_OPT_OUT
+
+
+def test_nova_frase_de_opt_out_encerra_e_suprime_ponta_a_ponta(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """Ponta a ponta: "remova meu e-mail" suprime e para, como "descadastrar"."""
+    r = ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="Por favor, remova meu e-mail da lista."
+    )
+    assert r.intencao is Intencao.PEDIDO_OPT_OUT
+    assert r.encerrou and not r.respondeu
+    assert lead_abordado.status is StatusLead.OPT_OUT
+    supressao = session.execute(
+        select(OptOut).where(OptOut.contato_normalizado == lead_abordado.email)
+    ).scalar_one_or_none()
+    assert supressao is not None

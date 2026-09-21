@@ -34,11 +34,62 @@ dastrar` viram opt-out. Teste novo: o **nosso link partido por soft break** tamb
 > **Regra que não se negocia:** em caso de dúvida, o direito do titular ganha
 > do negócio. Opt-out duvidoso é opt-out.
 
-**Última execução:** 2026-09-20
+**Última execução:** 2026-09-21
 
 ---
 
-## O que corrigiu nesta execução (2026-09-20) — acento decomposto (NFD)
+## O que corrigiu nesta execução (2026-09-21) — frases inequívocas de opt-out
+
+**Frases comuns de pedido de saída passaram a casar no sinal lexical, sem
+depender do LLM.** (`services/conversa.py`)
+
+Era o próximo candidato de **direito do titular** da fila (item 8), à frente do
+`<blockquote>` sem atribuição (que é negócio) — como manda a regra: em dúvida, o
+direito do titular ganha do negócio. Com QP, HTML, invisíveis e NFC fechados nas
+execuções anteriores, os jeitos de o *mesmo* texto esconder uma marca estavam
+cobertos; faltava a **cobertura das frases** — formas de dizer a mesma coisa que
+simplesmente não estavam na lista de sinais.
+
+O caso: sondando o classificador com texto real, várias formas inequívocas de
+pedir saída **não casavam com sinal nenhum** e caíam para o LLM — "pare/parem de
+me enviar", "não desejo receber", "remova-me / remova meu e-mail", "solicito
+remoção", "opt out" (só havia "unsubscribe"). É o pior caso de sempre em versão
+mais silenciosa: o pedido de saída não some, mas fica dependendo do acerto de
+interpretação do modelo, quando podia ser terminal e barato no lexical. Confirmei
+ponta a ponta antes: "Por favor, remova meu e-mail da lista." era classificado
+como `dúvida` e **gerava resposta** (aguardando aprovação), em vez de suprimir.
+
+O que mudou:
+
+- **Novos sinais em `_SINAIS[PEDIDO_OPT_OUT]`** — só as frases **inequívocas** de
+  parar de receber / ser removido: `pare/parem de me enviar`, `pare/parem de me
+  mandar`, `nao/não desejo receber`, `remova-me`, `me remova`, `remover-me`,
+  `remova/remover (o) meu`, `solicito (a) remocao/remoção`, `opt out`, `opt-out`.
+  Cada uma acompanha a variante com e sem acento, como o resto da lista.
+- **De propósito ficaram de fora as ambíguas.** "Cancelar" sozinho é o exemplo:
+  também é "cancelar a reunião". Adicioná-lo geraria **falso opt-out** — suprimir
+  um lead que só quis remarcar. Ampliar sinal de opt-out **não** é transform
+  seguro como o NFC (que só revela): tem risco dos dois lados. Aqui o lado seguro
+  de errar não é suprimir; por isso a frase ambígua não casa e desce para o LLM.
+- **Nada mais mudou.** Opt-out continua varrendo o texto **inteiro** (menos a
+  linha do nosso `/descadastro/`), então uma frase nova escrita embaixo da
+  citação continua sendo pega. Nenhuma das novas frases aparece na nossa
+  declaração de IA nem no `LINHA_DESCADASTRO` — não há novo risco de o nosso
+  próprio rodapé citado virar opt-out (o item 6 segue como estava).
+
+Testes novos (em `test_motor4_conversa.py`), os de opt-out falhando antes
+(`None`/`dúvida`) e passando depois, mais os dois conservadores:
+`test_frases_de_opt_out_inequivocas_sao_reconhecidas` (16 frases parametrizadas),
+`test_cancelar_sozinho_nao_e_opt_out_no_lexical` (o lado conservador, 2 casos),
+`test_frase_de_opt_out_apos_citacao_nao_se_perde` e
+`test_nova_frase_de_opt_out_encerra_e_suprime_ponta_a_ponta`.
+**496 passed, 3 skipped; `ruff` limpo.**
+
+`cadencia.py` e `webhook.py` não foram tocados — a correção foi toda no Motor 4.
+
+---
+
+## O que corrigiu na execução de 2026-09-20 — acento decomposto (NFD)
 
 **Acento decomposto (NFD) escondia opt-out do casamento lexical.**
 (`services/conversa.py`)
@@ -378,23 +429,22 @@ Em ordem sugerida — do que mais protege titular/negócio ao mais cosmético.
    regra é fácil, mas cada padrão novo é risco de cortar resposta legítima —
    por isso ficou de fora do corte conservador desta execução.
 
-8. **Cobertura de frases de opt-out (achado novo em 20/09, NÃO corrigido).** Ao
-   sondar o classificador com texto real, várias formas comuns de pedir saída
-   **não** casam com nenhum sinal e caem para o LLM: "pare/parem de me enviar",
-   "remova-me da lista", "remova meu e-mail", "favor remover meu contato", "não
-   desejo receber", "solicito remoção da base", "opt out" (só temos
-   "unsubscribe"). Isso é **direito do titular** — cada uma que escapa é alguém
-   que pediu para sair e continua recebendo. **Por que não fechei junto:** a
-   NFD já era a "uma coisa" desta execução, e ampliar sinais não é um transform
-   seguro como a NFD — é caso a caso e tem risco dos dois lados. "descadastr"
-   pega tudo com o radical, mas "quero cancelar" é ambíguo ("cancelar a
-   reunião"), então adicionar demais gera falso opt-out (suprime lead por
-   engano); adicionar de menos deixa titular sem saída. **Recomendo** fechar as
-   inequívocas primeiro ("pare/parem de me enviar", "remova-me/remova meu",
-   "não desejo receber", "opt out", "solicito remoção"), uma leva por execução,
-   deixando as ambíguas ("cancelar" sozinho) para o LLM. Não inventei os
-   padrões aqui para não juntar duas coisas — fica registrado como o **próximo
-   candidato de titular**, à frente do `<blockquote>` (negócio).
+8. ✅ **RESOLVIDO (1ª leva) em 2026-09-21 — frases inequívocas de opt-out.** As
+   formas claras de pedir saída que caíam para o LLM agora casam no sinal
+   lexical: "pare/parem de me enviar", "pare/parem de me mandar", "não desejo
+   receber", "remova-me", "me remova", "remover-me", "remova/remover (o) meu",
+   "solicito (a) remoção", "opt out", "opt-out" (ver "O que corrigiu nesta
+   execução (2026-09-21)" acima). É direito do titular; por isso entrou à frente
+   do `<blockquote>` (negócio).
+
+   **O que ficou de fora, de propósito — as ambíguas.** "Cancelar" sozinho é o
+   caso: também é "cancelar a reunião". Ampliar sinal de opt-out **não** é
+   transform seguro como a NFD (que só revela) — tem risco dos dois lados: de
+   mais suprime lead que só quis remarcar, de menos deixa titular sem saída. As
+   ambíguas seguem com o LLM (há teste conservador fixando que "cancelar"
+   sozinho **não** vira opt-out no lexical). Se aparecer uma nova frase
+   **inequívoca** ao sondar texto real, é uma leva futura — não misturar com
+   ambígua na mesma execução.
 
 `cadencia.py` e `webhook.py` **não foram tocados** nesta execução — a correção
 foi toda no Motor 4. Nada pendente identificado dentro deles além do que a
