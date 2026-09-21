@@ -32,6 +32,64 @@
 
 ## Histórico de execuções
 
+### 2026-09-21 — `output_config` como kwarg derrubava TODA chamada real de IA
+
+**Corrigido.** Em `anthropic_llm.py`, `completar` (`:120`) e
+`orquestrar_descoberta` (`:200`) chamavam `self.cliente.messages.create(...,
+output_config={"effort": ...})`. O SDK fixado — `anthropic==0.69.0`
+(`requirements-prod.txt`, `pyproject.toml`) — **não tem** o parâmetro
+`output_config`: passá-lo como kwarg estoura
+`TypeError: unexpected keyword argument 'output_config'` **antes** de a
+requisição sair. Confirmado no SDK instalado (`inspect.signature`): `create`
+aceita `thinking`, `extra_body`, `tools` etc., mas não `output_config`, e não há
+`**kwargs` para absorver o desconhecido.
+
+Por que importa na virada: no dia de `LLM_MODE=real`, isso não é um resultado
+sujo entre 20 — é a **primeira** `create` de cada função de IA que morre.
+`orquestrar_descoberta` é o loop de tool use do **Cérebro** (Motor 2), a origem
+dos termos e CNAEs de toda a Descoberta; `completar` alimenta personalização e o
+Motor 4. Com o kwarg, nenhuma sobe. Era o 🔴 que o radar de **deploy** achou e
+ninguém do meu lado tinha fechado (HANDOFF §0.3, tabela de deploy).
+
+Por que os testes não pegavam: o dublê `_MessagesFake` dos testes de contrato
+faz `create(**kwargs)` — aceita qualquer coisa, inclusive o kwarg que o SDK real
+recusa. Verde por cima de chamada que quebraria em `real` — exatamente a
+armadilha que o HANDOFF cobra ("cobertura verde sobre código que nunca rodou").
+
+A correção é a sancionada pelo próprio radar de deploy ("mandar por
+`extra_body`"): o effort vai em `extra_body={"output_config": {"effort": ...}}`,
+que o SDK injeta no **corpo cru** sem validar como kwarg. O JSON na rede fica
+**idêntico** ao que o kwarg produziria — só muda o caminho até lá. Quando o SDK
+subir para uma versão que modele `output_config`, dá para voltar ao kwarg (nota
+no docstring do módulo). Não mexi em `thinking={"type": "adaptive"}`: esse **é**
+parâmetro do SDK 0.69.0 e o radar de deploy não o aponta.
+
+Testes: um dublê estrito novo (`_MessagesFakeEstrito`) que **espelha a assinatura
+do SDK** — aceita `extra_body`, recusa `output_config` — e dois testes
+(`test_completar_manda_output_config_por_extra_body_e_nao_como_kwarg`,
+`test_orquestrar_manda_output_config_por_extra_body`) que estouravam `TypeError`
+antes e agora afirmam o effort dentro de `extra_body`. Atualizei também a asserção
+de `test_llm_usa_thinking_adaptativo_e_nao_budget_tokens` (o effort saiu do topo
+para `extra_body`). `pytest` (476 passa, 3 skip) e `ruff` verdes. Commit + push.
+
+**O que achei e NÃO corrigi (uma por execução):**
+- **`anthropic_search.py` tem o MESMO bug e não é meu arquivo.** O radar de deploy
+  diz que `anthropic_search.py` também passa `output_config` (busca web / sinal de
+  intenção). Fica igual até o dono dele aplicar o mesmo `extra_body` — meu fix
+  cobre só `anthropic_llm.py`. Cross-dependência registrada abaixo.
+- **Subir o SDK em `requirements-prod.txt`** (a outra saída que o radar cita) não é
+  meu arquivo e nem é preciso: com `extra_body`, meu adaptador funciona contra
+  0.69.0 como está. Se o SDK subir, o `extra_body` continua correto.
+- A fila de Places (itens 2, 3, 4 abaixo) segue como estava: os buracos de **crash**
+  da conversão do Places continuam esgotados; o que resta é `includedType` inválido
+  (precisa da lista fechada de tipos da Google) e trade-offs de qualidade.
+
+**O que depende de decisão/outra rotina:** nada novo. A paginação (custo) e a falha
+parcial (UX) seguem nas seções de decisão. O gêmeo em `anthropic_search.py` é de
+outro dono (mesmo padrão de fix, aplicação trivial).
+
+---
+
 ### 2026-09-20 — `"places": null` no topo da resposta ainda derrubava a rodada
 
 **Corrigido.** Em `google_places.py`, `buscar` fazia

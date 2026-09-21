@@ -8,8 +8,14 @@ rate limit, circuit breaker, log estruturado e `cost_event`. Assim a regra da
 arquitetura vale para SDK tambem.
 
 Pontos que mudaram na geracao atual (e que costumam vir errados de memoria):
-  * `budget_tokens` NAO existe mais — use `output_config.effort`;
-  * pensamento: `thinking={"type": "adaptive"}`;
+  * `budget_tokens` NAO existe mais — o esforco vai em `output_config.effort`;
+  * `output_config` NAO e parametro do SDK fixado (`anthropic==0.69.0`): passa-lo
+    como kwarg estoura `TypeError: unexpected keyword argument 'output_config'` e
+    derruba TODA chamada real (completar, Cerebro, Motor 4, personalizacao). Vai
+    por `extra_body`, que o SDK injeta no corpo cru sem validar como kwarg — o
+    JSON na rede fica identico ao do kwarg. Quando o SDK subir para uma versao que
+    modele `output_config`, da para voltar ao kwarg;
+  * pensamento: `thinking={"type": "adaptive"}` (esse E parametro do SDK);
   * a server tool de busca e `web_search_20260209` (a `web_search_20250305` e a
     variante antiga, para modelos anteriores);
   * prefill de assistant retorna 400.
@@ -116,7 +122,9 @@ class AnthropicAdapter:
                 system=req.system or "",
                 messages=mensagens,
                 thinking={"type": "adaptive"},
-                output_config={"effort": "medium"},
+                # `output_config` nao e kwarg do SDK 0.69.0 (ver docstring do modulo):
+                # vai por `extra_body` para nao estourar TypeError na chamada real.
+                extra_body={"output_config": {"effort": "medium"}},
             )
 
         texto = _texto_de(resposta)
@@ -196,7 +204,8 @@ class AnthropicAdapter:
                     system=SISTEMA_DESCOBERTA,
                     messages=mensagens,
                     thinking={"type": "adaptive"},
-                    output_config={"effort": "high"},
+                    # Mesmo motivo de `completar`: `output_config` via `extra_body`.
+                    extra_body={"output_config": {"effort": "high"}},
                     tools=_ferramentas(),
                 )
             entrada, saida = _uso(resposta)

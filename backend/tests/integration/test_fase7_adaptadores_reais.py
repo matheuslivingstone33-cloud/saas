@@ -357,12 +357,104 @@ def test_llm_usa_thinking_adaptativo_e_nao_budget_tokens() -> None:
     assert chamada["model"] == "claude-opus-5"
     assert chamada["thinking"] == {"type": "adaptive"}
     assert "budget_tokens" not in str(chamada)
-    assert chamada["output_config"]["effort"]
+    # O effort vai por `extra_body` (o SDK 0.69.0 nao tem o kwarg `output_config`).
+    assert "output_config" not in chamada
+    assert chamada["extra_body"]["output_config"]["effort"]
     assert resposta.texto == "Ola, equipe."
     assert resposta.tokens_entrada == 100 and resposta.tokens_saida == 50
 
     ia = [e for e in sink.eventos if e.balde == 2]
     assert len(ia) == 2  # input e output, sempre separados
+
+
+class _MessagesFakeEstrito:
+    """Espelha a assinatura de `messages.create` do SDK fixado (anthropic==0.69.0).
+
+    Aceita `extra_body`, mas NAO tem `output_config` — e nao ha `**kwargs` para
+    absorver o desconhecido. Passar `output_config=` estoura TypeError, igual ao
+    SDK real. O `_MessagesFake` lenient acima aceita qualquer kwarg e por isso NAO
+    pega essa incompatibilidade: verde sobre chamada que quebraria em `real`."""
+
+    def __init__(self, respostas: list[Any]) -> None:
+        self.respostas = list(respostas)
+        self.chamadas: list[dict] = []
+
+    def create(  # noqa: ANN201
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        messages: list,
+        system: str = "",
+        thinking: Any = None,
+        tools: Any = None,
+        extra_body: Any = None,
+    ):
+        self.chamadas.append(
+            {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": messages,
+                "system": system,
+                "thinking": thinking,
+                "tools": tools,
+                "extra_body": extra_body,
+            }
+        )
+        return self.respostas.pop(0)
+
+
+class _ClienteFakeEstrito:
+    def __init__(self, respostas: list[Any]) -> None:
+        self.messages = _MessagesFakeEstrito(respostas)
+
+
+def test_completar_manda_output_config_por_extra_body_e_nao_como_kwarg() -> None:
+    """RED antes do fix: o SDK fixado (anthropic==0.69.0) nao tem o parametro
+    `output_config`, entao `messages.create(output_config=...)` estoura
+    `TypeError: unexpected keyword argument 'output_config'` e derruba TODA
+    chamada real de IA (completar, Cerebro, Motor 4, personalizacao) no dia de
+    LLM_MODE=real. Os outros testes usam um fake lenient (`**kwargs`) que aceita
+    o kwarg quebrado e passa verde por cima; este usa a assinatura estrita, igual
+    a do SDK, para pegar a incompatibilidade. O effort tem que ir por `extra_body`,
+    que o SDK injeta no corpo cru sem valida-lo como kwarg (JSON na rede identico)."""
+    sink = MemoryCostSink()
+    cliente = _ClienteFakeEstrito([_resposta_texto("Ola.")])
+    adaptador = AnthropicAdapter(
+        _http(lambda _r: httpx.Response(200), sink, "llm"),
+        CostRecorder(sink),
+        _settings(),
+        cliente=cliente,
+    )
+    resposta = adaptador.completar(
+        LLMRequest(
+            system="Voce escreve e-mails B2B.",
+            mensagens=[LLMMessage(role="user", content="Escreva para a Boa Compra")],
+            tarefa="email_abordagem",
+        )
+    )
+    chamada = cliente.messages.chamadas[0]
+    assert "output_config" not in chamada, "output_config nao pode ir como kwarg do SDK 0.69.0"
+    assert chamada["extra_body"] == {"output_config": {"effort": "medium"}}
+    assert resposta.texto == "Ola."
+
+
+def test_orquestrar_manda_output_config_por_extra_body() -> None:
+    """Mesma trava no loop de tool use do Cerebro: sem o fix, a primeira
+    `messages.create` ja estoura TypeError e a expansao inteira morre."""
+    sink = MemoryCostSink()
+    cliente = _ClienteFakeEstrito([_resposta_texto('{"termos": ["hotel"]}')])
+    adaptador = AnthropicAdapter(
+        _http(lambda _r: httpx.Response(200), sink, "llm"),
+        CostRecorder(sink),
+        _settings(),
+        cliente=cliente,
+    )
+    plano = adaptador.orquestrar_descoberta("ar condicionado", "Fortaleza, CE", {})
+    chamada = cliente.messages.chamadas[0]
+    assert "output_config" not in chamada
+    assert chamada["extra_body"] == {"output_config": {"effort": "high"}}
+    assert plano.termos == ["hotel"]
 
 
 def test_loop_de_tool_use_delega_ao_places_port() -> None:
