@@ -16,7 +16,10 @@ TRANSICOES: dict[StatusCampanha, frozenset[StatusCampanha]] = {
     C.PRONTA: frozenset({C.EXECUTANDO, C.DESCOBRINDO, C.PAUSADA, C.CONCLUIDA}),
     C.EXECUTANDO: frozenset({C.CONCLUIDA, C.PAUSADA, C.FALHOU}),
     C.PAUSADA: frozenset({C.DESCOBRINDO, C.QUALIFICANDO, C.PRONTA, C.EXECUTANDO, C.CONCLUIDA}),
-    C.CONCLUIDA: frozenset({C.PRONTA, C.DESCOBRINDO}),
+    # CONCLUIDA -> PAUSADA: a rodada termina segundos depois do envio, e o
+    # bounce/reclamacao chega DEPOIS. Sem esta saida a pausa por reputacao
+    # nunca acontecia, e a cadencia seguia mandando o 2o e o 3o toque.
+    C.CONCLUIDA: frozenset({C.PRONTA, C.DESCOBRINDO, C.PAUSADA}),
     C.FALHOU: frozenset({C.RASCUNHO, C.DESCOBRINDO}),
 }
 

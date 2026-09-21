@@ -487,6 +487,25 @@ def test_reclamacao_de_spam_pausa_abaixo_do_teto_combinado(session, usuario, por
     assert campanha.status is StatusCampanha.PAUSADA
 
 
+def test_reclamacao_pausa_campanha_que_ja_concluiu(session, usuario, portas_db) -> None:
+    """A rodada termina segundos depois do envio; a reclamacao chega DEPOIS.
+
+    CONCLUIDA nao podia virar PAUSADA: a pausa por reputacao nunca acontecia na
+    pratica, e a cadencia seguia mandando o 2o e o 3o toque a mesma lista.
+    """
+    campanha = _campanha(session, usuario, NivelAutonomia.AUTOMATICO)
+    _lote_enviado(session, usuario, campanha, 100)
+    campanha.status = StatusCampanha.CONCLUIDA
+    session.flush()
+
+    resultado = ServicoDeEntregabilidade(session).registrar(
+        contato="destino0@exemplo.com.br", tipo=TipoRetorno.RECLAMACAO
+    )
+
+    assert resultado.campanha_pausada is True
+    assert campanha.status is StatusCampanha.PAUSADA
+
+
 def test_bounce_isolado_nao_pausa_no_teto_de_reclamacao(session, usuario, portas_db) -> None:
     """A regua estrita e SO da reclamacao: 1 bounce em 100 (1%) segue abaixo do
     teto de bounce (2%) e NAO pausa. Sem isso, o teto de reclamacao contaminaria

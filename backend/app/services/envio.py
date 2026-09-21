@@ -68,6 +68,16 @@ log = get_logger("envio")
 #: sem olhar o status da campanha.
 CAMPANHA_PARADA = frozenset({StatusCampanha.PAUSADA, StatusCampanha.FALHOU})
 
+#: Bloqueios que PASSAM: a mensagem espera na fila em vez de morrer. Campanha
+#: parada volta a andar quando retomada; limite do dia e aquecimento do dominio
+#: abrem no dia seguinte. Ate 21/09 todos viravam BLOQUEADA — com a chave de
+#: idempotencia ja gravada, o lead cujo contato foi revelado e cobrado nunca mais
+#: era abordado, o toque de cadencia congelava e pausar uma campanha destruia a
+#: fila aprovada. Opt-out, canal proibido e nao-B2B continuam terminais.
+BLOQUEIOS_ADIAVEIS = frozenset(
+    {"campanha_parada", "aquecimento_dominio", "limite_diario_usuario", "limite_diario_campanha"}
+)
+
 #: WARMUP (aquecimento) do dominio de envio. Com SES real, um dominio NOVO que
 #: dispara no volume cheio no primeiro dia vai direto para a caixa de spam, e a
 #: reputacao de dominio NAO volta rapido: ele para de entregar tambem para os
@@ -303,8 +313,16 @@ class SendService:
             lead,
             destino,
             canal=mensagem.canal,
-            abordagem_fria=_e_abordagem_fria(mensagem),
+            abordagem_fria=self._e_abordagem_fria(mensagem),
         )
+        if bloqueio is not None and bloqueio.motivo in BLOQUEIOS_ADIAVEIS:
+            # Fica como esta (APROVADA/ENFILEIRADA): o worker tenta de novo.
+            mensagem.erro = f"adiada: {bloqueio.motivo}: {bloqueio.detalhe}".strip(": ")
+            self.session.flush()
+            log.info("envio_adiado", mensagem=str(mensagem.id), motivo=bloqueio.motivo)
+            if lote is not None:
+                lote.registrar_bloqueio(bloqueio.motivo)
+            return False
         if bloqueio is not None:
             mensagem.status = StatusMensagem.BLOQUEADA
             mensagem.erro = f"{bloqueio.motivo}: {bloqueio.detalhe}".strip(": ")
@@ -377,6 +395,8 @@ class SendService:
     def processar_pendentes(self, user_id: uuid.UUID, limite: int = 50) -> Lote:
         """Despacha o que ja esta aprovado (usado pelo worker no modo automatico)."""
         lote = Lote()
+        # Busca alem do limite: mensagens adiadas (campanha pausada, teto do dia)
+        # continuam na fila e nao podem ocupar a vez das outras campanhas.
         pendentes = (
             self.session.execute(
                 select(Message)
@@ -385,13 +405,19 @@ class SendService:
                     Message.status.in_([StatusMensagem.APROVADA, StatusMensagem.ENFILEIRADA]),
                 )
                 .order_by(Message.created_at)
-                .limit(limite)
+                .limit(limite * 4)
             )
             .scalars()
             .all()
         )
+        tentadas = 0
         for mensagem in pendentes:
+            if tentadas >= limite:
+                break
             self.despachar(mensagem, lote=lote)
+            adiada = mensagem.status in (StatusMensagem.APROVADA, StatusMensagem.ENFILEIRADA)
+            if not adiada:
+                tentadas += 1
             if lote.interrompido_por_conta:
                 # Conta quebrada: os demais pendentes falhariam igual. Ficam para
                 # a proxima rodada, depois que a campanha pausada for retomada.
@@ -716,6 +742,28 @@ class SendService:
             stmt = stmt.where(Message.campaign_id == campaign_id)
         return int(self.session.execute(stmt).scalar_one())
 
+    def _e_abordagem_fria(self, mensagem: Message) -> bool:
+        """A mensagem e uma ABORDAGEM proativa (primeiro toque ou toque de cadencia)?
+
+        So a abordagem fria e barrada por campanha parada e pelo aquecimento do
+        dominio — e ela, em volume, que queima a reputacao. A resposta do Motor 4
+        carrega a `intencao` que a originou: e resposta por construcao. A escrita a
+        mao so e resposta quando o lead JA ESCREVEU: antes de 21/09 bastava ser
+        humana, e uma mensagem manual a quem nunca respondeu furava a pausa e o
+        aquecimento.
+        """
+        metadados = mensagem.metadados or {}
+        if "intencao" in metadados:
+            return False
+        if metadados.get("gerado_por") == "humano" and mensagem.lead_id is not None:
+            respondeu = self.session.execute(
+                select(Message.id)
+                .where(Message.lead_id == mensagem.lead_id, Message.direcao == Direcao.ENTRADA)
+                .limit(1)
+            ).first()
+            return respondeu is None
+        return True
+
     def _bloquear_lead(self, campanha: Campaign, lead: Lead, bloqueio: Bloqueio) -> None:
         if bloqueio.motivo == "opt_out" and lead.status is not StatusLead.OPT_OUT:
             self.leads.transicionar(
@@ -754,16 +802,3 @@ def _parece_pj(lead: Lead) -> bool:
     return bool(lead.website or lead.dominio or lead.razao_social)
 
 
-def _e_abordagem_fria(mensagem: Message) -> bool:
-    """A mensagem e uma ABORDAGEM proativa (primeiro toque ou toque de cadencia)?
-
-    So a abordagem fria e barrada quando a campanha esta parada — e ela, em
-    volume, que queima a reputacao do dominio. Uma RESPOSTA dentro de uma conversa
-    ja em andamento nao e: a do Motor 4 carrega a `intencao` que a originou nos
-    metadados; a manual nasce com `gerado_por="humano"`. Qualquer outra saida
-    (primeiro contato, toque de cadencia) e abordagem fria.
-    """
-    metadados = mensagem.metadados or {}
-    if metadados.get("gerado_por") == "humano":
-        return False
-    return "intencao" not in metadados

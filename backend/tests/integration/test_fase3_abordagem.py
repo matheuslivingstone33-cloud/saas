@@ -415,10 +415,107 @@ def test_campanha_pausada_barra_aprovacao_de_abordagem_fria(
 
     antes = len(list(settings.outbox_path.glob("*.json")))
     assert envio.aprovar(mensagem, usuario) is False
-    assert mensagem.status is StatusMensagem.BLOQUEADA
-    assert "campanha_parada" in (mensagem.erro or "")
     depois = len(list(settings.outbox_path.glob("*.json")))
     assert depois == antes, "nada pode sair de campanha parada"
+
+    # A mensagem ESPERA na fila, nao morre: antes de 21/09 virava BLOQUEADA e,
+    # com a chave de idempotencia gravada, o lead nunca mais era abordado.
+    assert mensagem.status is StatusMensagem.APROVADA
+    assert "adiada: campanha_parada" in (mensagem.erro or "")
+
+    campanha.status = StatusCampanha.EXECUTANDO
+    session.flush()
+    envio.processar_pendentes(usuario.id)
+    assert mensagem.status is StatusMensagem.ENVIADA, "retomada, a fila anda"
+
+
+def test_limite_do_dia_adia_e_a_mensagem_sai_no_dia_seguinte(
+    session, usuario, portas_db, monkeypatch
+) -> None:
+    """Limite do dia e aquecimento do dominio passam; a mensagem nao pode morrer."""
+    from datetime import timedelta
+
+    from app.core.config import get_settings
+    from app.core.ids import now
+
+    campanha = _campanha(session, usuario, nome="Teto", nivel=NivelAutonomia.ASSISTIDO)
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario, meta=2)
+    envio = SendService(session, portas_db)
+    # Duas mensagens ja redigidas e aprovadas; o teto do dia so cabe uma.
+    lote = envio.preparar_lote(campanha, leads[:2], expansao)
+    assert len(lote.mensagens) == 2
+    for m in lote.mensagens:
+        m.status = StatusMensagem.APROVADA
+    session.flush()
+    monkeypatch.setattr(get_settings(), "max_envios_por_campanha_dia", 1)
+    envio.processar_pendentes(usuario.id)
+
+    enviadas = [m for m in lote.mensagens if m.status is StatusMensagem.ENVIADA]
+    esperando = [m for m in lote.mensagens if m.status is StatusMensagem.APROVADA]
+    assert len(enviadas) == 1 and len(esperando) == 1
+    assert "adiada: limite_diario_campanha" in (esperando[0].erro or "")
+
+    # "Amanha": o envio de ontem sai da janela de 24 h.
+    enviadas[0].enviado_em = now() - timedelta(hours=25)
+    session.flush()
+    envio.processar_pendentes(usuario.id)
+    assert esperando[0].status is StatusMensagem.ENVIADA
+
+
+def test_campanha_pausada_nao_trava_a_fila_das_outras(session, usuario, portas_db) -> None:
+    """A fila e do usuario inteiro: a pendencia adiada nao pode ocupar a vez."""
+    pausada = _campanha(session, usuario, nome="Pausada fila", nivel=NivelAutonomia.AUTOMATICO)
+    ativa = _campanha(session, usuario, nome="Ativa fila", nivel=NivelAutonomia.AUTOMATICO)
+    exp_p, leads_p = _descobrir(session, portas_db, pausada, usuario, meta=2)
+    exp_a, leads_a = _descobrir(session, portas_db, ativa, usuario, meta=1)
+    envio = SendService(session, portas_db)
+
+    retidas = envio.preparar_lote(pausada, leads_p, exp_p, nivel=NivelAutonomia.ASSISTIDO)
+    for m in retidas.mensagens:
+        m.status = StatusMensagem.APROVADA
+    pausada.status = StatusCampanha.PAUSADA
+    da_ativa = envio.preparar_lote(ativa, leads_a, exp_a, nivel=NivelAutonomia.ASSISTIDO)
+    for m in da_ativa.mensagens:
+        m.status = StatusMensagem.APROVADA
+    session.flush()
+
+    envio.processar_pendentes(usuario.id, limite=1)
+
+    assert all(m.status is StatusMensagem.APROVADA for m in retidas.mensagens)
+    assert all(m.status is StatusMensagem.ENVIADA for m in da_ativa.mensagens)
+
+
+def test_mensagem_manual_a_quem_nunca_respondeu_e_abordagem_fria(
+    session, usuario, portas_db
+) -> None:
+    """Ser escrita a mao nao faz uma mensagem virar resposta."""
+    from app.core.ids import now
+    from app.models.enums import Canal, Direcao
+    from app.models.message import Message
+
+    campanha = _campanha(session, usuario, nome="Manual fria")
+    _, leads = _descobrir(session, portas_db, campanha, usuario, meta=1)
+    lead = leads[0]
+    envio = SendService(session, portas_db)
+
+    def _saida() -> Message:
+        return Message(
+            user_id=usuario.id, campaign_id=campanha.id, lead_id=lead.id,
+            canal=Canal.EMAIL, direcao=Direcao.SAIDA, status=StatusMensagem.APROVADA,
+            destinatario=lead.email, corpo="oi", metadados={"gerado_por": "humano"},
+        )
+
+    assert envio._e_abordagem_fria(_saida()) is True
+
+    session.add(
+        Message(
+            user_id=usuario.id, campaign_id=campanha.id, lead_id=lead.id,
+            canal=Canal.EMAIL, direcao=Direcao.ENTRADA, status=StatusMensagem.RESPONDIDA,
+            destinatario=lead.email, corpo="tenho interesse", created_at=now(),
+        )
+    )
+    session.flush()
+    assert envio._e_abordagem_fria(_saida()) is False
 
 
 def test_campanha_pausada_nao_gera_lote_novo(session, usuario, portas_db) -> None:
