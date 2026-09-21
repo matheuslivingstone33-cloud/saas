@@ -67,7 +67,9 @@ class AnthropicWebSearchAdapter:
                 system=SISTEMA,
                 messages=[{"role": "user", "content": f"Sinais recentes sobre: {consulta}"}],
                 thinking={"type": "adaptive"},
-                output_config={"effort": "low"},
+                # `output_config` nao e kwarg do SDK 0.69.0: como kwarg, TypeError
+                # antes da rede, e o lote inteiro caia (ver anthropic_llm.py).
+                extra_body={"output_config": {"effort": "low"}},
                 tools=[
                     {
                         "type": VERSAO_WEB_SEARCH,

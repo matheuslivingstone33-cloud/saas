@@ -411,6 +411,128 @@ def test_solicitacao_publica_pela_api(client, session, usuario, portas_db) -> No
 
 
 # --- Retencao -----------------------------------------------------------------
+# --- Revisao de 21/09: o que a eliminacao deixava para tras -------------------
+def _lead_manual(session, usuario, *, email=None, telefone=None, cnpj="11222333000181"):  # noqa: ANN001, ANN202
+    campanha = Campaign(
+        user_id=usuario.id, nome="Revisao", servico=SERVICO, regiao="Fortaleza, CE",
+        filtros={}, status=StatusCampanha.CONCLUIDA,
+    )
+    session.add(campanha)
+    session.flush()
+    lead = Lead(
+        user_id=usuario.id, campaign_id=campanha.id, razao_social="PADARIA PAO DOURADO LTDA",
+        cnpj=cnpj, email=email, telefone=telefone, place_id="ChIJ-pao-dourado",
+        provenance={"fonte": "google_places", "place_id": "ChIJ-pao-dourado"},
+    )
+    session.add(lead)
+    session.flush()
+    return campanha, lead
+
+
+def test_eliminacao_acha_lead_e_resposta_gravados_com_maiusculas(session, usuario) -> None:
+    """O pedido chega em minusculo; o lead e a resposta guardam como veio."""
+    from app.models.enums import Canal, Direcao, StatusMensagem
+    from app.services.compliance import CORPO_EXPURGADO
+
+    campanha, lead = _lead_manual(session, usuario, email="CONTATO@PaoDourado.com.br")
+    resposta = Message(
+        user_id=usuario.id, campaign_id=campanha.id, lead_id=lead.id, canal=Canal.EMAIL,
+        direcao=Direcao.ENTRADA, status=StatusMensagem.RESPONDIDA,
+        remetente="Contato@PaoDourado.com.br", destinatario="nos@nosso-dominio.com.br",
+        corpo="Joao Silva, celular (85) 99999-0000",
+    )
+    session.add(resposta)
+    session.flush()
+
+    servico = PrivacyService(session)
+    assert len(servico.relatorio("contato@paodourado.com.br")["mensagens"]) == 1
+    resultado = servico.eliminar("contato@paodourado.com.br")
+
+    assert resultado["leads_anonimizados"] == 1
+    assert resultado["mensagens_expurgadas"] == 1
+    session.refresh(lead)
+    session.refresh(resposta)
+    assert lead.cnpj is None and lead.razao_social == "[anonimizado]"
+    assert resposta.corpo == CORPO_EXPURGADO
+    assert "PaoDourado" not in (resposta.remetente or "").split("@")[0]
+
+
+def test_eliminacao_tira_o_nome_da_empresa_dos_metadados_da_mensagem(session, usuario) -> None:
+    """O envio grava `gancho` e `sinais` — titulos montados com a razao social."""
+    from app.models.enums import Canal, Direcao, StatusMensagem
+
+    campanha, lead = _lead_manual(session, usuario, email="contato@paodourado.com.br")
+    saida = Message(
+        user_id=usuario.id, campaign_id=campanha.id, lead_id=lead.id, canal=Canal.EMAIL,
+        direcao=Direcao.SAIDA, status=StatusMensagem.ENVIADA,
+        destinatario="contato@paodourado.com.br", corpo="Ola",
+        metadados={
+            "gerado_por": "ia", "toque": 1, "modelo": "claude-opus-5",
+            "gancho": "Padaria Pao Dourado Ltda anuncia expansao de unidade",
+            "sinais": ["Pao Dourado abre loja em Fortaleza"],
+        },
+    )
+    session.add(saida)
+    session.flush()
+
+    PrivacyService(session).eliminar("contato@paodourado.com.br")
+    session.refresh(saida)
+    assert "Dourado" not in str(saida.metadados)
+    assert saida.metadados["toque"] == 1 and saida.metadados["gerado_por"] == "ia"
+
+
+def test_eliminacao_limpa_o_relatorio_de_acesso_entregue_antes(session, usuario) -> None:
+    """O acesso anterior guardava o relatorio inteiro: razao social, CNPJ, place_id."""
+    _lead_manual(session, usuario, email="contato@paodourado.com.br")
+    servico = PrivacyService(session)
+    acesso = servico.abrir(contato="contato@paodourado.com.br", tipo=TipoSolicitacao.ACESSO)
+    servico.atender(acesso)
+    assert "11222333000181" in str(acesso.resultado)
+
+    eliminacao = servico.abrir(
+        contato="contato@paodourado.com.br", tipo=TipoSolicitacao.ELIMINACAO
+    )
+    servico.atender(eliminacao)
+    session.refresh(acesso)
+    assert "11222333000181" not in str(acesso.resultado)
+    assert "PAO DOURADO" not in str(acesso.resultado)
+
+
+def test_trilha_nao_guarda_place_id_cru(session, usuario, portas_db) -> None:
+    """A trilha e imutavel e sobrevive a eliminacao: dado cru nela reidentifica."""
+    from app.models.audit_log import AuditLog
+    from app.services.audit import AuditService
+
+    AuditService(session).dado_coletado(
+        entidade_id=usuario.id,
+        provenance={"fonte": "google_places", "place_id": "ChIJ-pao-dourado"},
+        user_id=usuario.id,
+    )
+    session.flush()
+    coleta = session.execute(
+        select(AuditLog).where(AuditLog.evento == TipoEvento.DADO_COLETADO)
+    ).scalars().all()[-1]
+    assert "ChIJ-pao-dourado" not in str(coleta.dados)
+    assert coleta.dados["place_id_sha256"]
+    assert coleta.dados["fonte"] == "google_places"
+
+
+def test_retencao_alcanca_lead_que_nunca_teve_email(session, usuario, settings) -> None:
+    """O descartado por "sem e-mail comercial" guardava CNPJ e telefone para sempre."""
+    _, lead = _lead_manual(session, usuario, telefone="(85) 3333-4444")
+    lead.status = StatusLead.DESCARTADO
+    lead.created_at = now() - timedelta(days=settings.retencao_leads_dias + 30)
+    session.flush()
+
+    resultado = RetencaoService(session).executar(dry_run=False)
+    session.refresh(lead)
+    assert resultado.leads_anonimizados >= 1
+    assert lead.cnpj is None and lead.telefone is None and lead.place_id is None
+
+    de_novo = RetencaoService(session).executar(dry_run=False)
+    assert de_novo.leads_anonimizados == 0, "o ja anonimizado nao volta a contar"
+
+
 def test_retencao_anonimiza_leads_vencidos(session, usuario, portas_db, settings) -> None:
     campanha = _rodar(session, usuario, portas_db, nome="Retencao", nivel=NivelAutonomia.ASSISTIDO)
     leads = session.execute(

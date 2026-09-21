@@ -58,6 +58,7 @@ from app.models.user import User
 from app.ports.dto import LLMMessage, LLMRequest
 from app.repositories.misc import MessageRepository, OptOutRepository, UserRepository
 from app.services.audit import AuditService
+from app.services.compliance import mascarar_contato as _mascarar_contato
 from app.services.envio import SendService
 from app.services.leads import LeadService
 from app.services.personalizacao import LINHA_DESCADASTRO
@@ -589,7 +590,8 @@ class ServicoDeConversa:
                 "lead_id": str(lead.id),
                 "canal": canal.value,
                 "intencao": intencao.value,
-                "remetente": remetente or lead.email,
+                # Mascarado: a trilha e imutavel e sobrevive a eliminacao.
+                "remetente": _mascarar_contato(remetente or lead.email),
             },
             ator=Ator.PROVEDOR,
             user_id=lead.user_id,

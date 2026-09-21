@@ -489,9 +489,7 @@ class PrivacyService:
         """Tudo o que temos sobre aquele contato (art. 18, II)."""
         leads = (
             self.session.execute(
-                select(Lead).where(
-                    or_(Lead.email == contato, Lead.telefone_normalizado == contato)
-                )
+                select(Lead).where(_lead_do_contato(contato))
             )
             .scalars()
             .all()
@@ -503,11 +501,7 @@ class PrivacyService:
         # dado pessoal dele. O direito de acesso (art. 18, II) exige os dois lados
         # — a mesma assimetria que a retencao ja trata ao mascarar o `remetente`.
         mensagens = (
-            self.session.execute(
-                select(Message).where(
-                    or_(Message.destinatario == contato, Message.remetente == contato)
-                )
-            )
+            self.session.execute(select(Message).where(_mensagem_do_contato(contato)))
             .scalars()
             .all()
         )
@@ -574,11 +568,7 @@ class PrivacyService:
         trilha de auditoria sobrevivem para prestacao de contas.
         """
         leads = (
-            self.session.execute(
-                select(Lead).where(
-                    or_(Lead.email == contato, Lead.telefone_normalizado == contato)
-                )
-            )
+            self.session.execute(select(Lead).where(_lead_do_contato(contato)))
             .scalars()
             .all()
         )
@@ -603,7 +593,7 @@ class PrivacyService:
         mensagens = (
             self.session.execute(
                 select(Message).where(
-                    or_(Message.destinatario == contato, Message.remetente == contato),
+                    _mensagem_do_contato(contato),
                     Message.corpo != CORPO_EXPURGADO,
                 )
             )
@@ -626,8 +616,28 @@ class PrivacyService:
                 user_id=user_id,
             )
 
+        # Pedidos de ACESSO anteriores guardam o relatorio que entregamos —
+        # razao social, CNPJ, place_id. Eliminar sem limpa-los deixava tudo ali
+        # ate a retencao (365 dias). Fica o registro de que o pedido existiu.
+        anteriores = (
+            self.session.execute(
+                select(PrivacyRequest).where(
+                    PrivacyRequest.contato_normalizado == contato,
+                    PrivacyRequest.tipo.in_(
+                        [TipoSolicitacao.ACESSO, TipoSolicitacao.PORTABILIDADE]
+                    ),
+                    PrivacyRequest.resultado.is_not(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for pedido in anteriores:
+            pedido.resultado = {"expurgado": "eliminacao solicitada pelo titular"}
+
         # A supressao PRECISA sobreviver a eliminacao, senao a proxima campanha
-        # descobre o mesmo contato de novo. Guardamos so o hash do contato.
+        # descobre o mesmo contato de novo. Ela guarda o contato em texto: e o
+        # unico dado que resta, e e o que impede o recontato.
         OptOutService(self.session, self.audit, self.settings).registrar(
             contato=contato,
             user_id=user_id,
@@ -650,6 +660,30 @@ class PrivacyService:
 #: como `messages.corpo` e NOT NULL, comparar com esta constante e o jeito seguro
 #: de nao reprocessar a mesma linha em toda rodada.
 CORPO_EXPURGADO = "[expurgado por politica de retencao]"
+
+#: Marca que fica na razao social do lead anonimizado; e ela que diz "ja feito".
+ANONIMIZADO = "[anonimizado]"
+
+#: Chaves de `messages.metadados` que carregam a identidade da empresa.
+METADADOS_IDENTIFICADORES = frozenset({"gancho", "sinais"})
+
+
+def _lead_do_contato(contato: str):  # noqa: ANN202
+    """Leads daquele contato, sem depender de maiuscula.
+
+    O titular pede com o endereco em minusculo (o pedido e normalizado), mas o
+    lead e a resposta guardam o endereco como veio: `Contato@Empresa.com.br`.
+    Comparar sem `lower()` fazia a eliminacao nao achar nada e o relatorio de
+    acesso vir vazio.
+    """
+    return or_(func.lower(Lead.email) == contato, Lead.telefone_normalizado == contato)
+
+
+def _mensagem_do_contato(contato: str):  # noqa: ANN202
+    """Mensagens dos dois lados (destinatario ou remetente), sem maiuscula."""
+    return or_(
+        func.lower(Message.destinatario) == contato, func.lower(Message.remetente) == contato
+    )
 
 #: Marca que fica no lugar de um contato expurgado quando nao ha o que mascarar
 #: preservando estrutura (ex.: um telefone, sem `@`). O dado pessoal sai, mas o
@@ -705,7 +739,11 @@ class RetencaoService:
                     Lead.status.in_(
                         [StatusLead.DESCOBERTO, StatusLead.QUALIFICADO, StatusLead.DESCARTADO]
                     ),
-                    Lead.email.is_not(None),
+                    # Pula o que ja foi anonimizado. Era `email IS NOT NULL`, que
+                    # tambem pulava o lead que nunca teve e-mail — o descartado por
+                    # "sem e-mail comercial" guardava CNPJ, telefone e place_id
+                    # para sempre.
+                    or_(Lead.razao_social.is_(None), Lead.razao_social != ANONIMIZADO),
                 )
             )
             .scalars()
@@ -839,7 +877,7 @@ def _anonimizar(lead: Lead) -> None:
     lead.embedding = None
     lead.contexto = None
     lead.resumo = None
-    lead.razao_social = "[anonimizado]"
+    lead.razao_social = ANONIMIZADO
     lead.nome_fantasia = None
     # Reidentificadores diretos e localizacao de precisao. O `endereco` em texto
     # ja saiu acima; faltavam as versoes estruturadas — as que uma consulta
@@ -886,6 +924,13 @@ def _expurgar_conteudo_mensagem(mensagem: Message) -> None:
     mensagem.assunto = None
     mensagem.destinatario = _mascarar(mensagem.destinatario)
     mensagem.remetente = _mascarar(mensagem.remetente)
+    # O envio grava nos metadados o `gancho` e os `sinais` da personalizacao —
+    # titulos de busca montados com a razao social e a cidade. Ficam o resto
+    # (modelo, toque, tokens), que e o que a auditoria usa.
+    if mensagem.metadados:
+        mensagem.metadados = {
+            k: v for k, v in mensagem.metadados.items() if k not in METADADOS_IDENTIFICADORES
+        }
 
 
 def _mascarar(contato: str | None) -> str | None:
@@ -904,3 +949,7 @@ def _mascarar(contato: str | None) -> str | None:
         return CONTATO_EXPURGADO
     usuario, _, dominio = contato.partition("@")
     return f"{usuario[:2]}***@{dominio}"
+
+
+#: Nome publico para quem grava contato na trilha (ex.: resposta recebida).
+mascarar_contato = _mascarar

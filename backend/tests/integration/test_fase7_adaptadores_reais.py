@@ -971,3 +971,35 @@ def test_guard_abre_circuito_apos_falhas_seguidas() -> None:
             raise RuntimeError("provedor fora do ar")
     with pytest.raises(CircuitOpen), cliente.guard("op"):
         pass
+
+
+def test_busca_de_sinais_nao_passa_output_config_como_argumento(settings) -> None:
+    """Com o SDK 0.69.0, `output_config=` estoura TypeError antes da rede e
+    derrubava o lote inteiro de quem ligasse SEARCH_MODE=real."""
+    from types import SimpleNamespace
+
+    from app.adapters.real.anthropic_search import AnthropicWebSearchAdapter
+
+    chamadas: list[dict] = []
+
+    class Mensagens:
+        def create(self, **kwargs):  # noqa: ANN003, ANN202
+            if "output_config" in kwargs:
+                raise TypeError("unexpected keyword argument 'output_config'")
+            chamadas.append(kwargs)
+            return SimpleNamespace(content=[], usage=SimpleNamespace(
+                input_tokens=1, output_tokens=1, server_tool_use=None))
+
+    adaptador = AnthropicWebSearchAdapter.__new__(AnthropicWebSearchAdapter)
+    adaptador.settings = settings
+    adaptador._cliente = SimpleNamespace(messages=Mensagens())
+    adaptador.http = None
+    adaptador.cost = None
+    try:
+        adaptador.buscar("Padaria X Fortaleza")
+    except TypeError as erro:  # pragma: no cover - e o defeito
+        raise AssertionError(f"output_config como kwarg: {erro}") from erro
+    except Exception:  # noqa: BLE001 — so o formato da chamada importa aqui
+        pass
+    assert chamadas, "a chamada tem que chegar ao cliente"
+    assert chamadas[0]["extra_body"]["output_config"] == {"effort": "low"}

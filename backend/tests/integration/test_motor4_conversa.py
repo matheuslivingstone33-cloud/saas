@@ -293,6 +293,23 @@ def test_nosso_link_partido_por_soft_break_nao_vira_opt_out() -> None:
     assert classificar_por_sinal(corpo) is Intencao.INTERESSE
 
 
+def test_trilha_da_resposta_recebida_nao_guarda_o_email_cru(
+    session, usuario, portas_db, lead_abordado
+) -> None:
+    """A trilha e imutavel e sobrevive a eliminacao: o endereco vai mascarado."""
+    from app.models.audit_log import AuditLog
+
+    ServicoDeConversa(session, portas_db).receber(
+        lead=lead_abordado, corpo="Tenho interesse, me manda mais detalhes."
+    )
+    evento = session.execute(
+        select(AuditLog).where(AuditLog.evento == TipoEvento.RESPOSTA_RECEBIDA)
+    ).scalars().all()[-1]
+    usuario_do_email = lead_abordado.email.split("@")[0]
+    assert usuario_do_email not in evento.dados["remetente"]
+    assert "***@" in evento.dados["remetente"]
+
+
 def test_receber_opt_out_em_qp_registra_supressao(
     session, usuario, portas_db, lead_abordado
 ) -> None:

@@ -138,11 +138,20 @@ class AuditService:
         user_id: uuid.UUID | None = None,
         base_legal: str = "legitimo_interesse",
     ) -> AuditLog:
+        # A trilha e imutavel e sobrevive a eliminacao do lead. O `place_id` e a
+        # chave estavel do Google para aquela empresa: gravado cru, reidentificava
+        # o lead anonimizado com uma consulta. Fica o hash, que ainda prova a
+        # origem para quem tiver o place_id em maos.
+        dados = dict(provenance)
+        if dados.get("place_id"):
+            dados["place_id_sha256"] = hashlib.sha256(
+                str(dados.pop("place_id")).encode()
+            ).hexdigest()[:32]
         return self.registrar(
             evento=TipoEvento.DADO_COLETADO,
             entidade_tipo="lead",
             entidade_id=entidade_id,
-            dados=provenance,
+            dados=dados,
             ator=Ator.SISTEMA,
             user_id=user_id,
             base_legal=base_legal,
