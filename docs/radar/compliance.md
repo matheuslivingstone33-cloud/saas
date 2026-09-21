@@ -34,7 +34,72 @@
 > marcado **[revisão jurídica]**; o que é decisão de produto/negócio está
 > marcado **[decisão de produto]**. Esses não devem ser tratados como resolvidos.
 
-**Última execução:** 2026-09-20
+**Última execução:** 2026-09-21
+
+---
+
+## Execução 2026-09-21 — o acesso (art. 18, II) revela a supressão que guardamos
+
+> Parti de `origin/main` (`85c9c03`). Reconferi o `HANDOFF` §0/§0.1/§0.3 e a fila
+> deste radar. Já integrado no `main` e **não refeito**: as correções de retenção
+> de setembro, o `relatorio` enxergar a resposta do titular (16/09), a
+> anonimização dos reidentificadores (20/09, 1ª leva), a eliminação alcançar as
+> mensagens do titular (20/09, 2ª leva) e o filtro de tenant em `/solicitacoes`
+> (item 2 — o §0.3 do HANDOFF confirma resolvido e manda **não tratar como
+> pendência**; mora fora do meu escopo de qualquer jeito). Uma coisa só nesta
+> execução.
+
+### O que corrigi (com teste)
+
+**O relatório de acesso do titular era mudo sobre a lista de supressão — o
+`opt_out` com o e-mail cru que guardamos em caráter PERMANENTE não aparecia.**
+`services/compliance.py` · `PrivacyService.relatorio`
+
+O acesso (art. 18, II; Política §8 "Saber o que temos") tem que devolver **todo**
+dado pessoal que guardamos sobre o titular. `relatorio()` já devolvia os leads e
+as mensagens dos dois lados, mas **não** a lista de supressão — e um `opt_out`
+guarda o contato cru do titular, a origem, o motivo e a data, retido em caráter
+**permanente** (Política §7: "Registro de descadastro: permanente"). O buraco
+ficava gritante **depois de uma eliminação**: `eliminar()` anonimiza o lead e
+expurga as mensagens, mas **mantém** o `opt_out` com o e-mail cru — então um novo
+pedido de acesso devolvia `leads=[]`, `mensagens=[]`, como se não tivéssemos mais
+nada, enquanto seguíamos guardando o endereço real do titular para sempre, sem
+contar a ele. É a mesma simetria acesso↔eliminação que os leads e as mensagens já
+seguem (16/09, 20/09): faltava fechá-la para a supressão.
+
+Agora `relatorio()` traz também `opt_outs`, com a origem, o motivo, o escopo
+(global ou do controlador — **sem** expor `user_id`) e desde quando o contato
+está suprimido. É disclosure do que **já** guardamos, não coleta nova. A Política
+§8 passou a dizer que "saber o que temos" inclui esse registro de supressão,
+para o texto público não prometer menos do que o sistema faz.
+
+Teste novo `test_acesso_revela_a_supressao_que_guardamos_do_titular` — falha antes
+(`KeyError: 'opt_outs'`) e passa depois; fixa também a simetria: mesmo com leads e
+mensagens já vazios após a eliminação, o acesso ainda revela a supressão que
+sobrevive. `pytest` (500 passed, 3 skipped) e `ruff` verdes.
+
+### O que achei e NÃO corrigi
+
+Nada novo fora da fila abaixo. Esta correção é sobre o que o acesso **revela**;
+ela **não** resolve o item 5 (a supressão ainda guarda o e-mail **cru**, não o
+hash — coisa diferente, é o que a lista **guarda**, e a consulta de opt-out mora
+em `repositories/misc.py`/`services/envio.py`, fora do meu escopo). Herda o
+mesmo ressalvo do item 1: como `POST /privacidade/solicitacao` atende sem
+**verificar a identidade** do titular, o relatório inteiro (leads, CNPJ,
+proveniência, mensagens — e agora a supressão) fica exposto a um impostor.
+Revelar a supressão **não piora** isso — o impostor já recebia todo o resto —,
+mas a trava de verdade continua sendo o item 1 (verificação de identidade,
+`api/routes/compliance.py`, fora do meu escopo). **[revisão jurídica]** se o
+acesso é obrigado a **listar** a supressão (revelá-la é o caminho transparente e
+sem risco; a obrigatoriedade exata é parecer profissional).
+
+### O que depende de outra rotina ou de decisão humana
+
+Esta correção vive inteira em `compliance.py` (+ a linha da Política) — não cria
+dependência nova. As pendências seguem as da tabela ao fim do radar (rotas,
+worker, opt-out/envio, domínio real). O que **trava de verdade** para o dia da
+Fase 7 continua sendo o 🔴 item 1 (verificação de identidade do titular em
+`api/routes/compliance.py`, fora do meu escopo).
 
 ---
 
@@ -494,6 +559,11 @@ Conferido nesta leitura, após a consolidação:
   expurga corpo/assunto e mascara os dois endereços das mensagens (mesmo
   tratamento da retenção, via `_expurgar_conteudo_mensagem`), imediato, e mantém
   a supressão. Antes as mensagens ficavam vivas até o expurgo por prazo (365 d).
+  **Acesso revela a supressão (21/09):** o `relatorio` agora traz também os
+  `opt_outs` do contato — o registro de descadastro que guardamos em caráter
+  permanente é dado pessoal do titular, e o acesso o revela (origem, motivo,
+  escopo, data), sem expor `user_id`. Fecha a simetria acesso↔supressão: depois
+  de eliminar, o acesso não devolve mais "nada" enquanto o e-mail segue guardado.
 - **LIA** gerada dos dados reais do controlador (fontes e campos vêm do banco),
   com hash, evento de auditoria e as nove seções. Ressalva: a salvaguarda de
   retenção depende do expurgo rodar (item 7).

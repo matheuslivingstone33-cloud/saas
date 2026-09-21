@@ -115,7 +115,9 @@ Você pode, a qualquer momento:
 
 - **Sair da lista** — clique no link de descadastro de qualquer mensagem. Um
   clique, efeito imediato, permanente.
-- **Saber o que temos** sobre a sua empresa (art. 18, I e II).
+- **Saber o que temos** sobre a sua empresa (art. 18, I e II) — o relatório de
+  acesso inclui os leads, as mensagens trocadas e, se você estiver na lista de
+  descadastro, o registro dessa supressão que mantemos.
 - **Corrigir** dado incompleto ou desatualizado (art. 18, III).
 - **Pedir a eliminação** dos dados (art. 18, IV).
 - **Se opor** ao tratamento (art. 18, § 2º).

@@ -257,6 +257,46 @@ def test_acesso_inclui_a_resposta_enviada_pelo_titular(session, usuario) -> None
     assert por_id[str(entrada.id)]["direcao"] == Direcao.ENTRADA.value
 
 
+def test_acesso_revela_a_supressao_que_guardamos_do_titular(
+    session, usuario, portas_db, settings
+) -> None:
+    """Acesso (art. 18, II) tem que revelar TODO dado pessoal que guardamos —
+    inclusive o registro de descadastro, que retemos em carater PERMANENTE
+    (Politica §7) com o contato cru do titular.
+
+    O relatorio devolvia leads e mensagens, mas era mudo sobre a lista de
+    supressao. O buraco fica gritante depois de uma eliminacao: `eliminar()`
+    anonimiza o lead e expurga as mensagens, mas mantem um opt_out com o e-mail
+    cru — entao um novo pedido de acesso devolvia "nada", enquanto seguimos
+    guardando o endereco real do titular para sempre, sem contar a ele. E a
+    mesma simetria acesso↔eliminacao que os leads e as mensagens ja seguem: o
+    acesso tem que revelar o que a supressao retem.
+    """
+    contato = "titular-suprimido@empresa.com.br"
+    OptOutService(session, settings=settings).registrar(
+        contato=contato,
+        user_id=usuario.id,
+        origem=OrigemOptOut.LINK_DESCADASTRO,
+        motivo="descadastro de 1 clique",
+    )
+
+    relatorio = PrivacyService(session, settings=settings).relatorio(contato)
+    assert relatorio["opt_outs"], "o titular tem direito de saber que esta na lista de supressao"
+    registro = relatorio["opt_outs"][0]
+    assert registro["origem"] == OrigemOptOut.LINK_DESCADASTRO.value
+    assert registro["motivo"] == "descadastro de 1 clique"
+    assert registro["registrado_em"], "o titular tem direito de saber desde quando esta suprimido"
+
+    # Simetria com a eliminacao: mesmo com leads e mensagens ja vazios, o acesso
+    # ainda revela a supressao que sobrevive — que e o que de fato guardamos.
+    servico = PrivacyService(session, settings=settings)
+    pedido = servico.abrir(contato=contato, tipo=TipoSolicitacao.ELIMINACAO, user_id=usuario.id)
+    servico.atender(pedido)
+    depois = servico.relatorio(contato)
+    assert depois["leads"] == [] and depois["mensagens"] == []
+    assert depois["opt_outs"], "a supressao que a eliminacao mantem tem que aparecer no acesso"
+
+
 def test_eliminacao_anonimiza_mas_mantem_supressao(session, usuario, portas_db) -> None:
     campanha = _rodar(session, usuario, portas_db, nome="Eliminacao")
     lead = session.execute(

@@ -511,6 +511,22 @@ class PrivacyService:
             .scalars()
             .all()
         )
+        # A lista de supressao tambem e dado pessoal do titular: guardamos o
+        # contato dele em `opt_outs` em carater PERMANENTE (Politica §7) para
+        # impedir o recontato. O acesso (art. 18, II) tem que revela-la, senao
+        # depois de uma eliminacao — que anonimiza o lead e expurga as mensagens
+        # mas MANTEM o opt_out com o e-mail cru — este relatorio devolveria
+        # "nada" enquanto seguimos guardando o endereco real do titular. E a
+        # mesma simetria acesso↔eliminacao que os leads e as mensagens ja seguem.
+        opt_outs = (
+            self.session.execute(
+                select(OptOut)
+                .where(OptOut.contato_normalizado == contato)
+                .order_by(OptOut.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
         return {
             "contato": contato,
             "leads": [
@@ -533,6 +549,16 @@ class PrivacyService:
                     "enviado_em": m.enviado_em.isoformat() if m.enviado_em else None,
                 }
                 for m in mensagens
+            ],
+            "opt_outs": [
+                {
+                    "id": str(o.id),
+                    "origem": o.origem.value,
+                    "motivo": o.motivo,
+                    "escopo": "global" if o.user_id is None else "controlador",
+                    "registrado_em": o.created_at.isoformat() if o.created_at else None,
+                }
+                for o in opt_outs
             ],
             "gerado_em": now().isoformat(),
         }
