@@ -70,12 +70,18 @@ balde 2, e `is_error` de volta ao modelo quando uma ferramenta falha.
 cd backend && .venv/Scripts/python scripts/smoke.py llm
 ```
 
-> **Bloqueio conhecido (18/09):** o SDK fixado em `requirements-prod.txt`
-> (`anthropic==0.69.0`) não tem o parâmetro `output_config` em
-> `messages.create`, e o Python recusa o kwarg antes de qualquer requisição:
-> `Messages.create() got an unexpected keyword argument 'output_config'`. Vale
-> para `LLM_MODE` e `SEARCH_MODE`. Os testes não pegam porque injetam cliente
-> falso. Detalhe em `docs/radar/deploy.md`.
+> **Bloqueio conhecido — metade resolvida (21/09):** o SDK fixado em
+> `requirements-prod.txt` (`anthropic==0.69.0`) não tem o parâmetro
+> `output_config` em `messages.create`. `anthropic_llm.py` passou a mandá-lo por
+> `extra_body` (`1e4faed`): com chave fictícia e `ANTHROPIC_BASE_URL` apontando
+> para uma porta fechada, `smoke.py llm` agora para em `Connection error` — o
+> pedido é montado. **`anthropic_search.py:70` ainda passa o kwarg** e
+> `smoke.py search` segue com
+> `Messages.create() got an unexpected keyword argument 'output_config'`.
+> Enquanto isso, **não ligue `EMAIL_MODE=real` junto com `LLM_MODE=real`**: com
+> `SEARCH_MODE=mock`, o `FakeSearch` devolve manchetes inventadas ("X anuncia
+> expansão de unidade") que viram o gancho do e-mail para lead com score ≥ 60.
+> Detalhe em `docs/radar/deploy.md`.
 
 - [ ] Comparar o custo estimado com o faturado no console da Anthropic.
 - [ ] Ajustar `app/core/pricing.py` se divergir.
@@ -169,7 +175,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 - [ ] Postgres gerenciado **com pgvector** (ou container com volume persistente).
-- [ ] `alembic upgrade head` no deploy; `SEED_ON_START=false`.
+- [ ] `alembic upgrade head` no deploy; `SEED_ON_START=false`; catálogo de
+      ramos carregado (o `start-api.sh` faz sozinho desde 21/09 — o log do
+      backend mostra `catalogo de ramos: 64 no banco`).
 - [ ] `APP_SECRET` e `JWT_SECRET` fortes.
 - [ ] TLS via Caddy/nginx; backend e frontend só em `127.0.0.1`.
 - [ ] Backup diário do Postgres **com restore testado**.
@@ -185,6 +193,10 @@ Depois de cada virada, olhe a margem antes de aumentar volume:
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/margem/consolidado
 ```
+
+> Desde 18/09 esta rota só responde a quem está em `ADMIN_EMAILS` (404 para os
+> demais). No `docker-compose.prod.yml` essa variável ainda não chega ao
+> container — ver `docs/radar/deploy.md`.
 
 - `custo.balde_1_dados_usd` — Places, Receita, e-mail, WhatsApp
 - `custo.balde_2_ia_usd` — tokens de LLM e web search

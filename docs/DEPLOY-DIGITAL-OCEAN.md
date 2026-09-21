@@ -166,10 +166,11 @@ python3 -c "import secrets; [print(n + '=' + secrets.token_urlsafe(48)) for n in
 
 > **Três travas que existem de propósito:**
 >
-> - com `APP_ENV=producao`, a aplicação **recusa subir** se o `JWT_SECRET`
->   estiver com o valor de desenvolvimento ou tiver menos de 32 caracteres.
->   Falhar no deploy é melhor do que subir deixando qualquer pessoa que leia
->   este repositório assinar um token válido para qualquer conta;
+> - com `APP_ENV=producao`, a aplicação **recusa subir** se o `JWT_SECRET` ou o
+>   `APP_SECRET` estiver com o valor de desenvolvimento ou tiver menos de 32
+>   caracteres. Falhar no deploy é melhor do que subir deixando qualquer pessoa
+>   que leia este repositório assinar um token válido para qualquer conta (ou
+>   forjar um descadastro);
 > - `WEBHOOK_SECRET` vazio **fecha** `/v1/inbound/*` em vez de abrir. Um webhook
 >   que "funciona" porque ninguém configurou a chave aceitaria o mundo inteiro —
 >   e desde a Etapa 7 uma resposta forjada não suja só a thread: ela move a mira
@@ -195,8 +196,18 @@ não muda, só a implementação por trás dele.
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-As migrations rodam sozinhas no start (`scripts/start-api.sh`). Se precisar
-aplicá-las à mão:
+As migrations rodam sozinhas no start (`scripts/start-api.sh`), e logo depois o
+**catálogo de ramos** (`carregar_catalogo`, idempotente) — com ou sem seed,
+porque ele não é dado de demonstração: sem ele toda busca expande para zero
+ramos. Catálogo vazio derruba a subida de propósito (`restarting`, com
+`ERRO: catalogo de ramos vazio` no log). Confira:
+
+```bash
+docker compose -f docker-compose.prod.yml logs backend | grep "catalogo de ramos"
+```
+
+Tem que mostrar `catalogo de ramos: 64 no banco`. Se precisar aplicar as
+migrations à mão:
 
 ```bash
 docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
@@ -326,7 +337,7 @@ Coloque no cron diário, ou agende via RQ Scheduler no worker.
 | Logs do worker | `docker compose -f docker-compose.prod.yml logs -f worker` |
 | Estado dos provedores | `docker compose -f docker-compose.prod.yml exec backend python -c "from app.core.config import get_settings; print(get_settings().modes())"` |
 | Margem consolidada | `curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/margem/consolidado` |
-| Integridade da auditoria | `curl -s localhost:8000/v1/audit/integridade` |
+| Integridade da auditoria | `docker compose -f docker-compose.prod.yml exec -T backend python -c "from app.db.session import get_sessionmaker as G; from app.services.audit import AuditService as A; print(A(G()()).verificar_cadeia())"` → `(True, None)` (a rota `/v1/audit/integridade` exige login) |
 | Deploy de nova versão | `git pull && docker compose -f docker-compose.prod.yml up -d --build` |
 | Rebuild de um serviço só | `docker compose -f docker-compose.prod.yml up -d --build backend` |
 
@@ -348,7 +359,8 @@ Ele vale 30 minutos.
 - `http_esgotou_tentativas` e circuito aberto nos logs → provedor instável;
 - taxa de bounce/complaint do SES → risco de reputação de domínio;
 - `margem_pct` por cliente → se cair, o preço do plano está errado;
-- `/v1/audit/integridade` retornando `integra: false` → **incidente de segurança**;
+- verificação da trilha de auditoria (tabela acima) devolvendo `False` →
+  **incidente de segurança**;
 - fila do RQ crescendo → worker travado ou volume acima do teto;
 - 401 em massa nos logs → alguém tentando adivinhar senha, ou o relógio do
   servidor fora de hora (o JWT valida `exp` contra o relógio local).
@@ -359,10 +371,16 @@ Ele vale 30 minutos.
 - [x] ~~Webhook de entrada assinado~~ — Etapa 8 (HMAC-SHA256 + timestamp).
 - [ ] **Recuperação de senha.** Não existe: quem esquecer só volta com um
       `UPDATE` no banco. Depende de e-mail real, então vem depois da Fase 7.
-- [ ] **Limite de tentativas de login.** O bcrypt de custo 12 encarece a força
-      bruta (~250 ms por tentativa), mas isso é mitigação, não defesa. O lugar
-      mais simples é o `rate_limit` do Caddy.
-- [ ] Papel de admin protegendo `/v1/margem/consolidado`.
+- [x] ~~**Limite de tentativas de login.**~~ — 18/09, na aplicação: 5 falhas
+      por e-mail / 30 por IP em 15 min, 5 cadastros por IP por hora
+      (`tentativas_acesso`).
+- [x] ~~Papel de admin protegendo `/v1/margem/consolidado`~~ — 18/09, por
+      `ADMIN_EMAILS`. **Ressalva:** o `docker-compose.prod.yml` ainda não repassa
+      `ADMIN_EMAILS` ao container, então aqui ninguém é admin (404 para todos) —
+      próxima correção do [radar de deploy](radar/deploy.md).
+- [ ] Busca na web real (`anthropic_search.py` ainda passa `output_config` como
+      kwarg) — e, até lá, **não** ligar `EMAIL_MODE=real` com `LLM_MODE=real`:
+      com `SEARCH_MODE=mock`, o gancho da mensagem vira manchete inventada.
 - [ ] Webhook assinado do Stripe creditando (em vez de `/billing/confirmar`).
 - [ ] SNS de bounce/complaint do SES alimentando `opt_outs`.
 - [ ] Política de privacidade publicada na URL pública.

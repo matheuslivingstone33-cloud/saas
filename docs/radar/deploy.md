@@ -14,9 +14,185 @@
 > **Limite desta máquina:** não há Docker. A validação é por leitura, por
 > script Python contra o código e por simulação do layout do container.
 
-**Última execução:** 2026-09-18 · a imagem do backend passa a instalar os SDKs
-dos adaptadores reais (`requirements-prod.txt`); achado 🔴 de outro dono: o SDK
-da Anthropic fixado recusa `output_config`.
+**Última execução:** 2026-09-21 · o `start-api.sh` carrega o catálogo de ramos
+em toda subida (no Docker, a busca expandia para zero ramos); achados 🔴 novos de
+outros donos: manchete inventada do `FakeSearch` vira gancho com IA real, e a
+tela de créditos não funciona com Stripe real.
+
+---
+
+## 2026-09-21 — no servidor próprio, toda busca expandia para zero ramos
+
+### O que corrigi
+
+**No caminho Docker, o produto subia sem o catálogo de ramos.** Em 20/09 a
+segurança/Vercel separou `carregar_catalogo()` do `semear()` e pôs a carga no
+build do Vercel (`scripts/vercel_build.py`). O caminho do servidor próprio ficou
+de fora: o `start-api.sh` só carregava alguma coisa com `SEED_ON_START=true`, e
+o `docker-compose.prod.yml` fixa `false`. A API subia `healthy`, o cadastro
+funcionava, e o Cérebro expandia **qualquer** serviço para 0 ramos — a busca não
+achava ninguém e não havia erro em lugar nenhum. É o item 1 (🔴) da tabela de
+16/09, que o HANDOFF registrava como "só relevante se voltar ao Docker" — mas o
+`COLOCAR-NO-AR` inteiro é o caminho Docker.
+
+**Correção** (`backend/scripts/start-api.sh`): depois do `alembic upgrade head`
+e **antes** do seed, sempre roda `carregar_catalogo()` (idempotente) e imprime
+`catalogo de ramos: N no banco (M acrescentados agora)`. Com `N == 0` a subida
+**para** (`exit 1` → container `restarting`, `ERRO: catalogo de ramos vazio` no
+log), coerente com as travas `${VAR:?}` do compose: melhor parar no deploy do
+que abrir para cliente um produto que não acha ninguém. O worker não é afetado
+(usa `start-worker.sh`).
+
+**Como verifiquei, sem Docker:**
+
+- **Reproduzi o defeito:** banco SQLite migrado com a lógica antiga e
+  `SEED_ON_START=false` → `ramos no banco: 0`; `ExpansorDeServico.expandir("manutencao
+  de ar-condicionado para empresas", "Fortaleza, CE")` → **0 ramos**.
+- **Simulei o container:** cópia de `app/`, `alembic/`, `alembic.ini` e
+  `scripts/` numa pasta com o layout de `/app`, `data/` no lugar do volume, e
+  `alembic`/`python`/`uvicorn` como stubs no `PATH` (o `uvicorn` só imprime).
+  Quatro cenários: (1) banco novo, `SEED_ON_START=false` → migra até `0012`,
+  `64 no banco (64 acrescentados agora)`, chega ao `uvicorn`, saída 0;
+  (2) segunda subida → `64 no banco (0 acrescentados agora)`; (3) banco novo com
+  seed → catálogo e depois `seed ok: {... 'cnaes': 0 ...}` (sem duplicar);
+  (4) sem `data/` → `ERRO: catalogo de ramos vazio`, **não** chega ao `uvicorn`,
+  saída 1. Depois da correção, o mesmo `expandir` → **8 ramos** (clínica,
+  hotel, ...).
+- `yaml.safe_load` nos dois composes: o backend roda `/app/scripts/start-api.sh`
+  com `./data:/app/data:ro`; `WORKDIR /app` no `Dockerfile`, que copia
+  `scripts/` e dá `chmod +x`. Fim de linha LF (`.gitattributes` força `*.sh`),
+  `sh -n` limpo.
+
+**Não verificado:** a carga contra Postgres + pgvector de verdade (sem Docker).
+É a mesma função que o build do Vercel roda contra o Neon; a coluna é
+`Vector(384)` → `pgvector.sqlalchemy.Vector`. Se falhar, o `ps` do passo 3.5
+mostra `restarting` e o log diz o motivo.
+
+### Também nesta execução (documentos)
+
+- **`COLOCAR-NO-AR`** reconferido contra o código e o HANDOFF: quadro "dois
+  caminhos" (servidor próprio × Vercel, decisão do dono) no topo; ✅ de 18/09
+  (limite de login, cobrança travada, margem só admin) e de 21/09 (IA,
+  aquecimento automático, catálogo); a tabela de programação perdeu catálogo,
+  cobrança e limite de login e ganhou "busca na web" (reescrita), "compra pela
+  tela" e "painel de margem no servidor próprio"; decisões: caminho, rascunhos
+  jurídicos, descadastro que acontece só de abrir o link. Passos: 3.5 confere a
+  linha do catálogo no log; 5.1 não falha mais; 5.2 e 5.4 avisam da manchete
+  inventada; 5.5/1.7 com o motivo novo para ficar no `sk_test_`; 6.6 explica o
+  freio automático (números conferidos em `envio.py::_RAMPA_AQUECIMENTO`, conta
+  todo e-mail das últimas 24 h e só barra abordagem fria); 7.3 → **15** tabelas
+  (14 + `alembic_version`); 7.6 troca o `curl` da trilha (que agora responde 401)
+  por `exec backend python -c "...verificar_cadeia()"`, testado aqui → `trilha
+  integra`; 7.7 com as mensagens de `APP_SECRET` e do catálogo. 55 blocos
+  `bash -n` ok, 19 âncoras e 9 links locais resolvem.
+- **`DEPLOY-DIGITAL-OCEAN`**: trava de `APP_SECRET`; §5 explica e confere o
+  catálogo; §9 com o comando da trilha; §10 marca limite de login e admin (com a
+  ressalva do `ADMIN_EMAILS`) e acrescenta a busca na web.
+- **`RUNBOOK-FASE7`** §2: bloqueio agora "metade resolvida", com o aviso de não
+  ligar e-mail real com IA real; §8 inclui o catálogo; §9 a ressalva do admin.
+- Reconferido sem rede (chave fictícia, `ANTHROPIC_BASE_URL=http://127.0.0.1:9`):
+  `smoke.py llm` → `Connection error` (pedido montado — o `extra_body` de
+  `1e4faed` funcionou); `smoke.py search` → ainda `unexpected keyword argument
+  'output_config'`.
+
+### O que achei e NÃO corrigi — nos MEUS arquivos (fila, em ordem)
+
+1. **🆕 `ADMIN_EMAILS` não chega ao container.** O `docker-compose.prod.yml`
+   passa variáveis só pela lista `environment:` (sem `env_file:`), e dentro do
+   container não há `.env` (contexto `./backend`; `../.env` seria `/.env`).
+   `ADMIN_EMAILS` não está na lista → `e_admin()` é falso para todos →
+   `/v1/margem/consolidado` responde 404 **até para o dono**. O Vercel não tem o
+   problema (a variável vai no painel). Mesma espécie, menor: `RETENCAO_LEADS_DIAS`
+   e `RETENCAO_MENSAGENS_DIAS` estão no `.env.example` e são **ignorados** no
+   servidor (vale o padrão 180/365 do código) — se o jurídico mudar o prazo no
+   `.env`, nada muda e a Política promete outro número. Mapa completo (script
+   `Settings.model_fields` × `environment:` × `.env.example`): no modelo e não
+   repassados = `ADMIN_EMAILS`, `EMBEDDING_DIM`, `OUTBOX_DIR`,
+   `RETENCAO_LEADS_DIAS`, `RETENCAO_MENSAGENS_DIAS`. Correção: acrescentar os três
+   que importam ao `environment:` (com os mesmos padrões do código) e o
+   `ADMIN_EMAILS` ao passo 3.4.
+2. `.env.example` com placeholders não vazios e 200/500 envios/dia (item 1 de
+   16/09). **Rebaixado:** desde 21/09 o warmup em `envio.py` freia a abordagem
+   fria de domínio novo por código, e o passo 3.4 segue mitigando.
+3. Log do Docker sem limite (item 2 de 16/09).
+4. Tarefas diárias como script (item 3 de 16/09).
+5. `.env.example` incompleto (item 4 de 16/09). Hoje faltam também os de 18/09:
+   `LOGIN_MAX_FALHAS`, `LOGIN_JANELA_MINUTOS`, `LOGIN_MAX_FALHAS_POR_IP`,
+   `CADASTRO_MAX_POR_IP_HORA`, `RETENCAO_REGISTROS_ACESSO_DIAS` (padrões ok).
+6. `RUNBOOK-FASE7` fala da máquina de desenvolvimento (item 5 de 16/09, sem a
+   parte do `--build`, feita em 18/09).
+7. `DEPLOY` §7: cron chama `~/backup-prospector.sh`, que nenhum passo copia
+   (item 6 de 16/09). A sugestão do `rate_limit` do Caddy saiu do §10 hoje.
+8. Imagem do backend leva `tests/` e o `.db` de demo (item 7 de 16/09).
+9. Backup só no disco do servidor (item 8 de 16/09).
+
+### O que achei em código de OUTROS donos (só registro)
+
+**16. 🔴 🆕 Manchete inventada vira gancho de e-mail real.** Com `LLM_MODE=real`
+e `SEARCH_MODE=mock` — a combinação natural agora que a IA real funciona e a
+busca real ainda quebra —, `PersonalizationService._sinais_de_intencao`
+(`personalizacao.py:193`) chama o `FakeSearch`, que devolve títulos fabricados
+(`"{empresa} anuncia expansao de unidade"`, `"... abre vaga para manutencao
+predial"`); `_melhor_gancho` usa o 1º como gancho, e o `anthropic_llm.completar`
+anexa o contexto (com `gancho` e `sinais`) ao pedido da IA real. Vale para lead
+com score ≥ 60, até 5 por lote, 1º toque. E a mensagem ainda sai marcada
+`usou_web_search=True`. Prova, sem rede: `gerar()` com a busca em mock e um LLM
+que só guarda o pedido → `gancho = "Supermercado Bom Preco Ltda anuncia expansao
+de unidade"`. Nenhum setting desliga (`usar_intencao` só é `False` na cadência).
+Hoje **não há combinação segura** de IA real + e-mail real: busca real →
+`TypeError` (item 14); busca mock → fato inventado para uma empresa real.
+Correção possível: só usar sinais quando `portas.search.modo == "real"` (e
+nunca marcar `usou_web_search` com resultado mock). `personalizacao.py` → Motor 3
+/ Envio. **Mitigado** nos documentos: não ligar `EMAIL_MODE=real` com
+`LLM_MODE=real` antes de o item 14 fechar.
+
+**17. 🔴 🆕 A tela de créditos só funciona em mock.** `Creditos.tsx:49-53` chama
+`api.comprar` e, na mesma hora, `api.confirmarCompra` — o botão diz "comprar
+(mock)". Com `BILLING_MODE=real` o checkout ainda não foi pago, o `confirmar`
+responde 402 (trava de 18/09), e a tela nunca manda o cliente ao `checkout.url`
+do Stripe. Se ele pagar por outro caminho, a volta (`success_url =
+URL_PUBLICA/creditos?compra=ok&sessao=...`) cai na landing (o app roteia por
+`#/`) e nada chama `confirmar`. Engloba o item 7 de 16/09. `frontend/src/pages/
+Creditos.tsx` + `stripe_billing.py` → frontend + Custo. Mitigado no documento:
+`sk_test_` até a tela ficar pronta.
+
+**14. 🟡 (era 🔴) SDK da Anthropic — metade fechada.** `anthropic_llm.py` usa
+`extra_body` desde `1e4faed`; `anthropic_search.py:70` ainda passa o kwarg.
+Reconferido hoje (acima). Sem dono. Agora pesa mais por causa do 16.
+
+**15. ✅ `/v1/audit/integridade` exige login** (`usuario_atual`, conferido em
+`system.py:152`). O risco 🟢 fechou; o efeito colateral foi quebrar o `curl` do
+`COLOCAR-NO-AR` 7.6 e do `DEPLOY` §9 — trocados hoje.
+
+**Tabela de 16/09 — estado em 21/09:** #1 catálogo → ✅ nos dois caminhos (Vercel
+20/09, Docker hoje); #2 vetores do mock → aberto; #3 Receita → aberto; #4
+resposta do lead → aberto (`/v1/inbound/email` só aceita o formato próprio com
+HMAC); #5 retorno do SES → aberto (= 0.1 item 8); #6 cobrança → ✅ 18/09; #7
+retorno do Stripe → absorvido pelo 17; #8 política 404 → aberto **no Docker**; o
+build do Vercel já copia `docs/POLITICA-DE-PRIVACIDADE.md` (o texto antigo, não
+o rascunho), então os dois caminhos publicam coisas diferentes — vale o dono
+saber; #9 descadastro 1 clique → aberto; #10 smokes → aberto (`smoke.py:124`
+ainda fixa `app.prospector.local`); #11 trava → `APP_SECRET` ✅, sobra
+`WEBHOOK_SECRET`; #12 margem → ✅ 18/09 (mas ver meu item 1); #13 `/docs`
+público → aberto.
+
+### O que depende de outra rotina ou de decisão do dono
+
+- **Itens 14 e 16 juntos** → quem assumir `anthropic_search.py` (sem dono) e
+  Motor 3/Envio (`personalizacao.py`). Até lá, IA real e e-mail real não andam
+  juntos.
+- **Item 17** → frontend + Custo. Bloqueia `BILLING_MODE=real` com chave de
+  produção.
+- **Decisões do dono:** caminho (servidor próprio × Vercel) e quando subir;
+  domínio; quais APIs e teto de gasto; ritmo do aquecimento; onde guardar a cópia
+  fora do servidor; horário das tarefas diárias; aprovar os rascunhos jurídicos
+  (libera o #8 no Docker); descadastro que acontece só de abrir o link.
+
+### Próxima execução: por onde começar
+
+Item 1 da fila dos meus arquivos (`ADMIN_EMAILS` e `RETENCAO_*` no `environment:`
+do compose de produção + `ADMIN_EMAILS` no passo 3.4). Depois, reconferir os
+itens 14, 16 e 17 e, se fecharem, tirar os avisos dos passos 1.7, 5.2, 5.4 e 5.5.
 
 ---
 

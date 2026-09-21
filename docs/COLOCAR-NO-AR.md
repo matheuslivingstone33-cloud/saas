@@ -18,7 +18,19 @@
 > **Preços:** mudam com frequência. Onde está escrito "conferir no site", o
 > valor não foi confirmado — abra o endereço indicado antes de contratar.
 >
-> Última conferência deste documento contra o código: **18/09/2026**.
+> Última conferência deste documento contra o código: **21/09/2026**.
+
+> **Dois caminhos para subir — a escolha é sua.** Este documento é o do
+> **servidor próprio**: você aluga um computador e o sistema inteiro roda nele.
+> Existe também o caminho pelo **Vercel**, em
+> [COLOCAR-NO-VERCEL.md](COLOCAR-NO-VERCEL.md): grátis para testar e sem servidor
+> para cuidar, mas o plano gratuito do Vercel **não pode ser usado para vender**,
+> e lá o 2º/3º contato e a limpeza da LGPD ainda não rodam sozinhos. As fases 5
+> (ligar as APIs) e 6 (e-mail) valem para os dois caminhos; no Vercel, em vez de
+> editar o arquivo `.env`, as mesmas linhas vão em **Settings → Environment
+> Variables** do projeto do servidor, seguido de **Redeploy**. Os comandos de
+> teste da fase 5 rodam dentro do servidor próprio e não têm equivalente pronto
+> no Vercel.
 
 ---
 
@@ -28,8 +40,11 @@
 
 - ✅ O sistema inteiro funciona em **modo de teste** (sem gastar nada): busca,
   qualificação, mensagens, conversas, 2º e 3º contato, créditos e painel.
-  428 testes automáticos passando (conferido em 18/09).
-- ✅ Cadastro, login e sessão com senha.
+  501 testes automáticos passando (conferido em 21/09).
+- ✅ Cadastro, login e sessão com senha. **Desde 18/09**, com limite de
+  tentativas: depois de 5 senhas erradas para o mesmo e-mail em 15 minutos, o
+  sistema recusa novas tentativas por um tempo; e cada endereço de internet cria
+  no máximo 5 contas por hora.
 - ✅ Os arquivos que montam o sistema num servidor **já foram usados de verdade**
   (09 a 11/09/2026). Os quatro defeitos que apareceram ali foram corrigidos.
 - ✅ As ligações com as APIs pagas estão escritas e testadas com simulação:
@@ -46,18 +61,33 @@
   com a Anthropic, a AWS e o Stripe. Antes elas ficavam de fora: ligar a IA ou o
   pagamento de verdade quebraria na primeira vez, e com o e-mail real **todas**
   as mensagens falhariam sem aviso nenhum — ver [radar de deploy](radar/deploy.md).
+- ✅ **18/09:** cobrança protegida: o crédito só entra depois que o Stripe
+  confirma o pagamento, e uma vez só; ninguém troca para um plano pago sem pagar.
+- ✅ **18/09:** o painel com a margem de **todos** os clientes só abre para os
+  e-mails da linha `ADMIN_EMAILS` (veja a ressalva na tabela abaixo).
+- ✅ **21/09:** a IA (Anthropic) aceita o pedido do sistema — o erro que o
+  [passo 5.1](#51-ia-anthropic--openai) mostrava sumiu. A busca na web ainda não
+  (tabela abaixo).
+- ✅ **21/09:** com o e-mail real ligado, o sistema freia **sozinho** o volume de
+  um domínio novo: começa em 50 e-mails por dia e vai subindo até liberar depois
+  de 30 dias (detalhe no [passo 6.6](#66-aquecimento-do-domínio)).
+- ✅ **21/09:** o catálogo que diz "quem consome o seu serviço" (64 ramos) passa a
+  ser carregado toda vez que o sistema liga no servidor. Antes ele só vinha junto
+  com os dados de demonstração, que ficam desligados no servidor: o sistema subia
+  sem erro e **toda busca voltava vazia** — ver [radar de deploy](radar/deploy.md).
 
 ### ⬜ O que falta você fazer (em ordem)
 
-1. ⬜ Escolher e comprar o domínio — [passo 1.1](#11-domínio)
-2. ⬜ Contratar o servidor — [passo 1.2](#12-servidor)
-3. ⬜ Criar as contas das APIs — [passos 1.3 a 1.9](#13-anthropic-a-ia-que-escreve)
-4. ⬜ Preparar o servidor com segurança — [fase 2](#fase-2--preparar-o-servidor-com-segurança)
-5. ⬜ Subir o sistema — [fase 3](#fase-3--subir-o-sistema)
-6. ⬜ Apontar o domínio e ligar o cadeado (HTTPS) — [fase 4](#fase-4--domínio-e-https)
-7. ⬜ Autenticar o e-mail e pedir a saída do modo restrito da AWS — [fase 6](#fase-6--e-mail-spf-dkim-dmarc-e-aquecimento)
-8. ⬜ Ligar as APIs reais, uma por vez — [fase 5](#fase-5--ligar-as-apis-reais-uma-por-vez)
-9. ⬜ Cópia de segurança fora do servidor e tarefas diárias — [fase 7](#fase-7--backup-expurgo-e-o-dia-a-dia)
+1. ⬜ Escolher o caminho: servidor próprio (este documento) ou Vercel — [quadro no topo](#colocar-o-prospector-ai-no-ar--passo-a-passo)
+2. ⬜ Escolher e comprar o domínio — [passo 1.1](#11-domínio)
+3. ⬜ Contratar o servidor — [passo 1.2](#12-servidor)
+4. ⬜ Criar as contas das APIs — [passos 1.3 a 1.9](#13-anthropic-a-ia-que-escreve)
+5. ⬜ Preparar o servidor com segurança — [fase 2](#fase-2--preparar-o-servidor-com-segurança)
+6. ⬜ Subir o sistema — [fase 3](#fase-3--subir-o-sistema)
+7. ⬜ Apontar o domínio e ligar o cadeado (HTTPS) — [fase 4](#fase-4--domínio-e-https)
+8. ⬜ Autenticar o e-mail e pedir a saída do modo restrito da AWS — [fase 6](#fase-6--e-mail-spf-dkim-dmarc-e-aquecimento)
+9. ⬜ Ligar as APIs reais, uma por vez — [fase 5](#fase-5--ligar-as-apis-reais-uma-por-vez)
+10. ⬜ Cópia de segurança fora do servidor e tarefas diárias — [fase 7](#fase-7--backup-expurgo-e-o-dia-a-dia)
 
 > A fase 6 aparece antes da 5 nesta lista de propósito: a autenticação do
 > e-mail leva até alguns dias para ser aprovada, então vale começar cedo.
@@ -69,35 +99,41 @@ subir o sistema e testar sem isto; só não abra para clientes.
 
 | | O que falta | O que acontece hoje |
 |---|---|---|
-| ⬜ 🔴 | **Peça da IA (Anthropic) atualizada** | A versão da peça que o projeto usa é antiga e recusa um ajuste que o sistema manda em **toda** pergunta à IA. Com a IA real ligada, nenhuma pergunta passa — nem a busca na web. O teste do [passo 5.1](#51-ia-anthropic--openai) mostra o erro. Conferido em 18/09 sem gastar nada |
+| ⬜ 🔴 | **Busca na web (Anthropic)** | A IA foi corrigida em 21/09, mas a busca na web usa uma peça gêmea que ainda manda um ajuste que a versão instalada recusa. Com a busca real ligada, **toda** busca na web falha (o teste do [passo 5.2](#52-busca-na-web-anthropic) mostra o erro). E deixá-la em modo de teste **não resolve**: o modo de teste devolve **notícias inventadas** ("Supermercado X anuncia expansão de unidade"), e com a IA real ligada essa frase vai para a IA como o gancho da mensagem, para os leads com nota 60 ou mais. Conferido em 21/09 sem gastar nada. **Até corrigir, não ligue o e-mail real junto com a IA real** ([passo 5.4](#54-e-mail-aws-ses)). Hoje nenhuma rotina cuida desse arquivo |
 | ⬜ 🔴 | **Base completa de empresas da Receita Federal** dentro do banco | O servidor não tem a base. Sem ela, as empresas encontradas **não têm e-mail** — e sem e-mail nenhuma mensagem sai. A base completa também não cabe na memória do jeito que o código lê hoje: precisa ir para o banco de dados |
-| ⬜ 🔴 | **Catálogo de ramos carregado no servidor** | O catálogo que diz "quem consome o seu serviço" só é carregado junto com os dados de demonstração, que ficam desligados no servidor. Resultado: a busca roda com **0 ramos** (conferido em 16/09) |
 | ⬜ 🔴 | **Catálogo de ramos compatível com a IA real** | Quando a IA real é ligada, o catálogo continua com a "impressão digital" do modo de teste, e a comparação entre os dois perde o sentido |
 | ⬜ 🔴 | **Receber as respostas dos leads** | Não existe a peça que pega o e-mail de resposta e entrega ao sistema. As respostas vão para a caixa do remetente e a IA não as vê |
 | ⬜ 🔴 | **Receber o aviso de e-mail devolvido ou marcado como spam** (fila, item 8) | O tradutor existe, mas nenhum endereço do sistema recebe o aviso da AWS. Sem isso o sistema não bloqueia quem reclamou |
-| ⬜ 🔴 | **Cobrança segura antes do Stripe real** | Qualquer conta logada troca de plano sem pagar, e a confirmação de compra aceita um pacote diferente do pago e pode ser repetida |
+| ⬜ 🔴 | **Compra de créditos pela tela com o Stripe real** | A tela de créditos ainda é a de teste (o botão diz "comprar (mock)"): ela não leva o cliente à página de pagamento do Stripe, e a volta do pagamento cai na página inicial, onde nada põe os créditos. Com o Stripe real, **ninguém consegue comprar pela tela** |
 | ⬜ | **Recuperação de senha** (fila, item 3) | Quem esquece a senha não volta pela tela |
-| ⬜ | **Limite de tentativas no login** (fila, item 4) | Nada impede alguém de testar senhas sem parar |
 | ⬜ | **Expurgo da LGPD e 2º/3º contato rodando sozinhos** (fila, item 5) | Nada dispara os dois. Enquanto não houver, o [passo 7.4](#74-tarefas-diárias-expurgo-da-lgpd-e-2º3º-contato) agenda os dois no servidor |
 | ⬜ | **Descadastro no formato "1 clique" que Gmail e Yahoo pedem** | Desde 18/09 o link vai no texto e no cabeçalho. Falta a marcação que faz o Gmail e o Yahoo mostrarem o botão próprio de "cancelar inscrição". A resposta escrita à mão (quando você assume a conversa) ainda leva o link só no cabeçalho |
 | ⬜ | **Encerrar sessão de verdade** (fila, item 6) | Sair apaga a sessão só no navegador |
-| ⬜ | **Política de privacidade e declaração de IA no ar** | No servidor as duas páginas respondem "não encontrado", porque o texto não vai junto com o sistema. O texto também precisa de revisão jurídica antes (ver decisões) |
-| ⬜ | **Painel de margem de todos os clientes** protegido | Qualquer conta logada consegue abrir |
-| ⬜ | **Volta do pagamento do Stripe** | Depois de pagar, o cliente cai na página inicial em vez da tela de créditos |
+| ⬜ | **Política de privacidade e declaração de IA no ar** | No servidor próprio as duas páginas respondem "não encontrado", porque o texto não vai junto com o sistema (no Vercel ele já vai). O texto também precisa de revisão jurídica antes (ver decisões) |
+| ⬜ | **Painel de margem de todos os clientes, no servidor próprio** | A linha `ADMIN_EMAILS` do arquivo de configuração ainda não chega ao sistema no servidor próprio: o painel responde "não encontrado" até para você. É a próxima correção da rotina de preparação. No Vercel já funciona |
 
 ### ⬜ O que precisa de decisão sua
 
+- ⬜ **Caminho: servidor próprio ou Vercel** (quadro no topo).
 - ⬜ **Nome do domínio** e onde comprar.
 - ⬜ **Provedor do servidor e quando subir** — custa todo mês.
 - ⬜ **Quais APIs ligar e em que ordem**, e quanto cada uma pode gastar por mês.
 - ⬜ **Quantas páginas de resultado do Google cada busca pode ler** — cada
   página é cobrada.
 - ⬜ **Velocidade do aquecimento do e-mail** (quantos envios por dia em cada
-  semana) — sugestão no passo 6.6.
+  semana) — sugestão no passo 6.6. O sistema já tem um freio automático; o seu
+  limite vale quando for **menor** que o dele.
 - ⬜ **Onde guardar a cópia de segurança fora do servidor** — passo 7.2.
-- ⬜ **Textos jurídicos:** e-mail do encarregado de dados, quem é o controlador,
-  transferência de dados para fora do Brasil, contratos com fornecedores e
-  prazos — pedem **revisão de advogado**.
+- ⬜ **Textos jurídicos:** aprovar os rascunhos novos em
+  [juridico-rascunho/](juridico-rascunho/) (política, termos de uso, acordo de
+  tratamento de dados, declaração de IA — o roteiro está em
+  `REVISAO-JURIDICA.md` ali dentro). Envolvem e-mail do encarregado de dados,
+  quem é o controlador, transferência de dados para fora do Brasil, contratos
+  com fornecedores e prazos — pedem **revisão de advogado**.
+- ⬜ **Descadastro que acontece só de abrir o link:** hoje abrir o link já
+  descadastra. Antivírus de empresa que abre links para conferir pode
+  descadastrar um lead sozinho. Manter assim (favorece quem recebe) ou pedir
+  um clique de confirmação é decisão de produto e jurídica.
 - ⬜ **Como confirmar que quem pede a exclusão de dados é mesmo o dono do e-mail.**
 - ⬜ **Por quanto tempo guardar** leads que receberam mensagem e não
   responderam, e leads que pediram para sair.
@@ -236,8 +272,8 @@ ligada.
 - **Onde:** https://dashboard.stripe.com → crie a conta (para receber no
   Brasil pede dados da empresa e conta bancária).
 - **Vai como:** `STRIPE_SECRET_KEY`. **Comece com a chave de teste** (começa
-  com `sk_test_`). Não use a chave real antes de a programação da cobrança
-  segura ficar pronta (ver tabela no topo).
+  com `sk_test_`). Não use a chave real antes de a tela de compra de créditos
+  ficar pronta para o Stripe de verdade (ver tabela no topo).
 - **Quanto custa:** taxa por venda. Conferir em https://stripe.com/br/pricing.
 - **Quanto tempo:** cerca de 30 minutos; a verificação da conta pode levar dias.
 - **Deu certo quando:** o painel mostra a chave de teste.
@@ -473,6 +509,19 @@ motivo com:
 cd ~/prospector && docker compose -f docker-compose.prod.yml logs --tail 50 backend
 ```
 
+Confira também que o catálogo de ramos (a lista de "quem consome o seu
+serviço") foi carregado:
+
+```bash
+cd ~/prospector && docker compose -f docker-compose.prod.yml logs backend | grep "catalogo de ramos"
+```
+
+**Deu certo quando:** aparece `catalogo de ramos: 64 no banco` (hoje são 64;
+na primeira vez a linha termina com `64 acrescentados agora`, nas seguintes com
+`0 acrescentados agora`). Se o `backend` ficar em `restarting` e aparecer
+`ERRO: catalogo de ramos vazio`, a pasta `data` do projeto não chegou ao
+servidor: confira se o passo 3.1 terminou sem erro.
+
 ### 3.6 Os três testes de porta
 
 ```bash
@@ -650,12 +699,11 @@ cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python
 **Deu certo quando:** aparece `384`. Custo dos dois testes: frações de centavo.
 Tempo: 5 minutos.
 
-> **Hoje o primeiro teste falha**, com uma linha `[falhou]` que termina em
-> `unexpected keyword argument 'output_config'`. Não é erro seu nem da chave, e
-> nada é cobrado: o pedido nem chega a sair do servidor. É o item 🔴 "Peça da IA"
-> da tabela do topo. O teste da OpenAI funciona mesmo assim. Depois de rodar os
-> dois, volte `LLM_MODE` para `mock`, aplique, e espere a correção. O mesmo vale
-> para o passo 5.2.
+> Até 20/09 o primeiro teste falhava com `unexpected keyword argument
+> 'output_config'`. Isso foi corrigido em 21/09: conferido sem gastar nada (com
+> uma chave falsa e sem sair desta máquina), o pedido agora é montado e só para
+> por falta de conexão. **Se ainda aparecer esse erro**, o servidor está com a
+> versão antiga: rode o passo 7.5. A busca na web (5.2) ainda tem o mesmo defeito.
 
 ### 5.2 Busca na web (Anthropic)
 
@@ -668,8 +716,14 @@ cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python
 **Deu certo quando:** aparece `buscas=` com um número maior que zero. Custo: cerca
 de 1 centavo de dólar por busca, mais a IA. Tempo: 5 minutos.
 
-> Hoje falha com o mesmo erro `output_config` do passo 5.1 — mesma causa, mesma
-> correção. Deixe `SEARCH_MODE` em `mock` até lá.
+> **Hoje este teste falha**, com uma linha `[falhou]` que termina em
+> `unexpected keyword argument 'output_config'` (conferido em 21/09, sem gastar
+> nada). Não é erro seu nem da chave, e nada é cobrado: o pedido nem chega a sair
+> do servidor. É o item 🔴 "Busca na web" da tabela do topo. Volte
+> `SEARCH_MODE` para `mock` e aplique. Atenção: com `SEARCH_MODE=mock` e a IA
+> real, as mensagens dos leads com nota 60 ou mais recebem uma **notícia
+> inventada** como gancho. Dá para testar a IA real olhando os rascunhos, mas
+> **não ligue o e-mail real (5.4) enquanto este item não for corrigido**.
 
 ### 5.3 Busca de empresas (Google)
 
@@ -696,7 +750,9 @@ de uma empresa real. Custo: alguns centavos de dólar. Tempo: 5 minutos.
 ### 5.4 E-mail (AWS SES)
 
 **Só depois da fase 6 inteira** (domínio autenticado e saída do modo restrito
-aprovada).
+aprovada) — e, se a IA real estiver ligada, **só depois** de o item 🔴 "Busca na
+web" da tabela do topo ser corrigido. Sem isso, e-mails de verdade podem sair
+com uma notícia inventada sobre a empresa que recebe.
 
 Linhas: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`,
 `SES_FROM_EMAIL`, `EMAIL_MODE=real`.
@@ -724,7 +780,9 @@ cd ~/prospector && docker compose -f docker-compose.prod.yml exec backend python
 **Deu certo quando:** aparece `url=https://checkout.stripe.com/...`. Abra esse
 endereço e pague com o cartão de teste do Stripe (`4242 4242 4242 4242`,
 qualquer data futura e qualquer código). Custo: zero no modo de teste.
-**Não troque para a chave real** antes de a cobrança segura ficar pronta.
+Este teste confere só a ligação com o Stripe: a tela de créditos do sistema
+ainda não leva o cliente ao pagamento (tabela no topo). **Não troque para a
+chave real** antes de ela ficar pronta.
 
 ### 5.6 WhatsApp (opcional)
 
@@ -823,6 +881,16 @@ dia**. Sugestão de subida (a velocidade é **decisão sua**):
 campanha sozinho**) e reclamação de spam bem abaixo de 0,1% no Postmaster
 (conferir o limite atual na ajuda do Google).
 
+**O freio automático (desde 21/09).** Além do seu limite, o sistema segura
+sozinho os e-mails de prospecção de um domínio novo. A idade do domínio conta a
+partir do primeiro e-mail real enviado, e o teto vale para o total de e-mails
+das últimas 24 horas, somando todos os clientes: até 50 nos dias 0 e 1, 100 nos
+dias 2 e 3, 250 nos dias 4 a 6, 500 na 2ª semana, 1.000 na 3ª, 2.000 na 4ª, e
+sem freio depois de 30 dias. Respostas a quem já escreveu nunca são freadas.
+Vale sempre o **menor** entre o seu limite e o freio: com o seu limite em 20,
+saem no máximo 20. O freio é uma rede de segurança, não a sua sugestão de
+subida — a tabela acima continua sendo o ritmo recomendado.
+
 Para mudar o limite, edite as duas linhas com `nano .env` e aplique com o item 4
 do [roteiro da fase 5](#como-ligar-qualquer-uma-o-mesmo-roteiro-para-todas).
 
@@ -878,7 +946,7 @@ cd ~/prospector && ARQ=$(ls -t backups/*.sql.gz | head -1) && docker compose -f 
 ```
 
 **Deu certo quando:** a tabela final mostra `contas` igual ao número de contas
-criadas e `tabelas` igual a 14 (as 13 do sistema mais o controle de versão do
+criadas e `tabelas` igual a 15 (as 14 do sistema mais o controle de versão do
 banco). Depois apague o banco de teste:
 
 ```bash
@@ -943,18 +1011,27 @@ parece atualizado. Depois de atualizar, repita os testes do passo 3.6.
 | Cópia de segurança | `tail -3 ~/backup.log` | `backup ok` com a data de hoje |
 | Tarefas diárias | `grep -c Traceback ~/tarefas.log` | `0` |
 | Espaço em disco | `df -h /` | uso abaixo de 80% |
-| Trilha de auditoria intacta | `curl -s localhost:8000/v1/audit/integridade` | `"integra":true` — se `false`, **trate como incidente de segurança** |
+| Trilha de auditoria intacta | o comando logo abaixo da tabela | `trilha integra` — se aparecer `TRILHA ADULTERADA`, **trate como incidente de segurança** |
 | Erros com as APIs | `cd ~/prospector && docker compose -f docker-compose.prod.yml logs --since 24h backend worker \| grep -c esgotou` | `0` ou perto disso |
 | Devolução e spam | console do SES e https://postmaster.google.com | devolução < 2%, spam bem abaixo de 0,1% |
 | Gasto | painéis da Google, Anthropic, OpenAI e AWS | dentro do orçamento que você definiu |
 | Margem | tela **Painel** do sistema | margem por lead positiva — se ficar negativa, o problema é preço ou consumo |
+
+O comando da trilha de auditoria (roda dentro do servidor; o endereço
+`/v1/audit/integridade` passou a exigir login):
+
+```bash
+cd ~/prospector && docker compose -f docker-compose.prod.yml exec -T backend python -c "from app.db.session import get_sessionmaker as G; from app.services.audit import AuditService as A; ok, seq = A(G()()).verificar_cadeia(); print('trilha integra' if ok else f'TRILHA ADULTERADA no registro {seq}')"
+```
 
 ### 7.7 Se algo der errado
 
 - **Uma API deu problema:** volte a linha dela para `mock` e aplique (roteiro da
   fase 5). O resto continua funcionando.
 - **O sistema não sobe:** `docker compose -f docker-compose.prod.yml logs --tail 100 backend`
-  mostra o motivo. Mensagem sobre `JWT_SECRET` = o passo 3.3 não rodou.
+  mostra o motivo. Mensagem sobre `JWT_SECRET` ou `APP_SECRET` = o passo 3.3
+  não rodou. Mensagem `catalogo de ramos vazio` = a pasta `data` do projeto não
+  chegou ao servidor (passo 3.1).
 - **Muitos "401" nos registros:** alguém tentando adivinhar senha, ou o relógio
   do servidor errado (`timedatectl` mostra a hora).
 
