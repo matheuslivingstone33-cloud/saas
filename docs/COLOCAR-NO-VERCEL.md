@@ -9,8 +9,11 @@
 >
 > | Projeto | O que é | Endereço |
 > |---|---|---|
-> | `prospector-ai-api` | o servidor (a parte que pensa) | `https://prospector-ai-api.vercel.app` |
-> | `prospector-ai` | as telas (o que o cliente vê) | `https://prospector-ai.vercel.app` |
+> | `prospector-ai-app-api` | o servidor (a parte que pensa) | `https://prospector-ai-app-api.vercel.app` |
+> | `prospector-ai-app` | as telas (o que o cliente vê) | `https://prospector-ai-app.vercel.app` |
+>
+> Os nomes `prospector-ai` e `prospector-ai-api` já pertencem a outras pessoas no
+> Vercel (conferido em 22/09): por isso `prospector-ai-app` e `prospector-ai-app-api`.
 >
 > O banco de dados fica no **Neon**, em São Paulo, e o servidor do Vercel
 > também roda em São Paulo: os dados ficam no Brasil e as respostas são rápidas.
@@ -49,14 +52,14 @@ parte 2. **Não cole essas senhas em conversa, e-mail ou documento.**
 
 ---
 
-## Parte 2 — O servidor (`prospector-ai-api`)
+## Parte 2 — O servidor (`prospector-ai-app-api`)
 
 1. Entre em https://vercel.com e clique em **Add New… → Project**.
 2. Em **Import Git Repository**, escolha o repositório **`saas`**.
    - Se ele não aparecer: clique em **Adjust GitHub App Permissions** e dê
      acesso ao repositório `saas`.
 3. Na tela de configuração:
-   - **Project Name:** `prospector-ai-api`
+   - **Project Name:** `prospector-ai-app-api`
    - **Root Directory:** clique em **Edit** e escolha a pasta **`backend`**.
      Deixe **marcada** a opção de incluir arquivos de fora dessa pasta no build
      (vem marcada). Sem ela, a busca fica sem a lista de ramos.
@@ -70,14 +73,14 @@ parte 2. **Não cole essas senhas em conversa, e-mail ou documento.**
    | `APP_SECRET` | a 2ª senha da parte 1 |
    | `WEBHOOK_SECRET` | a 3ª senha da parte 1 |
    | `ADMIN_EMAILS` | o e-mail com que **você** vai criar sua conta no sistema |
-   | `URL_PUBLICA` | `https://prospector-ai.vercel.app` |
-   | `CORS_ORIGINS` | `https://prospector-ai.vercel.app` |
+   | `URL_PUBLICA` | `https://prospector-ai-app.vercel.app` |
+   | `CORS_ORIGINS` | `https://prospector-ai-app.vercel.app` |
    | `ENCARREGADO_EMAIL` | um e-mail seu para assuntos de privacidade |
 
 5. Clique em **Deploy**.
    - **O primeiro vai falhar**, com a mensagem *"sem banco Postgres
      configurado"*. É esperado: o banco vem no próximo passo.
-6. **Crie o banco.** Dentro do projeto `prospector-ai-api`, abra a aba
+6. **Crie o banco.** Dentro do projeto `prospector-ai-app-api`, abra a aba
    **Storage** → **Create Database** → **Neon** → **Continue**.
    - **Região:** **São Paulo** (`sa-east-1`).
    - **Plano:** **Free**.
@@ -89,33 +92,33 @@ parte 2. **Não cole essas senhas em conversa, e-mail ou documento.**
 8. **Como saber que deu certo:** o deploy termina como **Ready**, e este
    endereço mostra `"status": "ok"` e `"banco": "ok"`:
 
-   https://prospector-ai-api.vercel.app/v1/health/ready
+   https://prospector-ai-app-api.vercel.app/v1/health/ready
 
-> Se o Vercel der outro nome ao endereço (quando `prospector-ai-api` já está
+> Se o Vercel der outro nome ao endereço (quando `prospector-ai-app-api` já está
 > em uso por outra pessoa), anote o endereço que ele mostrar: as telas precisam
 > apontar para ele, e o arquivo `frontend/vercel.json` também.
 
 ---
 
-## Parte 3 — As telas (`prospector-ai`)
+## Parte 3 — As telas (`prospector-ai-app`)
 
 1. De novo **Add New… → Project** e o mesmo repositório **`saas`**.
 2. Na tela de configuração:
-   - **Project Name:** `prospector-ai`
+   - **Project Name:** `prospector-ai-app`
    - **Root Directory:** **`frontend`**
    - **Framework Preset:** **Vite** (aparece sozinho).
 3. Em **Environment Variables**:
 
    | Nome | Valor |
    |---|---|
-   | `VITE_API_URL` | `https://prospector-ai-api.vercel.app` |
+   | `VITE_API_URL` | `https://prospector-ai-app-api.vercel.app` |
 
 4. **Deploy**.
-5. **Como saber que deu certo:** https://prospector-ai.vercel.app abre a tela
+5. **Como saber que deu certo:** https://prospector-ai-app.vercel.app abre a tela
    de entrada. Crie sua conta com o **mesmo e-mail** que você pôs em
    `ADMIN_EMAILS`.
 6. Teste o link de descadastro:
-   https://prospector-ai.vercel.app/descadastro/teste — tem que aparecer uma
+   https://prospector-ai-app.vercel.app/descadastro/teste — tem que aparecer uma
    página de **link inválido** (é o servidor respondendo). Se aparecer a tela
    inicial do sistema, o repasse para o servidor não está funcionando.
 

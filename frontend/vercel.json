@@ -4,9 +4,9 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/descadastro/:caminho*", "destination": "https://prospector-ai-api.vercel.app/descadastro/:caminho*" },
-    { "source": "/privacidade/:caminho*", "destination": "https://prospector-ai-api.vercel.app/privacidade/:caminho*" },
-    { "source": "/legal/:caminho*", "destination": "https://prospector-ai-api.vercel.app/legal/:caminho*" },
+    { "source": "/descadastro/:caminho*", "destination": "https://prospector-ai-app-api.vercel.app/descadastro/:caminho*" },
+    { "source": "/privacidade/:caminho*", "destination": "https://prospector-ai-app-api.vercel.app/privacidade/:caminho*" },
+    { "source": "/legal/:caminho*", "destination": "https://prospector-ai-app-api.vercel.app/legal/:caminho*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
