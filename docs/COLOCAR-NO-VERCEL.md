@@ -22,7 +22,7 @@
 > real é feita, nenhuma API paga é chamada. Ligar as APIs reais é outro passo,
 > em [COLOCAR-NO-AR.md](COLOCAR-NO-AR.md), fase 5.
 >
-> Última conferência deste documento contra o código: **18/09/2026**.
+> Última conferência deste documento contra o código: **22/09/2026**.
 
 ---
 
@@ -64,7 +64,10 @@ parte 2. **Não cole essas senhas em conversa, e-mail ou documento.**
      Deixe **marcada** a opção de incluir arquivos de fora dessa pasta no build
      (vem marcada). Sem ela, a busca fica sem a lista de ramos.
    - **Framework Preset:** deve aparecer **FastAPI** sozinho.
-4. Abra **Environment Variables** e cadastre, uma por uma:
+4. Abra **Environment Variables**. O Vercel lê o `.env.example` do repositório e
+   já cria ~44 linhas **vazias**. **Apague todas** (botão `−` de cada uma) e
+   cadastre só estas 8 — linha vazia como `DATABASE_URL` atrapalha o banco, e as
+   numéricas vazias derrubam o servidor:
 
    | Nome | Valor |
    |---|---|
@@ -134,6 +137,19 @@ parte 2. **Não cole essas senhas em conversa, e-mail ou documento.**
   comprar o domínio, ele é ligado em **Settings → Domains** de cada projeto, e
   `URL_PUBLICA`, `CORS_ORIGINS`, `VITE_API_URL` e o `frontend/vercel.json`
   mudam junto.
+
+## Dois tropeços que já aconteceram (22/09)
+
+- **"Deployment Blocked — the commit author did not have contributing access".**
+  O Vercel do plano gratuito só aceita deploy de commit assinado pelo dono da
+  conta. Os commits saíam com o e-mail de outra conta do GitHub. Corrigido: o
+  repositório passou a assinar com
+  `281270410+matheuslivingstone33-cloud@users.noreply.github.com`. **Commits
+  antigos continuam bloqueados** — o deploy tem que partir de um commit novo.
+- **"The pattern app/main.py defined in `functions` doesn't match any Serverless
+  Functions inside the `api` directory".** O `backend/vercel.json` tinha um bloco
+  `functions`, que o Vercel só casa com arquivos dentro de `api/`. O bloco saiu;
+  os padrões já dão 300 s de teto no plano gratuito.
 
 ## Se algo der errado
 
