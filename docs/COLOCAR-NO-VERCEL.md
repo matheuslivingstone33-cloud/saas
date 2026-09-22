@@ -26,6 +26,21 @@
 
 ---
 
+## ✅ NO AR desde 22/09/2026
+
+| O quê | Endereço |
+|---|---|
+| Telas | https://prospector-ai-app.vercel.app |
+| Servidor | https://prospector-ai-app-api.vercel.app |
+| Saúde do servidor | https://prospector-ai-app-api.vercel.app/v1/health/ready |
+
+Conferido em 22/09: banco Neon respondendo (`"banco":"ok"`), ambiente
+`producao`, **tudo em modo de teste** (`"tudo_mock":true`), página de
+privacidade abrindo, link de descadastro atendido pelo servidor e a origem das
+telas autorizada. O passo a passo abaixo fica como registro de como foi feito.
+
+---
+
 ## Antes de começar: o plano gratuito do Vercel não é para venda
 
 O plano gratuito (Hobby) do Vercel **só pode ser usado para projeto pessoal,

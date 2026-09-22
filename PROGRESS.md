@@ -310,6 +310,18 @@ provedores reais entrarem, uma correção por execução, todas integradas ao `m
   telefone/WhatsApp vira `[expurgado]` em vez de `NULL`, sem perder a evidência de
   que houve um contato na trilha de auditoria.
 
+## No ar pelo Vercel (22/09) ✅
+
+- Telas em https://prospector-ai-app.vercel.app e servidor em
+  https://prospector-ai-app-api.vercel.app, os dois em São Paulo (`gru1`), com
+  banco Neon em `sa-east-1`. Deploy automático a cada push no `main`.
+- Três tropeços no caminho, todos registrados em `docs/COLOCAR-NO-VERCEL.md`:
+  bloco `functions` que o Vercel só casa com `api/`; deploy bloqueado porque os
+  commits saíam com o e-mail de outra conta do GitHub; e o primeiro deploy verde
+  que não servia nada, por o projeto ter sido importado sem preset — resolvido
+  declarando `framework` no `vercel.json` dos dois lados.
+- Tudo segue em modo de teste: nenhuma chave de API, nenhum e-mail real.
+
 ## Segurança e preparação para o Vercel (18/09) ✅
 
 - **Cobrança:** crédito só entra por pagamento que o provedor confirma — pacote
