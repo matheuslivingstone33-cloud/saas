@@ -54,6 +54,7 @@ export default function OnboardingChat({
   const [ehEmpresa, setEhEmpresa] = useState<boolean | null>(null);
   const [nomeEmpresa, setNomeEmpresa] = useState("");
   const [servico, setServico] = useState("");
+  const [regiao, setRegiao] = useState("");
   const [expansao, setExpansao] = useState<Expansao | null>(null);
   const [autonomia, setAutonomia] = useState<NivelAutonomia>("assistido");
 
@@ -128,6 +129,7 @@ export default function OnboardingChat({
     }
 
     if (passo === "regiao") {
+      setRegiao(texto);
       setPasso("analisando");
       await analisar(servico, texto);
     }
@@ -197,6 +199,9 @@ export default function OnboardingChat({
       await api.atualizarPerfil({
         empresa: ehEmpresa ? nomeEmpresa : perfil.nome,
         servico_padrao: servico,
+        // A regiao tambem fica salva: era perguntada aqui e jogada fora, e a
+        // busca abria em branco como se nada tivesse sido respondido.
+        regiao_padrao: regiao,
       });
       await api.trocarAutonomia(nivel);
       setDigitando(false);

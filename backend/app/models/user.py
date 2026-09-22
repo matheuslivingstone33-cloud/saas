@@ -27,6 +27,9 @@ class User(Base, UUIDPk, Timestamps, SoftDelete):
     ativo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Descricao do servico prestado — insumo do Motor 2 (Cerebro).
     servico_padrao: Mapped[str | None] = mapped_column(String(500))
+    #: Onde o cliente atende. O onboarding ja perguntava e jogava fora: a
+    #: busca abria em branco e ele redigitava tudo a cada campanha.
+    regiao_padrao: Mapped[str | None] = mapped_column(String(200))
 
     subscription: Mapped[Subscription | None] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"

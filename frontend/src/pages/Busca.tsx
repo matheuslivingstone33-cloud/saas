@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, type Perfil } from "../lib/api";
 import { EXPO } from "../components/movimento";
 import { Aviso, Botao } from "../components/ui";
 
@@ -21,9 +21,18 @@ const EXEMPLOS = [
   { servico: "Limpeza e conservação para empresas", regiao: "Curitiba, PR" },
 ];
 
-export default function Busca({ aoDescobrir }: { aoDescobrir: (campanhaId: string) => void }) {
-  const [servico, setServico] = useState("");
-  const [regiao, setRegiao] = useState("");
+export default function Busca({
+  aoDescobrir,
+  perfil,
+}: {
+  aoDescobrir: (campanhaId: string) => void;
+  perfil: Perfil;
+}) {
+  // Ja preenchida com o que foi respondido no onboarding: perguntar de novo o
+  // que o usuario acabou de dizer faz o produto parecer que nao ouviu. Os dois
+  // campos seguem editaveis — a busca de hoje pode ser em outra cidade.
+  const [servico, setServico] = useState(perfil.servico_padrao ?? "");
+  const [regiao, setRegiao] = useState(perfil.regiao_padrao ?? "");
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 

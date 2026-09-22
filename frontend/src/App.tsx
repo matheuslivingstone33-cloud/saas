@@ -407,6 +407,7 @@ function Aplicacao() {
               />
             ) : rota === "busca" ? (
               <Busca
+                perfil={perfil}
                 aoDescobrir={(id) => {
                   escolherCampanha(id);
                   irPara("descoberta");

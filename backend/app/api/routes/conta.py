@@ -46,6 +46,7 @@ def perfil(
         "empresa": user.empresa,
         "cnpj": user.cnpj,
         "servico_padrao": user.servico_padrao,
+        "regiao_padrao": user.regiao_padrao,
         "onboarding_completo": bool(user.empresa and user.servico_padrao),
         "assinatura": {
             "plano": assinatura.plano.value if assinatura else None,
@@ -67,6 +68,7 @@ class PerfilIn(BaseModel):
     empresa: str | None = Field(default=None, max_length=200)
     cnpj: str | None = Field(default=None, max_length=18)
     servico_padrao: str | None = Field(default=None, max_length=500)
+    regiao_padrao: str | None = Field(default=None, max_length=200)
 
 
 @router.patch("/me")
@@ -83,6 +85,8 @@ def atualizar_perfil(
         user.cnpj = "".join(c for c in payload.cnpj if c.isdigit()) or None
     if payload.servico_padrao:
         user.servico_padrao = payload.servico_padrao
+    if payload.regiao_padrao:
+        user.regiao_padrao = payload.regiao_padrao
     session.flush()
     return perfil(session=session, user=user)
 

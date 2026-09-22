@@ -170,3 +170,30 @@ def test_paginacao_respeita_limite(client, usuario) -> None:
 
     excedente = client.get("/v1/leads", params={"por_pagina": 9999})
     assert excedente.status_code == 422  # limite maximo aplicado pela API
+
+
+def test_onboarding_salva_a_regiao_e_a_busca_nao_pergunta_de_novo(client, usuario) -> None:
+    """O onboarding perguntava a regiao e jogava fora.
+
+    O usuario respondia empresa, servico E regiao e, na tela seguinte, a busca
+    abria em branco — como se nada tivesse sido respondido. Agora os tres ficam
+    no perfil, e e de la que a busca se preenche.
+    """
+    antes = client.get("/v1/me").json()
+    assert "regiao_padrao" in antes, "o perfil precisa devolver a regiao"
+
+    r = client.patch(
+        "/v1/me",
+        json={
+            "empresa": "Refrigeracao Ceara Servicos",
+            "servico_padrao": "manutencao preventiva de ar condicionado para empresas",
+            "regiao_padrao": "Fortaleza, CE",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["regiao_padrao"] == "Fortaleza, CE"
+    assert r.json()["onboarding_completo"] is True
+
+    depois = client.get("/v1/me").json()
+    assert depois["regiao_padrao"] == "Fortaleza, CE"
+    assert depois["servico_padrao"].startswith("manutencao preventiva")

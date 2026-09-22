@@ -176,6 +176,7 @@ export type Perfil = {
   empresa: string | null;
   cnpj: string | null;
   servico_padrao: string | null;
+  regiao_padrao: string | null;
   onboarding_completo: boolean;
   assinatura: {
     plano: string | null;
