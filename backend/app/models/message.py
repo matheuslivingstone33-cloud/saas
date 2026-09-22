@@ -56,6 +56,11 @@ class Message(Base, UUIDPk, Timestamps):
     remetente: Mapped[str | None] = mapped_column(String(320), index=True)
     assunto: Mapped[str | None] = mapped_column(String(300))
     corpo: Mapped[str] = mapped_column(LongText, nullable=False)
+    #: O texto como a IA escreveu, guardado quando o cliente edita antes de
+    #: aprovar. A diferenca entre os dois vira instrucao para as proximas
+    #: mensagens (services/voz.py) — a correcao dele vale mais que regra de
+    #: estilo nossa.
+    corpo_original: Mapped[str | None] = mapped_column(LongText)
     declaracao_ia: Mapped[str | None] = mapped_column(String(300))
 
     @property

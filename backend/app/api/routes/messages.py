@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.adapters.registry import ProviderRegistry
@@ -49,6 +50,56 @@ def listar(
         "por_pagina": resultado.por_pagina,
         "paginas": resultado.paginas,
     }
+
+
+class EdicaoIn(BaseModel):
+    corpo: str = Field(min_length=1, max_length=20_000)
+    assunto: str | None = Field(default=None, max_length=300)
+
+
+@router.patch("/{message_id}", response_model=MensagemOut)
+def editar(
+    message_id: uuid.UUID,
+    payload: EdicaoIn,
+    session: Session = Depends(db),
+    user: User = Depends(usuario_atual),
+) -> Message:
+    """Corrige o texto ANTES de aprovar.
+
+    O texto que a IA escreveu fica guardado em `corpo_original` na primeira
+    edicao: a diferenca entre o que ela escreveu e o que o cliente mandou vira
+    instrucao para as proximas mensagens (services/voz.py). Editar depois do
+    envio nao existe — o e-mail ja saiu.
+    """
+    mensagem = MessageRepository(session).get(message_id, user_id=user.id)
+    if mensagem is None:
+        raise HTTPException(status_code=404, detail="Mensagem nao encontrada")
+    if mensagem.status is not StatusMensagem.AGUARDANDO_APROVACAO:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Mensagem em {mensagem.status.value}: so da para editar antes de aprovar.",
+        )
+
+    novo = payload.corpo.strip()
+    if novo and novo != mensagem.corpo:
+        if mensagem.corpo_original is None:
+            mensagem.corpo_original = mensagem.corpo
+        mensagem.corpo = novo
+        metadados = dict(mensagem.metadados or {})
+        metadados["editado_pelo_cliente"] = True
+        mensagem.metadados = metadados
+    if payload.assunto is not None and payload.assunto.strip():
+        mensagem.assunto = payload.assunto.strip()[:300]
+    session.flush()
+    AuditService(session).registrar(
+        evento=TipoEvento.MENSAGEM_GERADA,
+        entidade_tipo="mensagem",
+        entidade_id=mensagem.id,
+        dados={"motivo": "editada_pelo_cliente"},
+        ator=Ator.USUARIO,
+        user_id=user.id,
+    )
+    return mensagem
 
 
 @router.post("/{message_id}/aprovar", response_model=MensagemOut)

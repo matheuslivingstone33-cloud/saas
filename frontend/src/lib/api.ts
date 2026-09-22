@@ -177,6 +177,10 @@ export type Perfil = {
   cnpj: string | null;
   servico_padrao: string | null;
   regiao_padrao: string | null;
+  tom_de_voz: string | null;
+  diferenciais: string | null;
+  provas: string | null;
+  evitar: string | null;
   onboarding_completo: boolean;
   assinatura: {
     plano: string | null;
@@ -290,6 +294,7 @@ export type Mensagem = {
   corpo: string;
   declaracao_ia: string | null;
   gerado_por_ia: boolean;
+  corpo_original: string | null;
   link_descadastro: string | null;
   tokens_entrada: number;
   tokens_saida: number;
@@ -505,6 +510,8 @@ export const api = {
       `/v1/messages?por_pagina=100${campaignId ? `&campaign_id=${campaignId}` : ""}` +
         `${status ? `&status=${status}` : ""}`,
     ),
+  editarMensagem: (id: string, corpo: string) =>
+    patch<Mensagem>(`/v1/messages/${id}`, { corpo }),
   aprovar: (id: string) => post<Mensagem>(`/v1/messages/${id}/aprovar`),
 
   // motor 4 — conversa

@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueCon
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDelete, Timestamps, UUIDPk
-from app.db.types import JSONType
+from app.db.types import JSONType, LongText
 from app.models.enums import NivelAutonomia, Plano, StatusAssinatura, pg_enum
 
 if TYPE_CHECKING:
@@ -30,6 +30,16 @@ class User(Base, UUIDPk, Timestamps, SoftDelete):
     #: Onde o cliente atende. O onboarding ja perguntava e jogava fora: a
     #: busca abria em branco e ele redigitava tudo a cada campanha.
     regiao_padrao: Mapped[str | None] = mapped_column(String(200))
+
+    # --- A voz do cliente (o que o agente precisa saber para escrever por ele) --
+    #: Ex.: "direto e sem rodeios", "caloroso", "tecnico". Vai na instrucao.
+    tom_de_voz: Mapped[str | None] = mapped_column(String(120))
+    #: O que diferencia este negocio do concorrente, nas palavras do dono.
+    diferenciais: Mapped[str | None] = mapped_column(LongText)
+    #: Clientes atendidos, casos, numeros — so o que ele autoriza citar.
+    provas: Mapped[str | None] = mapped_column(LongText)
+    #: O que NAO dizer. Vale mais que os tres acima: e o que gera constrangimento.
+    evitar: Mapped[str | None] = mapped_column(LongText)
 
     subscription: Mapped[Subscription | None] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"

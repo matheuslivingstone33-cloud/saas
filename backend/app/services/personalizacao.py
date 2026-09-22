@@ -35,6 +35,7 @@ from app.models.user import User
 from app.ports.dto import LLMMessage, LLMRequest
 from app.services.cerebro import Expansao
 from app.services.compliance import OptOutService
+from app.services.voz import voz_do_cliente
 
 log = get_logger("personalizacao")
 
@@ -149,12 +150,16 @@ class PersonalizationService:
         contexto["toque"] = toque
         contexto["angulo"] = angulo
 
+        # O que so o dono do negocio sabe: perfil, o que ja deu resposta e as
+        # correcoes que ele fez. Sem isso a mensagem sai correta e generica.
+        voz = voz_do_cliente(self.session, remetente)
+        instrucao = (
+            "Voce redige abordagens comerciais B2B curtas, em portugues do Brasil, "
+            "sem promessas exageradas e sem linguagem de spam."
+        )
         resposta = self.portas.llm.completar(
             LLMRequest(
-                system=(
-                    "Voce redige abordagens comerciais B2B curtas, em portugues do Brasil, "
-                    "sem promessas exageradas e sem linguagem de spam."
-                ),
+                system=f"{instrucao}\n\n{voz}" if voz else instrucao,
                 mensagens=[
                     LLMMessage(
                         role="user",

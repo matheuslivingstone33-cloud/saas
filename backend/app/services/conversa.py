@@ -62,6 +62,7 @@ from app.services.compliance import mascarar_contato as _mascarar_contato
 from app.services.envio import SendService
 from app.services.leads import LeadService
 from app.services.personalizacao import LINHA_DESCADASTRO
+from app.services.voz import voz_do_cliente
 
 log = get_logger("conversa")
 
@@ -995,12 +996,14 @@ class ServicoDeConversa:
 
     def _redigir(self, lead: Lead, campanha: Campaign | None, intencao: Intencao) -> str:
         historico = self._historico(lead)
+        voz = voz_do_cliente(self.session, self.usuarios.get(lead.user_id))
+        instrucao = (
+            "Voce responde leads B2B em portugues do Brasil. Seja curto, "
+            "concreto e proponha um proximo passo claro. Nunca invente preco."
+        )
         resposta = self.portas.llm.completar(
             LLMRequest(
-                system=(
-                    "Voce responde leads B2B em portugues do Brasil. Seja curto, "
-                    "concreto e proponha um proximo passo claro. Nunca invente preco."
-                ),
+                system=f"{instrucao}\n\n{voz}" if voz else instrucao,
                 mensagens=[
                     LLMMessage(
                         role="assistant" if m.direcao is Direcao.SAIDA else "user",

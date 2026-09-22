@@ -34,7 +34,36 @@ type Passo =
   | "regiao"
   | "analisando"
   | "confirmar"
+  // As tres abaixo ensinam a IA a escrever como o cliente, e nao como um
+  // manual de vendas. Sao OPCIONAIS: quem pula segue com a instrucao padrao.
+  | "diferenciais"
+  | "provas"
+  | "evitar"
+  | "salvando"
   | "concluido";
+
+//: Perguntas da voz do cliente, na ordem. A de "evitar" vem por ultimo de
+//: proposito: e a que mais gera resposta, porque todo mundo tem uma frase que
+//: nao quer ver escrita em seu nome.
+const VOZ: { passo: Passo; pergunta: string; exemplo: string }[] = [
+  {
+    passo: "diferenciais",
+    pergunta:
+      "Agora, três perguntas rápidas para eu escrever como você escreveria. " +
+      "O que te diferencia de quem faz o mesmo na sua região?",
+    exemplo: "Ex.: atendo em 4 horas, equipe própria, não terceirizo",
+  },
+  {
+    passo: "provas",
+    pergunta: "Tem algum cliente ou resultado que eu possa citar?",
+    exemplo: "Ex.: atendo 3 redes de hotel há 6 anos",
+  },
+  {
+    passo: "evitar",
+    pergunta: "E o que eu nunca devo dizer em seu nome?",
+    exemplo: "Ex.: não prometer desconto, não falar de concorrente",
+  },
+];
 
 const ATRASO_IA = 550;
 
@@ -57,6 +86,7 @@ export default function OnboardingChat({
   const [regiao, setRegiao] = useState("");
   const [expansao, setExpansao] = useState<Expansao | null>(null);
   const [autonomia, setAutonomia] = useState<NivelAutonomia>("assistido");
+  const [voz, setVoz] = useState<Record<string, string>>({});
 
   const contador = useRef(0);
   const fim = useRef<HTMLDivElement>(null);
@@ -91,7 +121,7 @@ export default function OnboardingChat({
   }, [falas.length, digitando]);
 
   useEffect(() => {
-    if (["nome_empresa", "servico", "regiao"].includes(passo)) {
+    if (["nome_empresa", "servico", "regiao", "diferenciais", "provas", "evitar"].includes(passo)) {
       setTimeout(() => campo.current?.focus(), ATRASO_IA + 80);
     }
   }, [passo]);
@@ -132,6 +162,12 @@ export default function OnboardingChat({
       setRegiao(texto);
       setPasso("analisando");
       await analisar(servico, texto);
+      return;
+    }
+
+    const atual = VOZ.findIndex((v) => v.passo === passo);
+    if (atual >= 0) {
+      await avancarVoz(atual, { ...voz, [passo]: texto });
     }
   }
 
@@ -186,9 +222,33 @@ export default function OnboardingChat({
     }
   }
 
-  async function concluir(nivel: NivelAutonomia) {
+  function concluir(nivel: NivelAutonomia) {
     setAutonomia(nivel);
     responder(nivel === "assistido" ? "Eu aprovo antes de enviar" : "Pode disparar sozinho");
+    dizer(VOZ[0].pergunta);
+    setPasso(VOZ[0].passo);
+  }
+
+  /** Proxima pergunta da voz, ou salvar tudo se acabaram. */
+  async function avancarVoz(indice: number, respostas: Record<string, string>) {
+    setVoz(respostas);
+    const proxima = VOZ[indice + 1];
+    if (proxima) {
+      dizer(proxima.pergunta);
+      setPasso(proxima.passo);
+      return;
+    }
+    await salvar(respostas);
+  }
+
+  function pular() {
+    const indice = VOZ.findIndex((v) => v.passo === passo);
+    responder("pular");
+    void avancarVoz(indice, voz);
+  }
+
+  async function salvar(respostas: Record<string, string>) {
+    setPasso("salvando");
     setDigitando(true);
     setErro(null);
     try {
@@ -202,8 +262,13 @@ export default function OnboardingChat({
         // A regiao tambem fica salva: era perguntada aqui e jogada fora, e a
         // busca abria em branco como se nada tivesse sido respondido.
         regiao_padrao: regiao,
+        // O que so o dono do negocio sabe. Vazio fica vazio: a instrucao
+        // padrao continua valendo para quem pulou.
+        diferenciais: respostas.diferenciais ?? "",
+        provas: respostas.provas ?? "",
+        evitar: respostas.evitar ?? "",
       });
-      await api.trocarAutonomia(nivel);
+      await api.trocarAutonomia(autonomia);
       setDigitando(false);
       dizer("Pronto! Configurado. Vamos encontrar seus clientes.");
       setPasso("concluido");
@@ -211,10 +276,13 @@ export default function OnboardingChat({
     } catch (e) {
       setDigitando(false);
       setErro(String(e));
+      setPasso("evitar");
     }
   }
 
-  const esperaTexto = ["nome_empresa", "servico", "regiao"].includes(passo);
+  const perguntaDeVoz = VOZ.find((v) => v.passo === passo);
+  const esperaTexto =
+    ["nome_empresa", "servico", "regiao"].includes(passo) || Boolean(perguntaDeVoz);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -262,17 +330,24 @@ export default function OnboardingChat({
                 onChange={(e) => setEntrada(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void enviarTexto()}
                 placeholder={
-                  passo === "nome_empresa"
-                    ? "Nome da empresa"
-                    : passo === "servico"
-                      ? "Ex.: instalo e faço manutenção de ar-condicionado"
-                      : "Ex.: Fortaleza, CE"
+                  perguntaDeVoz
+                    ? perguntaDeVoz.exemplo
+                    : passo === "nome_empresa"
+                      ? "Nome da empresa"
+                      : passo === "servico"
+                        ? "Ex.: instalo e faço manutenção de ar-condicionado"
+                        : "Ex.: Fortaleza, CE"
                 }
                 className="flex-1 rounded-lg border border-borda bg-superficie-2 px-3 py-2.5 text-sm text-texto outline-none transition-all focus:border-marca focus:bg-superficie focus:ring-4 focus:ring-marca/12"
               />
               <Botao onClick={() => void enviarTexto()} disabled={!entrada.trim()}>
                 enviar
               </Botao>
+              {perguntaDeVoz && (
+                <Botao variante="fantasma" onClick={pular}>
+                  pular
+                </Botao>
+              )}
             </div>
           )}
 
@@ -282,13 +357,17 @@ export default function OnboardingChat({
 
           {passo === "confirmar" && !digitando && (
             <div className="flex flex-wrap gap-2">
-              <Botao onClick={() => void concluir("assistido")}>
+              <Botao onClick={() => concluir("assistido")}>
                 Eu aprovo antes de enviar
               </Botao>
-              <Botao variante="secundario" onClick={() => void concluir("automatico")}>
+              <Botao variante="secundario" onClick={() => concluir("automatico")}>
                 Pode disparar sozinho
               </Botao>
             </div>
+          )}
+
+          {passo === "salvando" && (
+            <p className="text-center text-xs text-texto-fraco">salvando…</p>
           )}
 
           {passo === "concluido" && (

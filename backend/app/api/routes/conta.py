@@ -47,6 +47,10 @@ def perfil(
         "cnpj": user.cnpj,
         "servico_padrao": user.servico_padrao,
         "regiao_padrao": user.regiao_padrao,
+        "tom_de_voz": user.tom_de_voz,
+        "diferenciais": user.diferenciais,
+        "provas": user.provas,
+        "evitar": user.evitar,
         "onboarding_completo": bool(user.empresa and user.servico_padrao),
         "assinatura": {
             "plano": assinatura.plano.value if assinatura else None,
@@ -69,6 +73,12 @@ class PerfilIn(BaseModel):
     cnpj: str | None = Field(default=None, max_length=18)
     servico_padrao: str | None = Field(default=None, max_length=500)
     regiao_padrao: str | None = Field(default=None, max_length=200)
+    #: A voz do cliente. Chegam vazias para LIMPAR (o dono apagou o que tinha
+    #: escrito), e por isso sao tratadas com `is not None`, nao com truthy.
+    tom_de_voz: str | None = Field(default=None, max_length=120)
+    diferenciais: str | None = Field(default=None, max_length=2000)
+    provas: str | None = Field(default=None, max_length=2000)
+    evitar: str | None = Field(default=None, max_length=2000)
 
 
 @router.patch("/me")
@@ -87,6 +97,10 @@ def atualizar_perfil(
         user.servico_padrao = payload.servico_padrao
     if payload.regiao_padrao:
         user.regiao_padrao = payload.regiao_padrao
+    for campo in ("tom_de_voz", "diferenciais", "provas", "evitar"):
+        valor = getattr(payload, campo)
+        if valor is not None:
+            setattr(user, campo, valor.strip() or None)
     session.flush()
     return perfil(session=session, user=user)
 

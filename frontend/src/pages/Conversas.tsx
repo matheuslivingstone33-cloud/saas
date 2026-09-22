@@ -150,6 +150,25 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
     }
   }
 
+  /** Salva a correcao ANTES de aprovar.
+   *
+   * O texto que a IA escreveu fica guardado, e a diferenca entre os dois vira
+   * instrucao para as proximas mensagens: corrigir uma vez vale mais que
+   * qualquer regra de estilo que a gente escreva.
+   */
+  async function editar(mensagemId: string, corpo: string) {
+    setOcupado(true);
+    setErro(null);
+    try {
+      await api.editarMensagem(mensagemId, corpo);
+      await carregar();
+    } catch (e) {
+      setErro(String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
   async function rodarCadencia() {
     setOcupado(true);
     setErro(null);
@@ -312,7 +331,13 @@ export default function Conversas({ nivel }: { nivel: NivelAutonomia }) {
               <div className="flex-1 space-y-3 overflow-y-auto p-5">
                 <AnimatePresence initial={false}>
                   {atual.mensagens.map((m) => (
-                    <Balao key={m.id} mensagem={m} aoDecidir={decidir} ocupado={ocupado} />
+                    <Balao
+                      key={m.id}
+                      mensagem={m}
+                      aoDecidir={decidir}
+                      aoEditar={editar}
+                      ocupado={ocupado}
+                    />
                   ))}
                 </AnimatePresence>
               </div>
@@ -503,12 +528,16 @@ function quando(iso: string | null): string {
 function Balao({
   mensagem,
   aoDecidir,
+  aoEditar,
   ocupado,
 }: {
   mensagem: Mensagem;
   aoDecidir: (id: string, aprovar: boolean) => void;
+  aoEditar?: (id: string, corpo: string) => void;
   ocupado: boolean;
 }) {
+  const [editando, setEditando] = useState(false);
+  const [rascunho, setRascunho] = useState(mensagem.corpo);
   const pendente = mensagem.status === "aguardando_aprovacao";
   const doLead = mensagem.direcao === "entrada";
   // Quem escreveu vem do registro da propria mensagem, e nao da presenca da
@@ -566,14 +595,63 @@ function Balao({
         {mensagem.assunto && (
           <p className="mb-1.5 text-xs font-medium text-texto">{mensagem.assunto}</p>
         )}
-        <p className="whitespace-pre-line text-sm leading-relaxed text-texto-medio">
-          {mensagem.corpo}
-        </p>
+        {editando ? (
+          <textarea
+            autoFocus
+            value={rascunho}
+            onChange={(e) => setRascunho(e.target.value)}
+            className="min-h-[7rem] w-full resize-y rounded-lg border border-borda bg-superficie px-3 py-2 text-sm leading-relaxed text-texto outline-none transition-all duration-200 ease-expo focus:border-marca focus:ring-4 focus:ring-marca/12"
+          />
+        ) : (
+          <p className="whitespace-pre-line text-sm leading-relaxed text-texto-medio">
+            {mensagem.corpo}
+          </p>
+        )}
+        {mensagem.corpo_original && !editando && (
+          <p className="mt-2 text-[11px] text-texto-fraco">
+            você corrigiu esta mensagem — o agente aprende com a correção
+          </p>
+        )}
       </div>
       <div className="mt-1 flex items-center justify-end gap-2 text-[11px] text-texto-fraco">
         <span>{mensagem.destinatario}</span>
-        {pendente && (
+        {pendente && editando && (
           <>
+            <Botao
+              tamanho="sm"
+              disabled={ocupado || !rascunho.trim() || rascunho === mensagem.corpo}
+              onClick={() => {
+                aoEditar?.(mensagem.id, rascunho.trim());
+                setEditando(false);
+              }}
+            >
+              salvar correção
+            </Botao>
+            <Botao
+              variante="fantasma"
+              tamanho="sm"
+              disabled={ocupado}
+              onClick={() => {
+                setRascunho(mensagem.corpo);
+                setEditando(false);
+              }}
+            >
+              cancelar
+            </Botao>
+          </>
+        )}
+        {pendente && !editando && (
+          <>
+            {aoEditar && (
+              <Botao
+                variante="secundario"
+                tamanho="sm"
+                onClick={() => setEditando(true)}
+                disabled={ocupado}
+              >
+                editar
+              </Botao>
+            )}
             <Botao tamanho="sm" onClick={() => aoDecidir(mensagem.id, true)} disabled={ocupado}>
               aprovar e enviar
             </Botao>

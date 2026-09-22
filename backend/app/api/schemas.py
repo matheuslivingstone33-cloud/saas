@@ -118,6 +118,8 @@ class MensagemOut(_ORM):
     remetente: str | None
     assunto: str | None
     corpo: str
+    #: O texto como a IA escreveu, quando o cliente corrigiu antes de aprovar.
+    corpo_original: str | None = None
     declaracao_ia: str | None
     gerado_por_ia: bool = False
     link_descadastro: str | None
