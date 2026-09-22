@@ -310,6 +310,19 @@ provedores reais entrarem, uma correção por execução, todas integradas ao `m
   telefone/WhatsApp vira `[expurgado]` em vez de `NULL`, sem perder a evidência de
   que houve um contato na trilha de auditoria.
 
+## A voz do cliente (22/09) ✅
+
+- A instrução dada à IA deixou de ser a mesma para todo mundo. Entram o perfil
+  (tom de voz, diferenciais, provas, o que não dizer), as mensagens que já
+  receberam resposta e as correções que o cliente fez antes de aprovar.
+- `PATCH /v1/messages/{id}` edita a mensagem antes de aprovar e guarda o texto
+  original; a tela de conversas ganhou o botão **editar**, que não existia.
+- Migration 0014. 13 testes novos.
+- **Declaração de IA e link de descadastro no corpo viraram opcionais**
+  (`DECLARAR_IA`, `LINK_DESCADASTRO_NO_CORPO`), desligados por decisão do dono.
+  O cabeçalho `List-Unsubscribe` continua em toda mensagem, e os textos
+  jurídicos foram corrigidos para não prometerem o que não acontece mais.
+
 ## No ar pelo Vercel (22/09) ✅
 
 - Telas em https://prospector-ai-app.vercel.app e servidor em
