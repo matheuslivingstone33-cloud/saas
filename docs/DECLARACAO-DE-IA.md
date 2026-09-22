@@ -19,15 +19,23 @@ Este produto usa um agente de inteligência artificial para:
 - O agente não fecha negócio, não assina, não cobra e não altera contrato.
 - No **modo assistido**, nenhuma mensagem sai sem aprovação humana explícita.
 
-## Declaração ao destinatário
+## Como falar com uma pessoa
 
-Toda mensagem enviada carrega, no corpo, a frase:
+**Basta responder ao e-mail.** Toda resposta é lida, e quem pedir para falar com
+uma pessoa ("quero falar com alguém", "isso é um robô?") sai imediatamente do
+atendimento automático: o agente para de escrever e a conversa vai para um
+humano do cliente que enviou a mensagem.
 
-> *"Esta mensagem foi redigida por um agente de inteligência artificial a
-> serviço de [empresa]. Responda a este e-mail para falar com uma pessoa."*
+Toda mensagem também carrega o cabeçalho `List-Unsubscribe`, que os programas de
+e-mail transformam no botão "cancelar inscrição": um clique e o contato não
+recebe mais nada de nenhum cliente da plataforma.
 
-Isso não é rodapé escondido: é parte do corpo da mensagem, e responder ao e-mail
-coloca o destinatário em contato com uma pessoa.
+**Sobre avisar que a mensagem foi escrita por IA:** o sistema tem essa frase
+pronta e sabe acrescentá-la a cada mensagem (`DECLARAR_IA`), mas ela está
+**desligada** por decisão do responsável pelo produto em 22/09/2026 — hoje as
+mensagens saem como as de qualquer equipe comercial. Se a lei brasileira passar
+a exigir o aviso (o PL 2338/2023 está em tramitação), ligar é trocar uma
+configuração, sem reescrever nada.
 
 ## Direito à explicação
 

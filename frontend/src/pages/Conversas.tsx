@@ -511,11 +511,11 @@ function Balao({
 }) {
   const pendente = mensagem.status === "aguardando_aprovacao";
   const doLead = mensagem.direcao === "entrada";
-  // Quem escreveu esta mensagem sai do MESMO campo que carrega a
-  // declaracao de IA: se a mensagem se declara escrita por um agente, foi
-  // o agente; se nao se declara, foi uma pessoa. Assinar como "Prospector
-  // AI" o que o usuario digitou seria a mesma mentira ao contrario.
-  const daIA = mensagem.declaracao_ia !== null;
+  // Quem escreveu vem do registro da propria mensagem, e nao da presenca da
+  // declaracao de IA no corpo: a declaracao virou opcional (DECLARAR_IA), e sem
+  // ela tudo pareceria escrito a mao — inclusive para o cliente, que precisa
+  // saber o que o agente mandou em nome dele.
+  const daIA = mensagem.gerado_por_ia;
 
   // A mensagem do lead vem da ESQUERDA, a nossa da direita. Sem essa
   // separacao visual a thread de duas pontas volta a parecer um monologo.

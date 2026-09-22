@@ -57,32 +57,34 @@ estiver agendada; hoje nada a dispara sozinha. -->
 
 ## 4. O que vai em cada mensagem
 
-Toda mensagem escrita pela IA traz, **no próprio texto** (não escondida em
-rodapé técnico), a frase:
+Toda mensagem — escrita pela IA ou por uma pessoa do cliente — sai com o
+cabeçalho `List-Unsubscribe`, que os programas de e-mail transformam no botão
+**"cancelar inscrição"**. Um clique ali bloqueia o contato na hora, sem login e
+sem confirmação.
 
-> *"Esta mensagem foi redigida por um agente de inteligência artificial a
-> serviço de [empresa do cliente]. Responda a este e-mail para falar com uma
-> pessoa."*
+Responder pedindo para sair ("me tire da lista", "não quero receber") tem o
+mesmo efeito, e é reconhecido por regras fixas de palavras, **sem depender da
+IA**. Pedir para falar com uma pessoa tira a conversa do atendimento automático
+imediatamente.
 
-A primeira mensagem e os acompanhamentos trazem também, logo abaixo, o **link
-de descadastro**:
+Desde **22/09/2026**, por decisão do responsável pelo produto, a mensagem **não**
+declara mais, no texto, ter sido escrita por inteligência artificial, e o link
+de descadastro não se repete como linha visível: as duas coisas davam à mensagem
+a aparência de disparo em massa. O sistema mantém as duas prontas, atrás de
+configuração (`DECLARAR_IA`, `LINK_DESCADASTRO_NO_CORPO`), para o dia em que a
+lei ou um cliente exigir.
 
-> *"Para não receber mais estas mensagens, descadastre-se: [link]"*
-
-Quando uma pessoa do cliente escreve a mensagem ela mesma, a frase de IA **não**
-é incluída — dizer que foi a IA seria falso —, mas as regras de descadastro
-continuam valendo.
-
-<!-- REVISAR — PENDÊNCIAS TÉCNICAS (corrigir antes do e-mail real):
-(1) A RESPOSTA ESCRITA PELA IA a um lead (services/conversa.py, _responder) sai
-com a declaração de IA, mas SEM o link de descadastro no texto, e com um link no
-cabeçalho que não funciona (endereço fixo app.prospector.local e token sem
-assinatura). Viola o guardrail "toda mensagem leva link de descadastro".
-(2) A mensagem escrita à mão leva o link só no cabeçalho, não no texto.
-(3) Se o cliente não preencheu o nome da empresa, a frase sai "a serviço de
-nossa equipe" — não identifica quem oferta. Exigir o nome antes de enviar.
-(4) A frase original da mensagem é sem acentos no código ("redigida por um
-agente de inteligencia artificial"); a citação acima está acentuada. Alinhar. -->
+<!-- REVISAR — MUDANÇA DE 22/09/2026: por decisão do responsável pelo produto,
+a declaração de IA no texto (`DECLARAR_IA`) e a linha visível de descadastro
+(`LINK_DESCADASTRO_NO_CORPO`) estão DESLIGADAS. As mensagens saem como as de
+qualquer equipe comercial; a saída continua no cabeçalho `List-Unsubscribe` (o
+que Gmail e Yahoo exigem) e quem responder pedindo para sair é atendido pelas
+regras fixas de palavras, sem depender da IA. O texto acima já foi reescrito
+para descrever isso. Pontos para o advogado: (1) o PL 2338/2023 pode tornar o
+aviso obrigatório; (2) o link no cabeçalho ainda não é "1 clique" completo
+(falta `List-Unsubscribe-Post`); (3) se o cliente não preencher o nome da
+empresa, nada na mensagem identifica quem oferta — exigir o nome antes de
+enviar. -->
 
 ## 5. Como falar com uma pessoa
 

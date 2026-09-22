@@ -89,8 +89,8 @@ def test_aprovacao_manual_envia_para_outbox(client, usuario, session, settings) 
     ).json()
     assert mensagens["total"] > 0
     alvo = mensagens["itens"][0]
-    assert alvo["declaracao_ia"]
-    assert alvo["link_descadastro"]
+    assert alvo["gerado_por_ia"], "a tela precisa saber que o agente escreveu"
+    assert alvo["link_descadastro"], "o link existe para o cabecalho, mesmo fora do texto"
 
     antes = len(list(settings.outbox_path.glob("*.json")))
     aprovada = client.post(f"/v1/messages/{alvo['id']}/aprovar")

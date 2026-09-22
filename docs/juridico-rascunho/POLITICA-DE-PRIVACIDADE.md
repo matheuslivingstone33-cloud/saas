@@ -30,8 +30,20 @@ seus direitos. Ela segue a Lei Geral de Proteção de Dados (Lei nº 13.709/2018
     comercial dela.
 - **Não vendemos dados.** Não compramos listas. Não prospectamos pessoas como
   consumidoras (pessoa física): a prospecção é só entre empresas.
-- Toda mensagem de prospecção diz que foi escrita por inteligência artificial e
-  traz um link para parar de receber.
+- Toda mensagem traz um jeito de parar de receber: o botão "cancelar inscrição"
+  que o seu programa de e-mail mostra, e responder pedindo para sair também
+  funciona.
+
+<!-- REVISAR: até 22/09/2026 toda mensagem também declarava, no texto, ter sido
+escrita por inteligência artificial. O responsável pelo produto desligou a
+declaração (`DECLARAR_IA=false`) e a linha visível de descadastro no texto
+(`LINK_DESCADASTRO_NO_CORPO=false`); a saída continua no cabeçalho
+`List-Unsubscribe`, que é o que Gmail e Yahoo exigem. Pontos para o advogado:
+(1) o PL 2338/2023 pode tornar o aviso obrigatório;
+(2) sem o aviso, a transparência do legítimo interesse (art. 10, § 2º) passa a
+se apoiar só nesta política e no canal de resposta;
+(3) a seção 3.8 (decisões automatizadas) continua valendo e precisa ser
+alcançável por quem recebe a mensagem. -->
 - Para sair da lista ou exercer um direito: use o link no e-mail, responda
   pedindo, ou escreva para **[E-MAIL DO ENCARREGADO]**.
 
@@ -256,7 +268,7 @@ própria LGPD e para comprovar que cumprimos (art. 7º, II e VI).
 
 <!-- REVISAR: (1) a LIA gerada pelo sistema (services/compliance.py) afirma que
 "o primeiro contato já informa a origem do dado". HOJE A MENSAGEM NÃO INFORMA A
-ORIGEM: ela traz o texto da IA, a declaração de IA e o link de descadastro.
+ORIGEM: desde 22/09 ela traz só o texto, e a saída vai no cabeçalho.
 Ou se acrescenta uma linha na mensagem ("Encontramos sua empresa em dados
 públicos do Google e da Receita Federal"), ou se corrige a LIA. A transparência
 é exigida para o legítimo interesse (art. 10, § 2º).
@@ -296,7 +308,7 @@ provedor — a confirmar quando a hospedagem for definida. -->
 
 | Como | O que acontece |
 |---|---|
-| **Clicar no link de descadastro** que vai no texto de cada mensagem de prospecção | Um clique, sem login e sem confirmação. O bloqueio vale na hora e é permanente para o **cliente que enviou** a mensagem |
+| **Usar o botão "cancelar inscrição"** que o programa de e-mail mostra (vem do cabeçalho `List-Unsubscribe` de toda mensagem) | Um clique, sem login e sem confirmação. O bloqueio vale na hora e é permanente para o **cliente que enviou** a mensagem |
 | **Responder** pedindo para sair ("me tire da lista", "não quero receber" etc.) | O pedido é reconhecido por regras fixas de palavras, **sem depender da IA**. Nenhuma resposta é enviada e o contato é bloqueado para aquele cliente |
 | **Marcar a mensagem como spam** | O aviso do provedor de e-mail também bloqueia o contato |
 | **Pedir oposição ao encarregado** ([E-MAIL DO ENCARREGADO]) | O endereço é bloqueado para **todos os clientes** do Prospector AI |

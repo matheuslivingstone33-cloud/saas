@@ -70,24 +70,47 @@ def test_mensagem_e_personalizada_com_contexto_do_lead(session, usuario, portas_
     nome = lead.nome_fantasia or lead.razao_social
     assert nome.split()[0] in conteudo.corpo
     assert conteudo.assunto and nome.split()[0] in conteudo.assunto
-    assert conteudo.declaracao_ia, "toda mensagem de IA precisa se declarar"
     assert conteudo.gancho
+    # Por padrao a mensagem sai sem declaracao de IA e sem linha de descadastro
+    # no texto (decisao do dono, 22/09): ela le como e-mail escrito por gente.
+    assert conteudo.declaracao_ia is None
+    assert "/descadastro/" not in conteudo.corpo
+    assert "inteligencia artificial" not in conteudo.corpo
 
 
-def test_corpo_traz_link_de_descadastro_com_rotulo_na_mesma_linha(
-    session, usuario, portas_db, settings
+def test_declaracao_de_ia_volta_quando_a_chave_e_ligada(
+    session, usuario, portas_db, monkeypatch
 ) -> None:
-    """O link de descadastro precisa aparecer VISIVEL no corpo, nao so no header.
+    """A obrigacao pode voltar (PL 2338): ligar e trocar uma variavel."""
+    from app.core.config import get_settings
 
-    Com SES real, quem nao acha como sair marca como spam — e reclamacao de spam
-    e o que suspende a conta e queima a reputacao do dominio. Dar o link na cara
-    reduz o risco que mais importa.
+    monkeypatch.setattr(get_settings(), "declarar_ia", True)
+    monkeypatch.setattr(get_settings(), "link_descadastro_no_corpo", True)
+    campanha = _campanha(session, usuario, nome="Com declaracao")
+    expansao, leads = _descobrir(session, portas_db, campanha, usuario)
+    lead = next(x for x in leads if x.email)
 
-    Regra invisivel (radar 0.3): rotulo e link ficam na MESMA linha. O Motor 4
-    remove a linha inteira que contem `/descadastro/` antes de varrer opt-out; se
-    o rotulo caisse numa linha a parte, ele voltaria citado em toda resposta e
-    todo "tenho interesse" viraria opt-out, que e terminal.
+    conteudo = PersonalizationService(session, portas_db).gerar(lead, campanha, expansao, usuario)
+    assert conteudo.declaracao_ia and "inteligencia artificial" in conteudo.corpo
+    linha = next(li for li in conteudo.corpo.splitlines() if "/descadastro/" in li)
+    assert "descadastre-se" in linha, "rotulo e link na mesma linha (protecao do Motor 4)"
+
+
+def test_link_no_corpo_sai_com_rotulo_na_mesma_linha(
+    session, usuario, portas_db, settings, monkeypatch
+) -> None:
+    """Quando a linha visivel e ligada, ela tem que sair de um jeito so.
+
+    Por padrao o link fica so no cabecalho `List-Unsubscribe` (decisao do dono,
+    22/09): a linha no texto dava cara de disparo em massa. Quem precisar dela —
+    um cliente mais conservador, ou o dia em que a regra mudar — liga
+    LINK_DESCADASTRO_NO_CORPO, e entao vale a regra invisivel do radar 0.3:
+    rotulo e link na MESMA linha. O Motor 4 remove a linha inteira que contem
+    `/descadastro/` antes de varrer opt-out; se o rotulo caisse numa linha a
+    parte, ele voltaria citado em toda resposta e todo "tenho interesse" viraria
+    opt-out, que e terminal.
     """
+    monkeypatch.setattr(settings, "link_descadastro_no_corpo", True)
     campanha = _campanha(session, usuario)
     expansao, leads = _descobrir(session, portas_db, campanha, usuario)
     lead = next(x for x in leads if x.email)
@@ -287,8 +310,11 @@ def test_conteudo_gravado_no_outbox_tem_descadastro(session, usuario, portas_db,
     arquivos = sorted(settings.outbox_path.glob("*.json"))
     assert arquivos
     payload = json.loads(arquivos[-1].read_text(encoding="utf-8"))
-    assert "List-Unsubscribe" in payload["headers"]
-    assert "inteligencia artificial" in payload["corpo_texto"]
+    # A saida vive no CABECALHO, que e o que o Gmail e o Yahoo exigem e viram
+    # botao no topo da mensagem. O texto sai limpo.
+    assert "/descadastro/" in payload["headers"]["List-Unsubscribe"]
+    assert "/descadastro/" not in payload["corpo_texto"]
+    assert "inteligencia artificial" not in payload["corpo_texto"]
 
 
 # --- Falha SINCRONA de envio (o provedor recusa antes de aceitar) ------------

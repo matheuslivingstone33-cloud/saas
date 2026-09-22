@@ -485,6 +485,16 @@ def recompor_acentos(texto: str) -> str:
     return unicodedata.normalize("NFC", texto)
 
 
+def _montar_corpo(texto: str, declaracao: str | None, rodape: str | None) -> str:
+    """Texto + o que sobrar de assinatura (declaracao de IA, linha de descadastro).
+
+    As duas sao opcionais (DECLARAR_IA, LINK_DESCADASTRO_NO_CORPO). Sem nenhuma,
+    a mensagem sai como a de qualquer pessoa — e o link continua no cabecalho.
+    """
+    assinatura = "\n".join(p for p in (declaracao, rodape) if p)
+    return f"{texto}\n\n---\n{assinatura}" if assinatura else texto
+
+
 def _normalizar(texto: str) -> str:
     return re.sub(r"\s+", " ", (texto or "").strip().lower())
 
@@ -709,8 +719,12 @@ class ServicoDeConversa:
         remetente_user = self.usuarios.get(lead.user_id)
         empresa = getattr(remetente_user, "empresa", None) or "nossa equipe"
         declaracao = (
-            "Esta mensagem foi redigida por um agente de inteligencia artificial "
-            f"a servico de {empresa}. Responda a este e-mail para falar com uma pessoa."
+            (
+                "Esta mensagem foi redigida por um agente de inteligencia artificial "
+                f"a servico de {empresa}. Responda a este e-mail para falar com uma pessoa."
+            )
+            if self.envio.settings.declarar_ia
+            else None
         )
 
         anteriores = self._historico(lead)
@@ -725,7 +739,11 @@ class ServicoDeConversa:
         # id cru do lead — a pagina de descadastro recusava — e sem link no
         # corpo: justo a mensagem que responde a quem ja esta conversando.
         link = self.envio.compliance.link_para(lead, self.envio.settings.url_publica)
-        rodape = LINHA_DESCADASTRO.format(link=link)
+        rodape = (
+            LINHA_DESCADASTRO.format(link=link)
+            if self.envio.settings.link_descadastro_no_corpo
+            else None
+        )
         mensagem = self.mensagens.add(
             Message(
                 user_id=lead.user_id,
@@ -740,7 +758,7 @@ class ServicoDeConversa:
                 ),
                 destinatario=lead.email,
                 assunto=self._assunto_de_resposta(campanha),
-                corpo=f"{texto}\n\n---\n{declaracao}\n{rodape}",
+                corpo=_montar_corpo(texto, declaracao, rodape),
                 declaracao_ia=declaracao,
                 link_descadastro=link,
                 idempotency_key=chave,

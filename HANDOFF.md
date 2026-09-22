@@ -1121,8 +1121,18 @@ Valem para qualquer etapa, sempre:
 2. **Nunca** disparar WhatsApp frio para pessoa física. Canal padrão é e-mail;
    WhatsApp preferencialmente inbound.
 3. **MVP é B2B.** Sem prospecção ativa a PF desconhecida.
-4. **Compliance é arquitetura, não item opcional.** Toda mensagem declara ser IA
-   e leva link de descadastro. Opt-out é consultado antes de todo envio.
+4. **Compliance é arquitetura, não item opcional.** Toda mensagem leva saída:
+   o cabeçalho `List-Unsubscribe` vai em **todo** envio, e opt-out é consultado
+   antes de qualquer mensagem — isso não se negocia, é o que protege a reputação
+   do domínio (acima de 0,3% de reclamação de spam a conta de envio é suspensa) e
+   o que sustenta o legítimo interesse.
+   **Mudou em 22/09, por decisão do dono:** a declaração de IA no corpo
+   (`DECLARAR_IA`) e a linha visível de descadastro no texto
+   (`LINK_DESCADASTRO_NO_CORPO`) passaram a ser **opcionais, desligadas por
+   padrão** — davam cara de disparo em massa. O código das duas continua no
+   lugar, com teste, porque a obrigação de declarar IA pode voltar (PL
+   2338/2023) e porque um cliente pode querer declarar mesmo assim. **Os textos
+   jurídicos que prometiam a declaração foram corrigidos junto.**
 5. **Todo custo externo vira `cost_event`** em dois baldes que nunca se misturam:
    balde 1 = dados (Places, Receita, e-mail), balde 2 = IA (LLM, busca).
 6. **Fases 0–6 rodam sem nenhuma chave.** Provedor externo só entra atrás de

@@ -89,7 +89,7 @@ LINHA_DESCADASTRO = "Para nao receber mais estas mensagens, descadastre-se: {lin
 class Personalizacao:
     assunto: str
     corpo: str
-    declaracao_ia: str
+    declaracao_ia: str | None
     gancho: str
     sinais: list[str] = field(default_factory=list)
     tokens_entrada: int = 0
@@ -167,13 +167,24 @@ class PersonalizationService:
         )
 
         empresa_remetente = (getattr(remetente, "empresa", None)) or "nossa equipe"
-        declaracao = DECLARACAO_IA.format(empresa=empresa_remetente)
+        declaracao = (
+            DECLARACAO_IA.format(empresa=empresa_remetente)
+            if self.settings.declarar_ia
+            else None
+        )
         # O link e deterministico (HMAC do lead.id + app_secret): sai identico ao
         # que o SendService/cadencia poe no header List-Unsubscribe. Rotulo e link
         # na MESMA linha — ver LINHA_DESCADASTRO.
+        # O link vai SEMPRE no cabecalho `List-Unsubscribe` (SendService). Aqui
+        # decide-se so se ele se repete como linha visivel no fim do texto.
         link_descadastro = self.compliance.link_para(lead, self.settings.url_publica)
-        rodape = LINHA_DESCADASTRO.format(link=link_descadastro)
-        corpo = f"{resposta.texto}\n\n---\n{declaracao}\n{rodape}"
+        rodape = (
+            LINHA_DESCADASTRO.format(link=link_descadastro)
+            if self.settings.link_descadastro_no_corpo
+            else None
+        )
+        assinatura = "\n".join(p for p in (declaracao, rodape) if p)
+        corpo = f"{resposta.texto}\n\n---\n{assinatura}" if assinatura else resposta.texto
 
         return Personalizacao(
             assunto=self._assunto(lead, campanha, toque),

@@ -55,8 +55,8 @@ def test_pipeline_assistido_nao_envia_nada(session, usuario, portas_db, settings
     ).scalars().all()
     assert len(pendentes) == resultado.mensagens_geradas
     for mensagem in pendentes:
-        assert mensagem.declaracao_ia, "toda mensagem de IA precisa declarar que e IA"
-        assert mensagem.link_descadastro, "toda mensagem precisa de link de descadastro"
+        assert mensagem.link_descadastro, "toda mensagem precisa de saida no cabecalho"
+        assert (mensagem.metadados or {}).get("gerado_por") == "ia"
 
 
 def test_pipeline_automatico_dispara_para_outbox(session, usuario, portas_db, settings) -> None:

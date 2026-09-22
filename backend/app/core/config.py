@@ -110,6 +110,24 @@ class Settings(BaseSettings):
     #: Vazio = o padrao de `origens_cors()`. Ver o metodo para o porque.
     cors_origins: str = ""
     whatsapp_template_enabled: bool = False
+    #: Acrescentar a declaracao de IA no fim de cada mensagem enviada.
+    #:
+    #: Desligada por decisao do dono do produto (22/09): a mensagem passa a sair
+    #: como a de qualquer equipe comercial. O LINK DE DESCADASTRO continua em
+    #: toda mensagem — ele nao e sobre IA, e o que protege a reputacao do
+    #: dominio e atende a LGPD. A chave existe porque a obrigacao pode voltar
+    #: (PL 2338/2023) e porque um cliente pode querer declarar mesmo assim;
+    #: ligar de novo e trocar uma variavel, nao reescrever codigo.
+    declarar_ia: bool = False
+    #: Repetir o link de descadastro como uma LINHA VISIVEL no fim do texto.
+    #:
+    #: Desligada por decisao do dono (22/09): a linha dava cara de disparo em
+    #: massa. O cabecalho `List-Unsubscribe` continua SEMPRE — e ele que o Gmail
+    #: e o Yahoo exigem de remetente em volume e que vira o botao "cancelar
+    #: inscricao" no topo da mensagem. Sem nenhuma saida, quem nao quer mais
+    #: receber clica em "spam", e acima de 0,3% de reclamacao a conta de envio e
+    #: suspensa — o risco que o produto inteiro existe para nao correr.
+    link_descadastro_no_corpo: bool = False
     seed_on_start: bool = True
 
     # --- Acesso --------------------------------------------------------------

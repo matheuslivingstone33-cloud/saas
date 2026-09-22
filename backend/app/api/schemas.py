@@ -119,6 +119,7 @@ class MensagemOut(_ORM):
     assunto: str | None
     corpo: str
     declaracao_ia: str | None
+    gerado_por_ia: bool = False
     link_descadastro: str | None
     custo_micros: int
     tokens_entrada: int

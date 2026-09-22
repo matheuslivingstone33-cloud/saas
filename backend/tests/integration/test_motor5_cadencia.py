@@ -172,15 +172,15 @@ def test_toque_2_sai_com_angulo_e_assunto_proprios(session, automatico) -> None:
     assert segundo.ordem > primeiro.ordem, "o toque entra DEPOIS na thread"
 
 
-def test_todo_toque_declara_ia_e_leva_descadastro(session, automatico) -> None:
-    """O guardrail nao vale so para a primeira mensagem."""
+def test_todo_toque_leva_saida_no_cabecalho(session, automatico) -> None:
+    """A saida nao vale so para a primeira mensagem — e o texto sai limpo."""
     _, lead, servico = automatico
     servico.executar(lead.user_id, agora=now() + timedelta(days=4))
 
     segundo = _saidas(session, lead)[1]
-    assert segundo.declaracao_ia
-    assert "inteligencia artificial" in segundo.corpo
-    assert segundo.link_descadastro
+    assert segundo.link_descadastro and "/descadastro/" in segundo.link_descadastro
+    assert "/descadastro/" not in segundo.corpo
+    assert "inteligencia artificial" not in segundo.corpo
 
 
 def test_toque_3_e_a_pergunta_de_encerramento(session, automatico) -> None:

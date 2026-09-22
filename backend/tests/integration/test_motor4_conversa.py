@@ -406,7 +406,7 @@ def test_interesse_gera_resposta_aguardando_aprovacao_no_assistido(
 
     resposta = session.get(Message, r.resposta_id)
     assert resposta.status is StatusMensagem.AGUARDANDO_APROVACAO
-    assert resposta.declaracao_ia, "toda resposta da IA declara que e IA"
+    assert resposta.gerado_por_ia
     assert resposta.link_descadastro
 
 
@@ -425,9 +425,7 @@ def test_resposta_da_ia_leva_link_de_descadastro_que_funciona(
     resposta = session.get(Message, r.resposta_id)
 
     assert resposta.link_descadastro.startswith(settings.url_publica.rstrip("/"))
-    linha = next(li for li in resposta.corpo.splitlines() if "/descadastro/" in li)
-    assert "descadastre-se" in linha, "rotulo e link na mesma linha (protecao do Motor 4)"
-    assert resposta.link_descadastro in linha
+    assert "/descadastro/" not in resposta.corpo, "fora do texto; vai no cabecalho"
 
     token = resposta.link_descadastro.rsplit("/", 1)[1]
     assert OptOutService(session).por_token(token).registrado

@@ -57,6 +57,17 @@ class Message(Base, UUIDPk, Timestamps):
     assunto: Mapped[str | None] = mapped_column(String(300))
     corpo: Mapped[str] = mapped_column(LongText, nullable=False)
     declaracao_ia: Mapped[str | None] = mapped_column(String(300))
+
+    @property
+    def gerado_por_ia(self) -> bool:
+        """Quem escreveu: o agente ou uma pessoa.
+
+        Era deduzido da presenca da declaracao de IA no corpo. Com a declaracao
+        opcional (DECLARAR_IA), toda mensagem pareceria escrita a mao — inclusive
+        na tela do proprio cliente, que precisa saber o que o agente mandou em
+        nome dele.
+        """
+        return (self.metadados or {}).get("gerado_por") == "ia"
     link_descadastro: Mapped[str | None] = mapped_column(String(500))
 
     provider_message_id: Mapped[str | None] = mapped_column(String(255), index=True)

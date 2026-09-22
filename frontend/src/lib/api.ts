@@ -289,6 +289,7 @@ export type Mensagem = {
   assunto: string | null;
   corpo: string;
   declaracao_ia: string | null;
+  gerado_por_ia: boolean;
   link_descadastro: string | null;
   tokens_entrada: number;
   tokens_saida: number;
